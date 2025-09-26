@@ -17,7 +17,7 @@ use crate::{
     },
 };
 
-use super::nir::{NirStmt, ScopeKind};
+use super::nir::NirStmt;
 
 #[derive(Debug, Clone)]
 pub enum NirErrorKind {
@@ -73,7 +73,6 @@ impl<'ctx> NirVisitor<'ctx> {
             .map(|x| NirTraitConstraint {
                 name: self.as_symbol(x),
                 span: *x.loc(),
-                scope: self.ctx.scope_manager.current_scope(),
             })
             .collect();
 
@@ -83,7 +82,6 @@ impl<'ctx> NirVisitor<'ctx> {
             name,
             constraints,
             span,
-            scope: self.ctx.scope_manager.current_scope(),
         })
     }
 
@@ -111,7 +109,6 @@ impl<'ctx> NirVisitor<'ctx> {
                 ),
             },
             span,
-            scope: self.ctx.scope_manager.current_scope(),
         })
     }
 
@@ -120,20 +117,10 @@ impl<'ctx> NirVisitor<'ctx> {
         let ty = self.visit_ty(&arg.1)?;
 
         let span = Span::from(&arg.0.loc().start(), &arg.1.loc().end()).unwrap();
-        Ok(NirArgument {
-            name,
-            ty,
-            span,
-            scope: self.ctx.scope_manager.current_scope(),
-        })
+        Ok(NirArgument { name, ty, span })
     }
 
     fn visit_class(&mut self, class: &Ast<Class>) -> Result<ItemId, NirError> {
-        let scope = self.ctx.scope_manager.push_scope(
-            ScopeKind::Class(ItemId(0)),
-            self.ctx.interner.scope_interner(),
-        );
-
         let cdef = class.as_ref();
         let name = self.as_symbol(&cdef.name);
 
@@ -162,27 +149,15 @@ impl<'ctx> NirVisitor<'ctx> {
             methods,
             members,
             span,
-            scope,
         };
 
         let node_id = self.ctx.interner.insert_item(NirItem::Class(def));
-
-        let mut_scope = self.ctx.interner.scope_interner().get_mut(scope);
-
-        mut_scope.kind = ScopeKind::Class(node_id);
-
-        self.ctx.scope_manager.pop_scope();
 
         Ok(node_id)
     }
 
     fn visit_method_decl(&mut self, method: &Ast<Fundef>) -> Result<ItemId, NirError> {
         let mdef = method.as_ref();
-
-        let scope = self.ctx.scope_manager.push_scope(
-            ScopeKind::Function(ItemId(0)),
-            self.ctx.interner.scope_interner(),
-        );
 
         let name = self.as_symbol(&mdef.proto.as_ref().name);
 
@@ -231,14 +206,9 @@ impl<'ctx> NirVisitor<'ctx> {
             args,
             body,
             span: *method.loc(),
-            scope,
         };
 
         let node_id = self.ctx.interner.insert_item(NirItem::Method(def));
-
-        self.ctx.interner.scope_interner().get_mut(scope).kind = ScopeKind::Function(node_id);
-
-        self.ctx.scope_manager.pop_scope();
 
         Ok(node_id)
     }
@@ -284,17 +254,11 @@ impl<'ctx> NirVisitor<'ctx> {
             ty,
             value,
             span,
-            scope: self.ctx.scope_manager.current_scope(),
         })
     }
 
     fn visit_fundef(&mut self, fundef: &Ast<Fundef>) -> Result<ItemId, NirError> {
         let fdef = fundef.as_ref();
-
-        let scope = self.ctx.scope_manager.push_scope(
-            ScopeKind::Function(ItemId(0)),
-            self.ctx.interner.scope_interner(),
-        );
 
         let name = self.as_symbol(&fdef.proto.as_ref().name);
 
@@ -343,25 +307,15 @@ impl<'ctx> NirVisitor<'ctx> {
             return_ty,
             body,
             span,
-            scope,
         };
 
         let node_id = self.ctx.interner.insert_item(NirItem::Function(def));
-
-        self.ctx.interner.scope_interner().get_mut(scope).kind = ScopeKind::Function(node_id);
-
-        self.ctx.scope_manager.pop_scope();
 
         Ok(node_id)
     }
 
     fn visit_proto_as_method(&mut self, fdef: &Ast<FundefProto>) -> Result<ItemId, NirError> {
         let name = self.as_symbol(&fdef.as_ref().name);
-
-        let scope = self.ctx.scope_manager.push_scope(
-            ScopeKind::Function(ItemId(0)),
-            self.ctx.interner.scope_interner(),
-        );
 
         let generic_args = fdef
             .as_ref()
@@ -394,15 +348,10 @@ impl<'ctx> NirVisitor<'ctx> {
             return_ty,
             args,
             span,
-            scope,
             body: None,
         };
 
         let node_id = self.ctx.interner.insert_item(NirItem::Method(def));
-
-        self.ctx.interner.scope_interner().get_mut(scope).kind = ScopeKind::Function(node_id);
-
-        self.ctx.scope_manager.pop_scope();
 
         Ok(node_id)
     }
@@ -418,7 +367,6 @@ impl<'ctx> NirVisitor<'ctx> {
             .map(|x| NirTraitConstraint {
                 name: self.as_symbol(x),
                 span: *x.loc(),
-                scope: self.ctx.scope_manager.current_scope(),
             })
             .collect::<Vec<_>>();
 
@@ -431,17 +379,11 @@ impl<'ctx> NirVisitor<'ctx> {
             bounds,
             default_value,
             span,
-            scope: self.ctx.scope_manager.current_scope(),
         })
     }
 
     fn visit_proto(&mut self, proto: &Ast<FundefProto>) -> Result<ItemId, NirError> {
         let name = self.as_symbol(&proto.as_ref().name);
-
-        let scope = self.ctx.scope_manager.push_scope(
-            ScopeKind::Function(ItemId(0)),
-            self.ctx.interner.scope_interner(),
-        );
 
         let generic_args = proto
             .as_ref()
@@ -469,14 +411,9 @@ impl<'ctx> NirVisitor<'ctx> {
             is_variadic: false,
             body: None,
             span,
-            scope,
         };
 
         let node_id = self.ctx.interner.insert_item(NirItem::Function(def));
-
-        self.ctx.interner.scope_interner().get_mut(scope).kind = ScopeKind::Function(node_id);
-
-        self.ctx.scope_manager.pop_scope();
 
         Ok(node_id)
     }
@@ -484,14 +421,9 @@ impl<'ctx> NirVisitor<'ctx> {
     fn visit_implementation(&mut self, implem: &Ast<Implementation>) -> Result<ItemId, NirError> {
         let idef = implem.as_ref();
 
-        let scope = self.ctx.scope_manager.push_scope(
-            ScopeKind::Impl(ItemId(0)),
-            self.ctx.interner.scope_interner(),
-        );
         let implements = Some(NirTraitConstraint {
             name: self.as_symbol(&idef.trait_name),
             span: *idef.trait_name.loc(),
-            scope: self.ctx.scope_manager.current_scope(),
         });
 
         let generic_args = idef
@@ -515,7 +447,6 @@ impl<'ctx> NirVisitor<'ctx> {
                     name: vec![self.as_symbol(name)],
                     ty: t,
                     span,
-                    scope: self.ctx.scope_manager.current_scope(),
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -538,14 +469,9 @@ impl<'ctx> NirVisitor<'ctx> {
             types,
             methods,
             span,
-            scope,
         };
 
         let node_id = self.ctx.interner.insert_item(NirItem::Impl(def));
-
-        self.ctx.interner.scope_interner().get_mut(scope).kind = ScopeKind::Impl(node_id);
-
-        self.ctx.scope_manager.pop_scope();
 
         Ok(node_id)
     }
@@ -571,10 +497,6 @@ impl<'ctx> NirVisitor<'ctx> {
             }
             TopLevel::Interface(ast) => {
                 let idef = ast.as_ref();
-                let scope = self.ctx.scope_manager.push_scope(
-                    ScopeKind::Trait(ItemId(0)),
-                    self.ctx.interner.scope_interner(),
-                );
                 let name = self.as_symbol(&idef.name);
                 let ty = {
                     let cons = &idef.constrained_ty;
@@ -591,11 +513,9 @@ impl<'ctx> NirVisitor<'ctx> {
                             .map(|x| NirTraitConstraint {
                                 name: self.as_symbol(x),
                                 span: *x.loc(),
-                                scope,
                             })
                             .collect(),
                         span: *cons.ty.loc(),
-                        scope,
                     }
                 };
 
@@ -619,13 +539,9 @@ impl<'ctx> NirVisitor<'ctx> {
                     methods,
                     types,
                     span,
-                    scope,
                 };
 
                 let node_id = self.ctx.interner.insert_item(NirItem::Trait(def));
-                let s = self.ctx.interner.scope_interner().get_mut(scope);
-                s.kind = ScopeKind::Trait(node_id);
-                self.ctx.scope_manager.pop_scope();
 
                 Ok(vec![node_id])
             }
@@ -668,20 +584,14 @@ impl<'ctx> NirVisitor<'ctx> {
                 return err;
             }
         };
-        Ok(FieldAccess {
-            kind,
-            span,
-            scope: self.ctx.scope_manager.current_scope(),
-        })
+        Ok(FieldAccess { kind, span })
     }
     fn visit_pattern(&mut self, expr: &Ast<Expr>) -> Result<NirPattern, NirError> {
-        let scope = self.ctx.scope_manager.current_scope();
         let span = *expr.loc();
         match expr.as_ref() {
             Expr::Identifier(ast) => Ok(NirPattern {
                 kind: NirPatternKind::Symbol(self.as_symbol(ast)),
                 span,
-                scope,
             }),
             Expr::Tuple(asts) => Ok(NirPattern {
                 kind: NirPatternKind::Tuple(
@@ -690,7 +600,6 @@ impl<'ctx> NirVisitor<'ctx> {
                         .collect::<Result<Vec<_>, _>>()?,
                 ),
                 span,
-                scope,
             }),
             _ => Err(NirError {
                 span: *expr.loc(),
@@ -700,10 +609,8 @@ impl<'ctx> NirVisitor<'ctx> {
     }
 
     fn visit_binop(&mut self, expr: &Ast<Expr>) -> Result<NirExpr, NirError> {
-        let scope = self.ctx.scope_manager.current_scope();
         match expr.as_ref() {
             Expr::BinOp { left, op, right } => Ok(NirExpr {
-                scope,
                 kind: match op {
                     BinOp::Plus => NirExprKind::BinOp(NirBinOp {
                         op: NirBinOpKind::Add,
@@ -801,7 +708,6 @@ impl<'ctx> NirVisitor<'ctx> {
     }
 
     fn visit_literal(&mut self, lit: &Ast<Literal>) -> Result<NirLiteral, NirError> {
-        let scope = self.ctx.scope_manager.current_scope();
         Ok(NirLiteral {
             kind: match lit.as_ref() {
                 Literal::Int(x) => NirLiteralKind::IntLiteral(*x as i128),
@@ -811,12 +717,10 @@ impl<'ctx> NirVisitor<'ctx> {
                 }
             },
             span: *lit.loc(),
-            scope,
         })
     }
 
     fn visit_called(&mut self, expr: &Ast<Expr>) -> Result<NirCalled, NirError> {
-        let scope = self.ctx.scope_manager.current_scope();
         let span = *expr.loc();
         let (receiver, called) = match expr.as_ref() {
             Expr::BinOp {
@@ -844,7 +748,6 @@ impl<'ctx> NirVisitor<'ctx> {
             _ => unreachable!(),
         };
         Ok(NirCalled {
-            scope,
             span,
             receiver,
             called,
@@ -853,10 +756,8 @@ impl<'ctx> NirVisitor<'ctx> {
 
     fn visit_prefix(&mut self, expr: &Ast<Expr>, op: &PrefixExprKind) -> Result<NirExpr, NirError> {
         let span = *expr.loc();
-        let scope = self.ctx.scope_manager.current_scope();
         let expr = Box::new(self.visit_expr(expr)?);
         Ok(NirExpr {
-            scope,
             kind: match op {
                 PrefixExprKind::Incr => NirExprKind::PreIncr(expr),
                 PrefixExprKind::Decr => NirExprKind::PreDecr(expr),
@@ -875,9 +776,7 @@ impl<'ctx> NirVisitor<'ctx> {
         op: &PostfixExprKind,
         span: Span,
     ) -> Result<NirExpr, NirError> {
-        let scope = self.ctx.scope_manager.current_scope();
         Ok(NirExpr {
-            scope,
             kind: match op {
                 PostfixExprKind::Incr => NirExprKind::PostIncr(Box::new(self.visit_expr(expr)?)),
                 PostfixExprKind::Decr => NirExprKind::PostDecr(Box::new(self.visit_expr(expr)?)),
@@ -900,7 +799,6 @@ impl<'ctx> NirVisitor<'ctx> {
                         generic_args: vec![],
                         args,
                         span,
-                        scope,
                     })
                 }
             },
@@ -910,17 +808,14 @@ impl<'ctx> NirVisitor<'ctx> {
 
     fn visit_expr(&mut self, expr: &Ast<Expr>) -> Result<NirExpr, NirError> {
         let span = *expr.loc();
-        let scope = self.ctx.scope_manager.current_scope();
         match expr.as_ref() {
             Expr::Literal(ast) => Ok(NirExpr {
                 kind: NirExprKind::Literal(self.visit_literal(ast)?),
                 span,
-                scope,
             }),
             Expr::Identifier(ast) => Ok(NirExpr {
                 kind: NirExprKind::Named(self.as_symbol(ast)),
                 span,
-                scope,
             }),
             Expr::Tuple(asts) => Ok(NirExpr {
                 kind: NirExprKind::Tuple(
@@ -929,7 +824,6 @@ impl<'ctx> NirVisitor<'ctx> {
                         .collect::<Result<Vec<_>, _>>()?,
                 ),
                 span,
-                scope,
             }),
             Expr::BinOp { .. } => self.visit_binop(expr),
             Expr::Prefix { expr, op } => self.visit_prefix(expr, op),
@@ -941,7 +835,6 @@ impl<'ctx> NirVisitor<'ctx> {
                 Ok(NirExpr {
                     kind: NirExprKind::As { ty, expr },
                     span,
-                    scope,
                 })
             }
             Expr::NewDir { ty, expr } => {
@@ -950,7 +843,6 @@ impl<'ctx> NirVisitor<'ctx> {
                 Ok(NirExpr {
                     kind: NirExprKind::New { ty, expr },
                     span,
-                    scope,
                 })
             }
             Expr::SizeDir(ast) => {
@@ -958,7 +850,6 @@ impl<'ctx> NirVisitor<'ctx> {
                 Ok(NirExpr {
                     kind: NirExprKind::SizeOf(ty),
                     span,
-                    scope,
                 })
             }
             Expr::StrDir(ast) => {
@@ -966,15 +857,12 @@ impl<'ctx> NirVisitor<'ctx> {
                 Ok(NirExpr {
                     kind: NirExprKind::StringOf(ty),
                     span,
-                    scope,
                 })
             }
         }
     }
 
     fn visit_let(&mut self, l: &Ast<LetDecl>) -> Result<NirStmt, NirError> {
-        let scope = self.ctx.scope_manager.current_scope();
-
         let let_decl = l.as_ref();
 
         let pattern = self.visit_pattern(&let_decl.lhs)?;
@@ -1003,10 +891,8 @@ impl<'ctx> NirVisitor<'ctx> {
                 ty,
                 value,
                 span,
-                scope,
             }),
             span,
-            scope,
         })
     }
 
@@ -1059,7 +945,6 @@ impl<'ctx> NirVisitor<'ctx> {
     }
 
     fn visit_if(&mut self, stmt: &Ast<Stmt>) -> Result<NirStmt, NirError> {
-        let scope = self.ctx.scope_manager.current_scope();
         let (cond_def, then_branch_def, else_branch_def) = match stmt.as_ref() {
             Stmt::If {
                 cond,
@@ -1090,13 +975,10 @@ impl<'ctx> NirVisitor<'ctx> {
                 else_block,
             },
             span: *stmt.loc(),
-            scope,
         })
     }
 
     fn visit_for(&mut self, stmt: &Ast<Stmt>) -> Result<NirStmt, NirError> {
-        let scope = self.ctx.scope_manager.current_scope();
-
         let (var_def, iterator_def, body_def) = match stmt.as_ref() {
             Stmt::For {
                 var,
@@ -1110,13 +992,7 @@ impl<'ctx> NirVisitor<'ctx> {
 
         let iterator = self.visit_expr(iterator_def)?;
 
-        self.ctx
-            .scope_manager
-            .push_scope(ScopeKind::Loop, self.ctx.interner.scope_interner());
-
         let body = Box::new(self.visit_stmt(body_def)?);
-
-        self.ctx.scope_manager.pop_scope();
 
         let span = *stmt.loc();
 
@@ -1127,13 +1003,11 @@ impl<'ctx> NirVisitor<'ctx> {
                 body,
             },
             span,
-            scope,
         })
     }
 
     fn visit_stmt(&mut self, stmt: &Ast<Stmt>) -> Result<NirStmt, NirError> {
         let span = *stmt.loc();
-        let scope = self.ctx.scope_manager.current_scope();
         Ok(match stmt.as_ref() {
             Stmt::Let(ast) => self.visit_let(ast)?,
             Stmt::Return(ast) => NirStmt {
@@ -1147,29 +1021,20 @@ impl<'ctx> NirVisitor<'ctx> {
                     },
                 },
                 span,
-                scope,
             },
             Stmt::ExprStmt(ast) => NirStmt {
                 kind: NirStmtKind::Expr(self.visit_expr(ast)?),
                 span,
-                scope,
             },
             Stmt::If { .. } => self.visit_if(stmt)?,
             Stmt::While { cond, body } => {
                 let cond = self.visit_expr(cond)?;
 
-                self.ctx
-                    .scope_manager
-                    .push_scope(ScopeKind::Loop, self.ctx.interner.scope_interner());
-
                 let body = Box::new(self.visit_stmt(body)?);
-
-                self.ctx.scope_manager.pop_scope();
 
                 NirStmt {
                     kind: NirStmtKind::While { cond, body },
                     span,
-                    scope,
                 }
             }
             Stmt::Assign { lhs, rhs } => {
@@ -1180,7 +1045,6 @@ impl<'ctx> NirVisitor<'ctx> {
                 NirStmt {
                     kind: NirStmtKind::Assign { assigned, value },
                     span,
-                    scope,
                 }
             }
             Stmt::For { .. } => self.visit_for(stmt)?,
@@ -1191,12 +1055,10 @@ impl<'ctx> NirVisitor<'ctx> {
                         .collect::<Result<Vec<_>, _>>()?,
                 ),
                 span,
-                scope,
             },
             Stmt::Break => NirStmt {
                 kind: NirStmtKind::Break,
                 span,
-                scope,
             },
         })
     }

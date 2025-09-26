@@ -10,7 +10,7 @@ use crate::{
     nir::{
         include_resolver::IncludeResolver,
         interner::{Interner, StringInterner, StringLiteral, Symbol, SymbolInterner},
-        nir::{ItemId, ItemInterner, NirItem, ScopeInterner, ScopeManager},
+        nir::{ItemId, ItemInterner, NirItem},
         visitor::NirVisitor,
     },
     parser::{ast::Program, parser::Parser},
@@ -22,7 +22,6 @@ pub struct GlobalInterner {
     pub symbol_interner: SymbolInterner,
     pub string_interner: StringInterner,
     pub item_interner: ItemInterner,
-    pub scope_interner: ScopeInterner,
 }
 
 impl GlobalInterner {
@@ -31,7 +30,6 @@ impl GlobalInterner {
             symbol_interner: SymbolInterner::new(),
             string_interner: StringInterner::new(),
             item_interner: ItemInterner::new(),
-            scope_interner: ScopeInterner::new(),
         }
     }
 
@@ -82,10 +80,6 @@ impl GlobalInterner {
     pub fn insert_item<'ctx>(&'ctx mut self, val: NirItem) -> ItemId {
         self.item_interner.insert(val)
     }
-
-    pub fn scope_interner(&mut self) -> &mut ScopeInterner {
-        &mut self.scope_interner
-    }
 }
 
 #[derive(Debug)]
@@ -94,7 +88,6 @@ pub struct GlobalContext {
     pub interner: GlobalInterner,
     pub config: Config,
     pub include_resolver: IncludeResolver,
-    pub scope_manager: ScopeManager,
 }
 
 impl GlobalContext {
@@ -107,19 +100,12 @@ impl GlobalContext {
             |x| x.clone(),
         );
 
-        let mut scope_manager = ScopeManager::new();
-
-        let mut this = Self {
+        Self {
             interner: GlobalInterner::new(),
             file_manager: FileManager::new(),
             config,
             include_resolver: IncludeResolver { std },
-            scope_manager: ScopeManager::new(),
-        };
-
-        scope_manager.init(&mut this.interner.scope_interner);
-
-        this
+        }
     }
 
     pub fn parse_file(&mut self, file: FileId) -> Result<Program, ParseError> {
@@ -144,7 +130,7 @@ impl GlobalContext {
         };
 
         let mut tc = TyCtx::new(&mut self);
-        if let Err(_) = tc.visit_program(&nir, &mut self) {
+        if let Err(_) = tc.visit_program(&nir) {
             panic!();
         }
         todo!()

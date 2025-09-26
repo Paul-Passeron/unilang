@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
     hash::RandomState,
-    time::TryFromFloatSecsError,
 };
 
 use strum::{EnumIter, IntoEnumIterator};
@@ -9,7 +8,9 @@ use strum::{EnumIter, IntoEnumIterator};
 use crate::nir::{
     context::GlobalContext,
     interner::{ConstructibleId, HashInterner, Interner, Symbol},
-    nir::{ItemId, NirFunctionDef, NirItem, NirProgram, NirStmt, NirType, NirTypeKind},
+    nir::{
+        ItemId, NirFunctionDef, NirItem, NirProgram, NirStmt, NirStmtKind, NirType, NirTypeKind,
+    },
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -104,12 +105,13 @@ pub struct TcFunProto {
 pub type TypeInterner = HashInterner<TyId, TcTy>;
 
 #[derive(Debug)]
-pub struct TyCtx {
+pub struct TyCtx<'ctx> {
     pub interner: TypeInterner,
     pub aliases: HashMap<Symbol, TyId>,
     pub types: HashMap<TyId, NirType>,
     pub methods: HashMap<TyId, Vec<TcFunProto>>,
     pub functions: HashMap<ItemId, TcFunProto>,
+    pub ctx: &'ctx mut GlobalContext,
 }
 
 #[derive(Debug)]
@@ -119,7 +121,7 @@ pub enum TcError {
     NameNotFound(Symbol),
 }
 
-impl TyCtx {
+impl<'ctx> TyCtx<'ctx> {
     fn declare_type(&mut self, val: TcTy) -> TyId {
         if let Some(id) = self.interner.contains(&val) {
             id
@@ -130,23 +132,23 @@ impl TyCtx {
         }
     }
 
-    fn declare_primitive_types(&mut self, ctx: &mut GlobalContext) {
+    fn declare_primitive_types(&mut self) {
         for prim in PrimitiveTy::iter() {
             let ty = self.declare_type(TcTy::Primitive(prim));
-            self.create_alias(ty, prim.get_name(), ctx);
+            self.create_alias(ty, prim.get_name());
         }
 
         let int_ty = self
             .interner
             .contains(&TcTy::Primitive(PrimitiveTy::I32))
             .unwrap();
-        self.create_alias(int_ty, "int", ctx);
+        self.create_alias(int_ty, "int");
     }
 
-    fn populate_integer_ty(&mut self, prim: PrimitiveTy, ctx: &mut GlobalContext) {
+    fn populate_integer_ty(&mut self, prim: PrimitiveTy) {
         let ty = self.interner.contains(&TcTy::Primitive(prim)).unwrap();
 
-        let builtin_methods = self.get_methods_for_builtin(ty, ctx);
+        let builtin_methods = self.get_methods_for_builtin(ty);
 
         let int_methods = self.get_methods_for_integer(ty);
 
@@ -159,13 +161,13 @@ impl TyCtx {
         }
     }
 
-    fn populate_void(&mut self, ctx: &mut GlobalContext) {
+    fn populate_void(&mut self) {
         let ty = self
             .interner
             .contains(&TcTy::Primitive(PrimitiveTy::Void))
             .unwrap();
 
-        let methods = self.get_methods_for_builtin(ty, ctx);
+        let methods = self.get_methods_for_builtin(ty);
 
         for m in methods {
             if let Err(_) = self.add_method(ty, m) {
@@ -193,25 +195,25 @@ impl TyCtx {
         self.aliases.get(&name).copied()
     }
 
-    pub fn create_alias(&mut self, ty: TyId, alias: &str, ctx: &mut GlobalContext) {
-        let s = self.symb(alias, ctx);
+    pub fn create_alias(&mut self, ty: TyId, alias: &str) {
+        let s = self.symb(alias);
         self.aliases.insert(s, ty);
     }
 
-    pub fn add_builtins(&mut self, ctx: &mut GlobalContext) {
-        self.declare_primitive_types(ctx);
+    pub fn add_builtins(&mut self) {
+        self.declare_primitive_types();
         for prim in PrimitiveTy::INTEGERS {
-            self.populate_integer_ty(*prim, ctx);
+            self.populate_integer_ty(*prim);
         }
-        self.populate_void(ctx);
+        self.populate_void();
     }
 
-    fn symb(&mut self, name: &str, ctx: &mut GlobalContext) -> Symbol {
-        ctx.interner.insert_symbol(&name.to_string())
+    fn symb(&mut self, name: &str) -> Symbol {
+        self.ctx.interner.insert_symbol(&name.to_string())
     }
 
-    fn get_methods_for_builtin(&mut self, _ty: TyId, ctx: &mut GlobalContext) -> Vec<TcFunProto> {
-        let size_fun_name = self.symb("__builtin_size", ctx);
+    fn get_methods_for_builtin(&mut self, _ty: TyId) -> Vec<TcFunProto> {
+        let size_fun_name = self.symb("__builtin_size");
         let size_fun = TcFunProto {
             name: size_fun_name,
             params: vec![],
@@ -227,36 +229,29 @@ impl TyCtx {
         vec![]
     }
 
-    pub fn new(ctx: &mut GlobalContext) -> Self {
+    pub fn new(ctx: &'ctx mut GlobalContext) -> Self {
         let mut res = Self {
             interner: TypeInterner::new(),
             types: HashMap::new(),
             methods: HashMap::new(),
             aliases: HashMap::new(),
             functions: HashMap::new(),
+            ctx,
         };
-        res.add_builtins(ctx);
+        res.add_builtins();
         res
     }
 
-    pub fn visit_program(
-        &mut self,
-        program: &NirProgram,
-        ctx: &mut GlobalContext,
-    ) -> Result<(), TcError> {
+    pub fn visit_program(&mut self, program: &NirProgram) -> Result<(), TcError> {
         let items = program
             .0
             .iter()
-            .map(|id| (*id, ctx.interner.get_item(*id).clone()))
+            .map(|id| (*id, self.ctx.interner.get_item(*id).clone()))
             .collect::<Vec<_>>();
-        self.visit_item_group(items, ctx)
+        self.visit_item_group(items)
     }
 
-    pub fn visit_item_group(
-        &mut self,
-        items: Vec<(ItemId, NirItem)>,
-        ctx: &mut GlobalContext,
-    ) -> Result<(), TcError> {
+    pub fn visit_item_group(&mut self, items: Vec<(ItemId, NirItem)>) -> Result<(), TcError> {
         let mut temp_interner: HashMap<ItemId, NirItem, RandomState> = HashMap::from_iter(items);
 
         let mut working_stack: Vec<_> = temp_interner.keys().copied().collect();
@@ -267,7 +262,7 @@ impl TyCtx {
             for id in &working_stack {
                 let item = temp_interner.get_mut(id).unwrap();
                 let iteration: Result<(), TcError> = match item {
-                    NirItem::Function(fdef) => self.visit_fundef(fdef, *id, ctx),
+                    NirItem::Function(fdef) => self.visit_fundef(fdef, *id),
                     NirItem::Module(_nir_module_def) => Err(TcError::Todo),
                     NirItem::Class(_nir_class_def) => Err(TcError::Todo),
                     NirItem::Trait(_nir_trait_def) => Err(TcError::Todo),
@@ -297,7 +292,7 @@ impl TyCtx {
         Ok(())
     }
 
-    fn visit_type(&mut self, ty: &mut NirType, _ctx: &mut GlobalContext) -> Result<TyId, TcError> {
+    fn visit_type(&mut self, ty: &mut NirType) -> Result<TyId, TcError> {
         let res = match &ty.kind {
             NirTypeKind::Resolved(ty_id) => Ok(*ty_id),
             NirTypeKind::Ptr(_nir_type) => todo!(),
@@ -316,23 +311,36 @@ impl TyCtx {
         Ok(res)
     }
 
-    fn visit_stmt(&mut self, stmt: &mut NirStmt, ctx: &mut GlobalContext) -> Result<(), TcError> {
-        todo!()
+    fn visit_stmt(&mut self, stmt: &mut NirStmt) -> Result<(), TcError> {
+        match &mut stmt.kind {
+            NirStmtKind::Expr(nir_expr) => todo!(),
+            NirStmtKind::Block(nir_stmts) => todo!(),
+            NirStmtKind::If {
+                cond,
+                then_block,
+                else_block,
+            } => todo!(),
+            NirStmtKind::While { cond, body } => todo!(),
+            NirStmtKind::For {
+                var,
+                iterator,
+                body,
+            } => todo!(),
+            NirStmtKind::Let(nir_var_decl) => todo!(),
+            NirStmtKind::Assign { assigned, value } => todo!(),
+            NirStmtKind::Return { value } => todo!(),
+            NirStmtKind::Break => todo!(),
+        }
     }
 
-    fn visit_fundef(
-        &mut self,
-        fdef: &mut NirFunctionDef,
-        id: ItemId,
-        ctx: &mut GlobalContext,
-    ) -> Result<(), TcError> {
-        let proto = self.visit_fundef_proto(fdef, ctx)?;
+    fn visit_fundef(&mut self, fdef: &mut NirFunctionDef, id: ItemId) -> Result<(), TcError> {
+        let proto = self.visit_fundef_proto(fdef)?;
         self.functions.insert(id, proto);
         fdef.body
             .iter_mut()
             .map(|body| {
                 for stmt in body {
-                    self.visit_stmt(stmt, ctx)?
+                    self.visit_stmt(stmt)?
                 }
                 Ok(())
             })
@@ -341,18 +349,14 @@ impl TyCtx {
         Ok(())
     }
 
-    fn visit_fundef_proto(
-        &mut self,
-        fdef: &mut NirFunctionDef,
-        ctx: &mut GlobalContext,
-    ) -> Result<TcFunProto, TcError> {
+    fn visit_fundef_proto(&mut self, fdef: &mut NirFunctionDef) -> Result<TcFunProto, TcError> {
         let name = fdef.name;
-        let return_ty = self.visit_type(&mut fdef.return_ty, ctx)?;
+        let return_ty = self.visit_type(&mut fdef.return_ty)?;
         let params = fdef
             .args
             .iter_mut()
             .map(|x| {
-                self.visit_type(&mut x.ty, ctx)
+                self.visit_type(&mut x.ty)
                     .map(|ty| TcParam { name: x.name, ty })
             })
             .collect::<Result<Vec<_>, _>>()?;

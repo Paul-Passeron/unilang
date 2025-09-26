@@ -2,7 +2,7 @@ use std::hash::Hash;
 
 use crate::{
     common::source_location::Span,
-    nir::interner::{ConstructibleId, HashInterner, Interner, StringLiteral, Symbol},
+    nir::interner::{ConstructibleId, HashInterner, StringLiteral, Symbol},
     ty::TyId,
 };
 
@@ -16,138 +16,6 @@ pub enum NirItem {
     Method(NirMethod),
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub struct ScopeId(u32);
-
-impl ConstructibleId for ScopeId {
-    fn new(id: u32) -> Self {
-        Self(id)
-    }
-}
-
-#[derive(Debug)]
-pub enum ScopeKind {
-    Global,
-    Module(ItemId),
-    Trait(ItemId),
-    Class(ItemId),
-    Function(ItemId),
-    Block,
-    Loop,
-    Impl(ItemId),
-}
-
-#[derive(Debug)]
-pub struct Scope {
-    pub id: ScopeId,
-    pub kind: ScopeKind,
-    pub parent: Option<ScopeId>,
-    pub children: Vec<ScopeId>,
-}
-
-impl PartialEq for Scope {
-    fn eq(&self, _: &Self) -> bool {
-        false
-    }
-}
-
-impl Eq for Scope {}
-#[derive(Debug)]
-pub struct ScopeInterner {
-    nodes: Vec<Scope>,
-}
-
-impl ScopeInterner {
-    pub fn new() -> Self {
-        Self { nodes: Vec::new() }
-    }
-}
-
-impl<'ctx> Interner<'ctx, Scope> for ScopeInterner {
-    type Id = ScopeId;
-
-    fn contains(&'ctx self, _v: &Scope) -> Option<Self::Id> {
-        None
-    }
-
-    fn insert(&'ctx mut self, v: Scope) -> Self::Id {
-        let id = Self::Id::new(self.nodes.len() as u32);
-        self.nodes.push(v);
-        id
-    }
-
-    fn get(&'ctx self, id: Self::Id) -> &'ctx Scope {
-        &self.nodes[id.0 as usize]
-    }
-
-    fn get_mut(&'ctx mut self, id: Self::Id) -> &'ctx mut Scope {
-        &mut self.nodes[id.0 as usize]
-    }
-}
-
-#[derive(Debug)]
-pub struct ScopeManager {
-    pub scope_stack: Vec<ScopeId>,
-}
-
-impl ScopeManager {
-    pub fn new() -> Self {
-        Self {
-            scope_stack: Vec::new(),
-        }
-    }
-
-    pub fn init(&mut self, interner: &mut ScopeInterner) {
-        let scope = Scope {
-            id: ScopeId(0),
-            kind: ScopeKind::Global,
-            parent: None,
-            children: Vec::new(),
-        };
-        let scope_id = interner.insert(scope);
-        self.scope_stack.push(scope_id);
-        interner.get_mut(scope_id).id = scope_id;
-        // println!("Inited !");
-    }
-
-    pub fn push_scope(&mut self, kind: ScopeKind, interner: &mut ScopeInterner) -> ScopeId {
-        let scope = Scope {
-            id: ScopeId(0),
-            kind,
-            parent: None,
-            children: Vec::new(),
-        };
-
-        let actual_id = interner.insert(scope);
-
-        self.scope_stack.push(actual_id);
-
-        let parent = *self.scope_stack.last().unwrap();
-        let mut_parent = interner.get_mut(parent);
-        mut_parent.children.push(actual_id);
-
-        let scope = interner.get_mut(actual_id);
-        scope.parent = Some(parent);
-        scope.id = actual_id;
-
-        actual_id
-    }
-
-    pub fn pop_scope(&mut self) -> ScopeId {
-        if self.scope_stack.len() < 1 {
-            panic!("Compiler bug: Global scope popped");
-        }
-
-        let id = self.scope_stack.pop().unwrap();
-
-        id
-    }
-
-    pub fn current_scope(&self) -> ScopeId {
-        *self.scope_stack.last().unwrap()
-    }
-}
-
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct NirImplBlock {
     pub implements: Option<NirTraitConstraint>,
@@ -156,7 +24,6 @@ pub struct NirImplBlock {
     pub types: Vec<NirTypeBound>,
     pub methods: Vec<ItemId>,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -165,7 +32,6 @@ pub struct NirAssociatedType {
     pub bounds: Vec<NirTraitConstraint>,
     pub default_value: Option<NirType>,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -173,7 +39,6 @@ pub struct NirTypeBound {
     pub name: Vec<Symbol>,
     pub ty: NirType,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -183,7 +48,6 @@ pub struct NirTraitDef {
     pub types: Vec<NirAssociatedType>,
     pub methods: Vec<ItemId>,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -201,7 +65,6 @@ pub enum NirTypeKind {
 pub struct NirType {
     pub kind: NirTypeKind,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -213,7 +76,6 @@ pub struct NirFunctionDef {
     pub is_variadic: bool,
     pub body: Option<Vec<NirStmt>>,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -221,7 +83,6 @@ pub struct NirArgument {
     pub name: Symbol,
     pub ty: NirType,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -229,14 +90,12 @@ pub struct NirGenericArg {
     pub name: Symbol,
     pub constraints: Vec<NirTraitConstraint>,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct NirTraitConstraint {
     pub name: Symbol,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -244,7 +103,6 @@ pub struct NirModuleDef {
     pub name: Symbol,
     pub items: Vec<ItemId>,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -262,7 +120,6 @@ pub struct NirMethod {
     pub args: Vec<NirArgument>,
     pub body: Option<Vec<NirStmt>>,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -272,7 +129,6 @@ pub struct NirClassDef {
     pub methods: Vec<ItemId>, // Can grow, depending on trait resolution
     pub members: Vec<NirMember>,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -281,7 +137,6 @@ pub struct NirVarDecl {
     pub ty: Option<NirType>,
     pub value: Option<NirExpr>,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -290,14 +145,12 @@ pub struct NirMember {
     pub ty: NirType,
     pub value: Option<NirExpr>,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct NirStmt {
     pub kind: NirStmtKind,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -347,7 +200,6 @@ pub enum NirPatternKind {
 pub struct NirPattern {
     pub kind: NirPatternKind,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone)]
@@ -383,7 +235,6 @@ pub enum NirLiteralKind {
 pub struct NirLiteral {
     pub kind: NirLiteralKind,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -419,7 +270,6 @@ pub enum NirUnOpKind {
 pub struct FieldAccess {
     pub kind: FieldAccessKind,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -433,7 +283,6 @@ pub struct NirCalled {
     pub receiver: Option<Box<NirExpr>>,
     pub called: Symbol,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -442,7 +291,6 @@ pub struct NirCall {
     pub generic_args: Vec<NirType>,
     pub args: Vec<NirExpr>,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -456,7 +304,6 @@ pub struct NirBinOp {
 pub struct NirExpr {
     pub kind: NirExprKind,
     pub span: Span,
-    pub scope: ScopeId,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
