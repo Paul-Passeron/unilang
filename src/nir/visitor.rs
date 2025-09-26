@@ -1,0 +1,1203 @@
+use crate::{
+    common::{errors::ParseError, source_location::Span},
+    nir::{
+        context::GlobalContext,
+        interner::{Interner, Symbol},
+        nir::{
+            FieldAccess, FieldAccessKind, ItemId, NirArgument, NirAssociatedType, NirBinOp,
+            NirBinOpKind, NirCall, NirCalled, NirClassDef, NirExpr, NirExprKind, NirFunctionDef,
+            NirGenericArg, NirImplBlock, NirItem, NirLiteral, NirLiteralKind, NirMember, NirMethod,
+            NirPattern, NirPatternKind, NirProgram, NirStmtKind, NirTraitConstraint, NirTraitDef,
+            NirType, NirTypeBound, NirTypeKind, NirVarDecl, SelfKind,
+        },
+    },
+    parser::ast::{
+        Ast, BinOp, Class, Expr, Fundef, FundefProto, Implementation, LetDecl, Literal,
+        PostfixExprKind, PrefixExprKind, Program, Stmt, TemplateDecl, TopLevel, Ty, TySpec,
+    },
+};
+
+use super::nir::{NirStmt, ScopeKind};
+
+#[derive(Debug, Clone)]
+pub enum NirErrorKind {
+    UnsupportedExprInLHSPattern,
+    BadFieldAccess,
+    ExpectedIdentifierForMemberDecl,
+    NeedTypeForMemberDecl,
+    ExpectedExplicitReturnTypeInFDef,
+    ExpectedSymbolForMethodNameInCall,
+    UnresolvedInclude,
+    ParseErrorInInclude(ParseError),
+}
+
+#[derive(Debug, Clone)]
+pub struct NirError {
+    pub span: Span,
+    pub error: NirErrorKind,
+}
+
+pub struct NirVisitor<'ctx> {
+    pub ctx: &'ctx mut GlobalContext,
+    full: bool,
+}
+
+impl<'ctx> NirVisitor<'ctx> {
+    pub fn new(ctx: &'ctx mut GlobalContext, full: bool) -> Self {
+        Self { ctx, full }
+    }
+
+    pub fn as_symbol(&mut self, iden: &Ast<String>) -> Symbol {
+        self.ctx.interner.insert_symbol(iden.as_ref())
+    }
+
+    pub fn visit_program(&mut self, program: &Program) -> Result<NirProgram, NirError> {
+        let res = program
+            .0
+            .iter()
+            .map(|item| self.visit_item(item))
+            .collect::<Result<Vec<Vec<_>>, _>>();
+        if let Err(err) = res {
+            return Err(err);
+        }
+        Ok(NirProgram(res.unwrap().into_iter().flatten().collect()))
+    }
+
+    fn visit_template_decl(&mut self, decl: &Ast<TemplateDecl>) -> Result<NirGenericArg, NirError> {
+        let d = decl.as_ref();
+
+        let name = self.as_symbol(&d.ty_name);
+        let constraints = d
+            .interface
+            .iter()
+            .map(|x| NirTraitConstraint {
+                name: self.as_symbol(x),
+                span: *x.loc(),
+                scope: self.ctx.scope_manager.current_scope(),
+            })
+            .collect();
+
+        let span = *decl.loc();
+
+        Ok(NirGenericArg {
+            name,
+            constraints,
+            span,
+            scope: self.ctx.scope_manager.current_scope(),
+        })
+    }
+
+    fn visit_ty(&mut self, ty: &Ast<Ty>) -> Result<NirType, NirError> {
+        let span = *ty.loc();
+        Ok(NirType {
+            kind: match ty.as_ref() {
+                Ty::Named { name, templates } => NirTypeKind::Named {
+                    name: vec![self.as_symbol(name)],
+                    generic_args: templates
+                        .iter()
+                        .map(|x| self.visit_ty(x))
+                        .collect::<Result<Vec<_>, _>>()?,
+                },
+
+                Ty::Ptr(ast) => NirTypeKind::Ptr({
+                    let ty = self.visit_ty(ast)?;
+                    Box::new(ty)
+                }),
+                Ty::Tuple(non_empty) => NirTypeKind::Tuple(
+                    non_empty
+                        .iter()
+                        .map(|x| self.visit_ty(x))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+            },
+            span,
+            scope: self.ctx.scope_manager.current_scope(),
+        })
+    }
+
+    fn visit_args(&mut self, arg: &(Ast<String>, Ast<Ty>)) -> Result<NirArgument, NirError> {
+        let name = self.as_symbol(&arg.0);
+        let ty = self.visit_ty(&arg.1)?;
+
+        let span = Span::from(&arg.0.loc().start(), &arg.1.loc().end()).unwrap();
+        Ok(NirArgument {
+            name,
+            ty,
+            span,
+            scope: self.ctx.scope_manager.current_scope(),
+        })
+    }
+
+    fn visit_class(&mut self, class: &Ast<Class>) -> Result<ItemId, NirError> {
+        let scope = self.ctx.scope_manager.push_scope(
+            ScopeKind::Class(ItemId(0)),
+            self.ctx.interner.scope_interner(),
+        );
+
+        let cdef = class.as_ref();
+        let name = self.as_symbol(&cdef.name);
+
+        let generic_args = cdef
+            .template_decls
+            .iter()
+            .map(|x| self.visit_template_decl(x))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let methods = cdef
+            .methods
+            .iter()
+            .map(|(_, x)| self.visit_method_decl(x))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let members = cdef
+            .members
+            .iter()
+            .map(|(_, x)| self.visit_member(x))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let span = *class.loc();
+        let def = NirClassDef {
+            name,
+            generic_args,
+            methods,
+            members,
+            span,
+            scope,
+        };
+
+        let node_id = self.ctx.interner.insert_item(NirItem::Class(def));
+
+        let mut_scope = self.ctx.interner.scope_interner().get_mut(scope);
+
+        mut_scope.kind = ScopeKind::Class(node_id);
+
+        self.ctx.scope_manager.pop_scope();
+
+        Ok(node_id)
+    }
+
+    fn visit_method_decl(&mut self, method: &Ast<Fundef>) -> Result<ItemId, NirError> {
+        let mdef = method.as_ref();
+
+        let scope = self.ctx.scope_manager.push_scope(
+            ScopeKind::Function(ItemId(0)),
+            self.ctx.interner.scope_interner(),
+        );
+
+        let name = self.as_symbol(&mdef.proto.as_ref().name);
+
+        let generic_args = mdef
+            .proto
+            .as_ref()
+            .template_decls
+            .iter()
+            .map(|x| self.visit_template_decl(x))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let args = mdef
+            .proto
+            .as_ref()
+            .args
+            .iter()
+            .map(|x| self.visit_args(x))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let body = self.full.then_some(
+            mdef.body
+                .iter()
+                .map(|x| self.visit_stmt(x))
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+
+        let return_ty = match mdef
+            .proto
+            .as_ref()
+            .return_ty
+            .as_ref()
+            .map(|x| self.visit_ty(x))
+        {
+            Some(Ok(x)) => Some(x),
+            None => None,
+            Some(Err(x)) => {
+                return Err(x);
+            }
+        };
+
+        let def = NirMethod {
+            name,
+            self_kind: SelfKind::ByPtr,
+            generic_args,
+            return_ty,
+            args,
+            body,
+            span: *method.loc(),
+            scope,
+        };
+
+        let node_id = self.ctx.interner.insert_item(NirItem::Method(def));
+
+        self.ctx.interner.scope_interner().get_mut(scope).kind = ScopeKind::Function(node_id);
+
+        self.ctx.scope_manager.pop_scope();
+
+        Ok(node_id)
+    }
+
+    fn visit_member(&mut self, member: &Ast<LetDecl>) -> Result<NirMember, NirError> {
+        let mdef = member.as_ref();
+
+        let name = match mdef.lhs.as_ref() {
+            Expr::Identifier(ast) => self.as_symbol(ast),
+            _ => {
+                return Err(NirError {
+                    span: *member.loc(),
+                    error: NirErrorKind::ExpectedIdentifierForMemberDecl,
+                });
+            }
+        };
+
+        let ty = match mdef.ty.as_ref().map(|x| self.visit_ty(x)) {
+            Some(Ok(x)) => x,
+            Some(Err(x)) => {
+                return Err(x);
+            }
+            None => {
+                return Err(NirError {
+                    span: *member.loc(),
+                    error: NirErrorKind::NeedTypeForMemberDecl,
+                });
+            }
+        };
+
+        let value = match mdef.value.as_ref().map(|x| self.visit_expr(x)) {
+            Some(Ok(x)) => Some(x),
+            Some(Err(x)) => {
+                return Err(x);
+            }
+            None => None,
+        };
+
+        let span = *member.loc();
+
+        Ok(NirMember {
+            name,
+            ty,
+            value,
+            span,
+            scope: self.ctx.scope_manager.current_scope(),
+        })
+    }
+
+    fn visit_fundef(&mut self, fundef: &Ast<Fundef>) -> Result<ItemId, NirError> {
+        let fdef = fundef.as_ref();
+
+        let scope = self.ctx.scope_manager.push_scope(
+            ScopeKind::Function(ItemId(0)),
+            self.ctx.interner.scope_interner(),
+        );
+
+        let name = self.as_symbol(&fdef.proto.as_ref().name);
+
+        let generic_args = fdef
+            .proto
+            .as_ref()
+            .template_decls
+            .iter()
+            .map(|x| self.visit_template_decl(x))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let args = fdef
+            .proto
+            .as_ref()
+            .args
+            .iter()
+            .map(|x| self.visit_args(x))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let fdef_ty = match fdef.proto.as_ref().return_ty.as_ref() {
+            Some(x) => x,
+            None => {
+                return Err(NirError {
+                    span: *fdef.proto.loc(),
+                    error: NirErrorKind::ExpectedExplicitReturnTypeInFDef,
+                });
+            }
+        };
+
+        let return_ty = self.visit_ty(fdef_ty)?;
+
+        let body = Some(
+            fdef.body
+                .iter()
+                .map(|x| self.visit_stmt(x))
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+
+        let span = *fundef.loc();
+
+        let def = NirFunctionDef {
+            name,
+            generic_args,
+            args,
+            is_variadic: false,
+            return_ty,
+            body,
+            span,
+            scope,
+        };
+
+        let node_id = self.ctx.interner.insert_item(NirItem::Function(def));
+
+        self.ctx.interner.scope_interner().get_mut(scope).kind = ScopeKind::Function(node_id);
+
+        self.ctx.scope_manager.pop_scope();
+
+        Ok(node_id)
+    }
+
+    fn visit_proto_as_method(&mut self, fdef: &Ast<FundefProto>) -> Result<ItemId, NirError> {
+        let name = self.as_symbol(&fdef.as_ref().name);
+
+        let scope = self.ctx.scope_manager.push_scope(
+            ScopeKind::Function(ItemId(0)),
+            self.ctx.interner.scope_interner(),
+        );
+
+        let generic_args = fdef
+            .as_ref()
+            .template_decls
+            .iter()
+            .map(|x| self.visit_template_decl(x))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let args = fdef
+            .as_ref()
+            .args
+            .iter()
+            .map(|x| self.visit_args(x))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let return_ty = match fdef.as_ref().return_ty.as_ref().map(|x| self.visit_ty(x)) {
+            Some(Ok(x)) => Some(x),
+            None => None,
+            Some(Err(x)) => {
+                return Err(x);
+            }
+        };
+
+        let span = *fdef.loc();
+
+        let def = NirMethod {
+            name,
+            self_kind: SelfKind::ByPtr,
+            generic_args,
+            return_ty,
+            args,
+            span,
+            scope,
+            body: None,
+        };
+
+        let node_id = self.ctx.interner.insert_item(NirItem::Method(def));
+
+        self.ctx.interner.scope_interner().get_mut(scope).kind = ScopeKind::Function(node_id);
+
+        self.ctx.scope_manager.pop_scope();
+
+        Ok(node_id)
+    }
+
+    fn visit_ty_spec(&mut self, ty_spec: &Ast<TySpec>) -> Result<NirAssociatedType, NirError> {
+        let tdef = ty_spec.as_ref();
+
+        let name = self.as_symbol(&tdef.name);
+
+        let bounds = tdef
+            .implements
+            .iter()
+            .map(|x| NirTraitConstraint {
+                name: self.as_symbol(x),
+                span: *x.loc(),
+                scope: self.ctx.scope_manager.current_scope(),
+            })
+            .collect::<Vec<_>>();
+
+        let default_value = None;
+
+        let span = *ty_spec.loc();
+
+        Ok(NirAssociatedType {
+            name,
+            bounds,
+            default_value,
+            span,
+            scope: self.ctx.scope_manager.current_scope(),
+        })
+    }
+
+    fn visit_proto(&mut self, proto: &Ast<FundefProto>) -> Result<ItemId, NirError> {
+        let name = self.as_symbol(&proto.as_ref().name);
+
+        let scope = self.ctx.scope_manager.push_scope(
+            ScopeKind::Function(ItemId(0)),
+            self.ctx.interner.scope_interner(),
+        );
+
+        let generic_args = proto
+            .as_ref()
+            .template_decls
+            .iter()
+            .map(|x| self.visit_template_decl(x))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let args = proto
+            .as_ref()
+            .args
+            .iter()
+            .map(|x| self.visit_args(x))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let return_ty = self.visit_ty(proto.as_ref().return_ty.as_ref().unwrap())?;
+
+        let span = *proto.loc();
+
+        let def = NirFunctionDef {
+            name,
+            generic_args,
+            return_ty,
+            args,
+            is_variadic: false,
+            body: None,
+            span,
+            scope,
+        };
+
+        let node_id = self.ctx.interner.insert_item(NirItem::Function(def));
+
+        self.ctx.interner.scope_interner().get_mut(scope).kind = ScopeKind::Function(node_id);
+
+        self.ctx.scope_manager.pop_scope();
+
+        Ok(node_id)
+    }
+
+    fn visit_implementation(&mut self, implem: &Ast<Implementation>) -> Result<ItemId, NirError> {
+        let idef = implem.as_ref();
+
+        let scope = self.ctx.scope_manager.push_scope(
+            ScopeKind::Impl(ItemId(0)),
+            self.ctx.interner.scope_interner(),
+        );
+        let implements = Some(NirTraitConstraint {
+            name: self.as_symbol(&idef.trait_name),
+            span: *idef.trait_name.loc(),
+            scope: self.ctx.scope_manager.current_scope(),
+        });
+
+        let generic_args = idef
+            .templates
+            .iter()
+            .map(|x| self.visit_template_decl(x))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let ty = self.visit_ty(&idef.for_type)?;
+
+        let types = idef
+            .type_aliases
+            .iter()
+            .map(|(name, ty)| {
+                let span = {
+                    let start = name.loc().start();
+                    let end = name.loc().end();
+                    Span::from(&start, &end).unwrap()
+                };
+                self.visit_ty(ty).map(|t| NirTypeBound {
+                    name: vec![self.as_symbol(name)],
+                    ty: t,
+                    span,
+                    scope: self.ctx.scope_manager.current_scope(),
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let methods = idef
+            .body
+            .iter()
+            .map(|(_, x)| match x.as_ref() {
+                TopLevel::Fundef(ast) => self.visit_proto_as_method(&ast.as_ref().proto),
+                _ => unreachable!(),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let span = *implem.loc();
+
+        let def = NirImplBlock {
+            implements,
+            generic_args,
+            ty,
+            types,
+            methods,
+            span,
+            scope,
+        };
+
+        let node_id = self.ctx.interner.insert_item(NirItem::Impl(def));
+
+        self.ctx.interner.scope_interner().get_mut(scope).kind = ScopeKind::Impl(node_id);
+
+        self.ctx.scope_manager.pop_scope();
+
+        Ok(node_id)
+    }
+
+    fn visit_item(&mut self, item: &Ast<TopLevel>) -> Result<Vec<ItemId>, NirError> {
+        match item.as_ref() {
+            TopLevel::LetDecl(_ast) => todo!(),
+            TopLevel::IncludeDir(_) => self.visit_include(item),
+            TopLevel::ExternDir(ast, ast1) => {
+                let is_variadic = *ast1.as_ref();
+                let proto_id = self.visit_proto(ast)?;
+                let proto = self.ctx.interner.get_mut_item(proto_id);
+                let proto = match proto {
+                    NirItem::Function(x) => x,
+                    _ => unreachable!(),
+                };
+                proto.is_variadic = is_variadic;
+                Ok(vec![proto_id])
+            }
+            TopLevel::Fundef(ast) => {
+                let nir = self.visit_fundef(ast)?;
+                Ok(vec![nir])
+            }
+            TopLevel::Interface(ast) => {
+                let idef = ast.as_ref();
+                let scope = self.ctx.scope_manager.push_scope(
+                    ScopeKind::Trait(ItemId(0)),
+                    self.ctx.interner.scope_interner(),
+                );
+                let name = self.as_symbol(&idef.name);
+                let ty = {
+                    let cons = &idef.constrained_ty;
+                    NirGenericArg {
+                        name: match cons.ty.as_ref() {
+                            Ty::Named { name, templates } if templates.is_empty() => {
+                                self.as_symbol(name)
+                            }
+                            _ => unreachable!(),
+                        },
+                        constraints: cons
+                            .constraint
+                            .iter()
+                            .map(|x| NirTraitConstraint {
+                                name: self.as_symbol(x),
+                                span: *x.loc(),
+                                scope,
+                            })
+                            .collect(),
+                        span: *cons.ty.loc(),
+                        scope,
+                    }
+                };
+
+                let methods = idef
+                    .protos
+                    .iter()
+                    .map(|x| self.visit_proto_as_method(x))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let types = idef
+                    .ty_specs
+                    .iter()
+                    .map(|x| self.visit_ty_spec(x))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let span = *item.loc();
+
+                let def = NirTraitDef {
+                    name,
+                    ty: ty,
+                    methods,
+                    types,
+                    span,
+                    scope,
+                };
+
+                let node_id = self.ctx.interner.insert_item(NirItem::Trait(def));
+                let s = self.ctx.interner.scope_interner().get_mut(scope);
+                s.kind = ScopeKind::Trait(node_id);
+                self.ctx.scope_manager.pop_scope();
+
+                Ok(vec![node_id])
+            }
+            TopLevel::Class(ast) => {
+                let nir = self.visit_class(ast)?;
+                Ok(vec![nir])
+            }
+            TopLevel::Module(_ast, _asts) => todo!(),
+            TopLevel::NameAlias(_ast, _ast1) => todo!(),
+            TopLevel::Implementation(ast) => {
+                let nir = self.visit_implementation(ast)?;
+                Ok(vec![nir])
+            }
+        }
+    }
+
+    fn as_field_access(&mut self, expr: &Ast<Expr>) -> Result<FieldAccess, NirError> {
+        let err = Err(NirError {
+            span: *expr.loc(),
+            error: NirErrorKind::BadFieldAccess,
+        });
+
+        let span = *expr.loc();
+
+        let kind = match expr.as_ref() {
+            Expr::Literal(ast) => match ast.as_ref() {
+                Literal::Int(x) => {
+                    if *x >= 0 {
+                        FieldAccessKind::Index(*x as u32)
+                    } else {
+                        return err;
+                    }
+                }
+                _ => {
+                    return err;
+                }
+            },
+            Expr::Identifier(ast) => FieldAccessKind::Symbol(self.as_symbol(ast)),
+            _ => {
+                return err;
+            }
+        };
+        Ok(FieldAccess {
+            kind,
+            span,
+            scope: self.ctx.scope_manager.current_scope(),
+        })
+    }
+    fn visit_pattern(&mut self, expr: &Ast<Expr>) -> Result<NirPattern, NirError> {
+        let scope = self.ctx.scope_manager.current_scope();
+        let span = *expr.loc();
+        match expr.as_ref() {
+            Expr::Identifier(ast) => Ok(NirPattern {
+                kind: NirPatternKind::Symbol(self.as_symbol(ast)),
+                span,
+                scope,
+            }),
+            Expr::Tuple(asts) => Ok(NirPattern {
+                kind: NirPatternKind::Tuple(
+                    asts.iter()
+                        .map(|x| self.visit_pattern(x))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+                span,
+                scope,
+            }),
+            _ => Err(NirError {
+                span: *expr.loc(),
+                error: NirErrorKind::UnsupportedExprInLHSPattern,
+            }),
+        }
+    }
+
+    fn visit_binop(&mut self, expr: &Ast<Expr>) -> Result<NirExpr, NirError> {
+        let scope = self.ctx.scope_manager.current_scope();
+        match expr.as_ref() {
+            Expr::BinOp { left, op, right } => Ok(NirExpr {
+                scope,
+                kind: match op {
+                    BinOp::Plus => NirExprKind::BinOp(NirBinOp {
+                        op: NirBinOpKind::Add,
+                        left: Box::new(self.visit_expr(left)?),
+                        right: Box::new(self.visit_expr(right)?),
+                    }),
+                    BinOp::Minus => NirExprKind::BinOp(NirBinOp {
+                        op: NirBinOpKind::Sub,
+                        left: Box::new(self.visit_expr(left)?),
+                        right: Box::new(self.visit_expr(right)?),
+                    }),
+                    BinOp::Mult => NirExprKind::BinOp(NirBinOp {
+                        op: NirBinOpKind::Mul,
+                        left: Box::new(self.visit_expr(left)?),
+                        right: Box::new(self.visit_expr(right)?),
+                    }),
+                    BinOp::Div => NirExprKind::BinOp(NirBinOp {
+                        op: NirBinOpKind::Div,
+                        left: Box::new(self.visit_expr(left)?),
+                        right: Box::new(self.visit_expr(right)?),
+                    }),
+                    BinOp::Mod => NirExprKind::BinOp(NirBinOp {
+                        op: NirBinOpKind::Mod,
+                        left: Box::new(self.visit_expr(left)?),
+                        right: Box::new(self.visit_expr(right)?),
+                    }),
+                    BinOp::Eq => NirExprKind::BinOp(NirBinOp {
+                        op: NirBinOpKind::Equ,
+                        left: Box::new(self.visit_expr(left)?),
+                        right: Box::new(self.visit_expr(right)?),
+                    }),
+                    BinOp::Neq => NirExprKind::BinOp(NirBinOp {
+                        op: NirBinOpKind::Dif,
+                        left: Box::new(self.visit_expr(left)?),
+                        right: Box::new(self.visit_expr(right)?),
+                    }),
+                    BinOp::Gt => NirExprKind::BinOp(NirBinOp {
+                        op: NirBinOpKind::Gt,
+                        left: Box::new(self.visit_expr(left)?),
+                        right: Box::new(self.visit_expr(right)?),
+                    }),
+                    BinOp::Geq => NirExprKind::BinOp(NirBinOp {
+                        op: NirBinOpKind::Geq,
+                        left: Box::new(self.visit_expr(left)?),
+                        right: Box::new(self.visit_expr(right)?),
+                    }),
+                    BinOp::Lt => NirExprKind::BinOp(NirBinOp {
+                        op: NirBinOpKind::Lt,
+                        left: Box::new(self.visit_expr(left)?),
+                        right: Box::new(self.visit_expr(right)?),
+                    }),
+                    BinOp::Leq => NirExprKind::BinOp(NirBinOp {
+                        op: NirBinOpKind::Leq,
+                        left: Box::new(self.visit_expr(left)?),
+                        right: Box::new(self.visit_expr(right)?),
+                    }),
+                    BinOp::And => NirExprKind::BinOp(NirBinOp {
+                        op: NirBinOpKind::LAnd,
+                        left: Box::new(self.visit_expr(left)?),
+                        right: Box::new(self.visit_expr(right)?),
+                    }),
+                    BinOp::Or => NirExprKind::BinOp(NirBinOp {
+                        op: NirBinOpKind::LOr,
+                        left: Box::new(self.visit_expr(left)?),
+                        right: Box::new(self.visit_expr(right)?),
+                    }),
+                    BinOp::BitOr => NirExprKind::BinOp(NirBinOp {
+                        op: NirBinOpKind::BOr,
+                        left: Box::new(self.visit_expr(left)?),
+                        right: Box::new(self.visit_expr(right)?),
+                    }),
+                    BinOp::BitAnd => NirExprKind::BinOp(NirBinOp {
+                        op: NirBinOpKind::BAnd,
+                        left: Box::new(self.visit_expr(left)?),
+                        right: Box::new(self.visit_expr(right)?),
+                    }),
+                    BinOp::BitXor => NirExprKind::BinOp(NirBinOp {
+                        op: NirBinOpKind::BXor,
+                        left: Box::new(self.visit_expr(left)?),
+                        right: Box::new(self.visit_expr(right)?),
+                    }),
+                    BinOp::Range => NirExprKind::Range {
+                        start: Box::new(self.visit_expr(left)?),
+                        end: Box::new(self.visit_expr(right)?),
+                    },
+                    BinOp::Access => NirExprKind::Access {
+                        from: Box::new(self.visit_expr(left)?),
+                        field: self.as_field_access(right)?,
+                    },
+                },
+                span: *expr.loc(),
+            }),
+            _ => unreachable!(),
+        }
+    }
+
+    fn visit_literal(&mut self, lit: &Ast<Literal>) -> Result<NirLiteral, NirError> {
+        let scope = self.ctx.scope_manager.current_scope();
+        Ok(NirLiteral {
+            kind: match lit.as_ref() {
+                Literal::Int(x) => NirLiteralKind::IntLiteral(*x as i128),
+                Literal::Char(x) => NirLiteralKind::CharLiteral(*x),
+                Literal::String(x) => {
+                    NirLiteralKind::StringLiteral(self.ctx.interner.insert_string(x))
+                }
+            },
+            span: *lit.loc(),
+            scope,
+        })
+    }
+
+    fn visit_called(&mut self, expr: &Ast<Expr>) -> Result<NirCalled, NirError> {
+        let scope = self.ctx.scope_manager.current_scope();
+        let span = *expr.loc();
+        let (receiver, called) = match expr.as_ref() {
+            Expr::BinOp {
+                op: BinOp::Access,
+                left,
+                right,
+            } => {
+                let receiver = Some(Box::new(self.visit_expr(left)?));
+
+                let called = match right.as_ref() {
+                    Expr::Identifier(ast) => self.as_symbol(ast),
+                    _ => {
+                        return Err(NirError {
+                            span: *right.loc(),
+                            error: NirErrorKind::ExpectedSymbolForMethodNameInCall,
+                        });
+                    }
+                };
+                (receiver, called)
+            }
+            Expr::Identifier(ast) => {
+                let called = self.as_symbol(ast);
+                (None, called)
+            }
+            _ => unreachable!(),
+        };
+        Ok(NirCalled {
+            scope,
+            span,
+            receiver,
+            called,
+        })
+    }
+
+    fn visit_prefix(&mut self, expr: &Ast<Expr>, op: &PrefixExprKind) -> Result<NirExpr, NirError> {
+        let span = *expr.loc();
+        let scope = self.ctx.scope_manager.current_scope();
+        let expr = Box::new(self.visit_expr(expr)?);
+        Ok(NirExpr {
+            scope,
+            kind: match op {
+                PrefixExprKind::Incr => NirExprKind::PreIncr(expr),
+                PrefixExprKind::Decr => NirExprKind::PreDecr(expr),
+                PrefixExprKind::Address => NirExprKind::AddrOf(expr),
+                PrefixExprKind::Deref => NirExprKind::Deref(expr),
+                PrefixExprKind::Minus => NirExprKind::Minus(expr),
+                PrefixExprKind::Not => NirExprKind::Not(expr),
+            },
+            span,
+        })
+    }
+
+    fn visit_postfix(
+        &mut self,
+        expr: &Ast<Expr>,
+        op: &PostfixExprKind,
+        span: Span,
+    ) -> Result<NirExpr, NirError> {
+        let scope = self.ctx.scope_manager.current_scope();
+        Ok(NirExpr {
+            scope,
+            kind: match op {
+                PostfixExprKind::Incr => NirExprKind::PostIncr(Box::new(self.visit_expr(expr)?)),
+                PostfixExprKind::Decr => NirExprKind::PostDecr(Box::new(self.visit_expr(expr)?)),
+                PostfixExprKind::Subscript(ast) => {
+                    let value = Box::new(self.visit_expr(expr)?);
+                    let index = Box::new(self.visit_expr(ast)?);
+                    NirExprKind::Subscript { value, index }
+                }
+                PostfixExprKind::Call(asts) => {
+                    let called = self.visit_called(expr)?;
+
+                    let args = asts
+                        .iter()
+                        .map(|x| self.visit_expr(x))
+                        .collect::<Result<Vec<_>, _>>()?;
+
+                    NirExprKind::Call(NirCall {
+                        called,
+                        // TODO: no way of specifying them in function call
+                        generic_args: vec![],
+                        args,
+                        span,
+                        scope,
+                    })
+                }
+            },
+            span,
+        })
+    }
+
+    fn visit_expr(&mut self, expr: &Ast<Expr>) -> Result<NirExpr, NirError> {
+        let span = *expr.loc();
+        let scope = self.ctx.scope_manager.current_scope();
+        match expr.as_ref() {
+            Expr::Literal(ast) => Ok(NirExpr {
+                kind: NirExprKind::Literal(self.visit_literal(ast)?),
+                span,
+                scope,
+            }),
+            Expr::Identifier(ast) => Ok(NirExpr {
+                kind: NirExprKind::Named(self.as_symbol(ast)),
+                span,
+                scope,
+            }),
+            Expr::Tuple(asts) => Ok(NirExpr {
+                kind: NirExprKind::Tuple(
+                    asts.iter()
+                        .map(|x| self.visit_expr(x))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+                span,
+                scope,
+            }),
+            Expr::BinOp { .. } => self.visit_binop(expr),
+            Expr::Prefix { expr, op } => self.visit_prefix(expr, op),
+            Expr::Postfix { expr, op } => self.visit_postfix(expr, op, span),
+            Expr::AsDir { ty, expr } => {
+                let ty = self.visit_ty(ty)?;
+
+                let expr = Box::new(self.visit_expr(expr)?);
+                Ok(NirExpr {
+                    kind: NirExprKind::As { ty, expr },
+                    span,
+                    scope,
+                })
+            }
+            Expr::NewDir { ty, expr } => {
+                let ty = self.visit_ty(ty)?;
+                let expr = Box::new(self.visit_expr(expr)?);
+                Ok(NirExpr {
+                    kind: NirExprKind::New { ty, expr },
+                    span,
+                    scope,
+                })
+            }
+            Expr::SizeDir(ast) => {
+                let ty = self.visit_ty(ast)?;
+                Ok(NirExpr {
+                    kind: NirExprKind::SizeOf(ty),
+                    span,
+                    scope,
+                })
+            }
+            Expr::StrDir(ast) => {
+                let ty = self.visit_ty(ast)?;
+                Ok(NirExpr {
+                    kind: NirExprKind::StringOf(ty),
+                    span,
+                    scope,
+                })
+            }
+        }
+    }
+
+    fn visit_let(&mut self, l: &Ast<LetDecl>) -> Result<NirStmt, NirError> {
+        let scope = self.ctx.scope_manager.current_scope();
+
+        let let_decl = l.as_ref();
+
+        let pattern = self.visit_pattern(&let_decl.lhs)?;
+
+        let ty = match let_decl.ty.as_ref().map(|x| self.visit_ty(x)) {
+            Some(Ok(x)) => Some(x),
+            Some(Err(x)) => {
+                return Err(x);
+            }
+            None => None,
+        };
+
+        let value = match let_decl.value.as_ref().map(|x| self.visit_expr(x)) {
+            Some(Ok(x)) => Some(x),
+            Some(Err(x)) => {
+                return Err(x);
+            }
+            None => None,
+        };
+
+        let span = *l.loc();
+
+        Ok(NirStmt {
+            kind: NirStmtKind::Let(NirVarDecl {
+                pattern,
+                ty,
+                value,
+                span,
+                scope,
+            }),
+            span,
+            scope,
+        })
+    }
+
+    fn visit_include(&mut self, item: &Ast<TopLevel>) -> Result<Vec<ItemId>, NirError> {
+        match item.as_ref() {
+            TopLevel::IncludeDir(asts) => {
+                let v = asts.iter().map(|x| x.as_ref()).collect();
+
+                let path = self.ctx.include_resolver.get_path(v);
+
+                if path.is_none() {
+                    return Err(NirError {
+                        span: *item.loc(),
+                        error: NirErrorKind::UnresolvedInclude,
+                    });
+                }
+
+                let path = path.unwrap();
+
+                if !path.exists() || self.ctx.file_manager.paths.contains(&path).is_some() {
+                    return Ok(vec![]);
+                }
+
+                let id = self.ctx.file_manager.add_file(&path).unwrap();
+
+                println!("{:?} => {}", id, path.display());
+
+                let prgm = self.ctx.parse_file(id);
+
+                let mut include_visitor = NirVisitor::new(self.ctx, false);
+
+                if let Err(x) = prgm {
+                    return Err(NirError {
+                        span: *item.loc(),
+                        error: NirErrorKind::ParseErrorInInclude(x),
+                    });
+                }
+
+                let prgm = prgm.unwrap();
+
+                let nir = match include_visitor.visit_program(&prgm) {
+                    Ok(x) => x,
+                    Err(y) => return Err(y),
+                }
+                .0;
+                Ok(nir)
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn visit_if(&mut self, stmt: &Ast<Stmt>) -> Result<NirStmt, NirError> {
+        let scope = self.ctx.scope_manager.current_scope();
+        let (cond_def, then_branch_def, else_branch_def) = match stmt.as_ref() {
+            Stmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => (cond, then_branch, else_branch),
+            _ => unreachable!(),
+        };
+
+        let cond = self.visit_expr(cond_def)?;
+
+        let then_block = self.visit_stmt(then_branch_def)?;
+        let then_block = Box::new(then_block);
+
+        let else_block = match else_branch_def.as_ref().map(|x| self.visit_stmt(x)) {
+            Some(Err(x)) => {
+                return Err(x);
+            }
+            Some(Ok(x)) => Some(x),
+            None => None,
+        };
+        let else_block = else_block.map(Box::new);
+
+        Ok(NirStmt {
+            kind: NirStmtKind::If {
+                cond,
+                then_block,
+                else_block,
+            },
+            span: *stmt.loc(),
+            scope,
+        })
+    }
+
+    fn visit_for(&mut self, stmt: &Ast<Stmt>) -> Result<NirStmt, NirError> {
+        let scope = self.ctx.scope_manager.current_scope();
+
+        let (var_def, iterator_def, body_def) = match stmt.as_ref() {
+            Stmt::For {
+                var,
+                iterator,
+                body,
+            } => (var, iterator, body),
+            _ => unreachable!(),
+        };
+
+        let var = self.visit_pattern(var_def)?;
+
+        let iterator = self.visit_expr(iterator_def)?;
+
+        self.ctx
+            .scope_manager
+            .push_scope(ScopeKind::Loop, self.ctx.interner.scope_interner());
+
+        let body = Box::new(self.visit_stmt(body_def)?);
+
+        self.ctx.scope_manager.pop_scope();
+
+        let span = *stmt.loc();
+
+        Ok(NirStmt {
+            kind: NirStmtKind::For {
+                var,
+                iterator,
+                body,
+            },
+            span,
+            scope,
+        })
+    }
+
+    fn visit_stmt(&mut self, stmt: &Ast<Stmt>) -> Result<NirStmt, NirError> {
+        let span = *stmt.loc();
+        let scope = self.ctx.scope_manager.current_scope();
+        Ok(match stmt.as_ref() {
+            Stmt::Let(ast) => self.visit_let(ast)?,
+            Stmt::Return(ast) => NirStmt {
+                kind: NirStmtKind::Return {
+                    value: match ast.as_ref().map(|x| self.visit_expr(x)) {
+                        Some(Ok(x)) => Some(x),
+                        Some(Err(y)) => {
+                            return Err(y);
+                        }
+                        None => None,
+                    },
+                },
+                span,
+                scope,
+            },
+            Stmt::ExprStmt(ast) => NirStmt {
+                kind: NirStmtKind::Expr(self.visit_expr(ast)?),
+                span,
+                scope,
+            },
+            Stmt::If { .. } => self.visit_if(stmt)?,
+            Stmt::While { cond, body } => {
+                let cond = self.visit_expr(cond)?;
+
+                self.ctx
+                    .scope_manager
+                    .push_scope(ScopeKind::Loop, self.ctx.interner.scope_interner());
+
+                let body = Box::new(self.visit_stmt(body)?);
+
+                self.ctx.scope_manager.pop_scope();
+
+                NirStmt {
+                    kind: NirStmtKind::While { cond, body },
+                    span,
+                    scope,
+                }
+            }
+            Stmt::Assign { lhs, rhs } => {
+                let assigned = self.visit_expr(lhs)?;
+
+                let value = self.visit_expr(rhs)?;
+
+                NirStmt {
+                    kind: NirStmtKind::Assign { assigned, value },
+                    span,
+                    scope,
+                }
+            }
+            Stmt::For { .. } => self.visit_for(stmt)?,
+            Stmt::Block(asts) => NirStmt {
+                kind: NirStmtKind::Block(
+                    asts.iter()
+                        .map(|x| self.visit_stmt(x))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+                span,
+                scope,
+            },
+            Stmt::Break => NirStmt {
+                kind: NirStmtKind::Break,
+                span,
+                scope,
+            },
+        })
+    }
+}
