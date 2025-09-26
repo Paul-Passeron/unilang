@@ -2,13 +2,13 @@ use crate::{
     common::{errors::ParseError, source_location::Span},
     nir::{
         context::GlobalContext,
-        interner::{Interner, Symbol},
+        interner::{ExprId, Interner, ItemId, Symbol},
         nir::{
-            FieldAccess, FieldAccessKind, ItemId, NirArgument, NirAssociatedType, NirBinOp,
-            NirBinOpKind, NirCall, NirCalled, NirClassDef, NirExpr, NirExprKind, NirFunctionDef,
-            NirGenericArg, NirImplBlock, NirItem, NirLiteral, NirLiteralKind, NirMember, NirMethod,
-            NirPattern, NirPatternKind, NirProgram, NirStmtKind, NirTraitConstraint, NirTraitDef,
-            NirType, NirTypeBound, NirTypeKind, NirVarDecl, SelfKind,
+            FieldAccess, FieldAccessKind, NirArgument, NirAssociatedType, NirBinOp, NirBinOpKind,
+            NirCall, NirCalled, NirClassDef, NirExpr, NirExprKind, NirFunctionDef, NirGenericArg,
+            NirImplBlock, NirItem, NirLiteral, NirLiteralKind, NirMember, NirMethod, NirPattern,
+            NirPatternKind, NirProgram, NirStmtKind, NirTraitConstraint, NirTraitDef, NirType,
+            NirTypeBound, NirTypeKind, NirVarDecl, SelfKind,
         },
     },
     parser::ast::{
@@ -614,90 +614,90 @@ impl<'ctx> NirVisitor<'ctx> {
                 kind: match op {
                     BinOp::Plus => NirExprKind::BinOp(NirBinOp {
                         op: NirBinOpKind::Add,
-                        left: Box::new(self.visit_expr(left)?),
-                        right: Box::new(self.visit_expr(right)?),
+                        left: self.visit_expr(left)?,
+                        right: self.visit_expr(right)?,
                     }),
                     BinOp::Minus => NirExprKind::BinOp(NirBinOp {
                         op: NirBinOpKind::Sub,
-                        left: Box::new(self.visit_expr(left)?),
-                        right: Box::new(self.visit_expr(right)?),
+                        left: self.visit_expr(left)?,
+                        right: self.visit_expr(right)?,
                     }),
                     BinOp::Mult => NirExprKind::BinOp(NirBinOp {
                         op: NirBinOpKind::Mul,
-                        left: Box::new(self.visit_expr(left)?),
-                        right: Box::new(self.visit_expr(right)?),
+                        left: self.visit_expr(left)?,
+                        right: self.visit_expr(right)?,
                     }),
                     BinOp::Div => NirExprKind::BinOp(NirBinOp {
                         op: NirBinOpKind::Div,
-                        left: Box::new(self.visit_expr(left)?),
-                        right: Box::new(self.visit_expr(right)?),
+                        left: self.visit_expr(left)?,
+                        right: self.visit_expr(right)?,
                     }),
                     BinOp::Mod => NirExprKind::BinOp(NirBinOp {
                         op: NirBinOpKind::Mod,
-                        left: Box::new(self.visit_expr(left)?),
-                        right: Box::new(self.visit_expr(right)?),
+                        left: self.visit_expr(left)?,
+                        right: self.visit_expr(right)?,
                     }),
                     BinOp::Eq => NirExprKind::BinOp(NirBinOp {
                         op: NirBinOpKind::Equ,
-                        left: Box::new(self.visit_expr(left)?),
-                        right: Box::new(self.visit_expr(right)?),
+                        left: self.visit_expr(left)?,
+                        right: self.visit_expr(right)?,
                     }),
                     BinOp::Neq => NirExprKind::BinOp(NirBinOp {
                         op: NirBinOpKind::Dif,
-                        left: Box::new(self.visit_expr(left)?),
-                        right: Box::new(self.visit_expr(right)?),
+                        left: self.visit_expr(left)?,
+                        right: self.visit_expr(right)?,
                     }),
                     BinOp::Gt => NirExprKind::BinOp(NirBinOp {
                         op: NirBinOpKind::Gt,
-                        left: Box::new(self.visit_expr(left)?),
-                        right: Box::new(self.visit_expr(right)?),
+                        left: self.visit_expr(left)?,
+                        right: self.visit_expr(right)?,
                     }),
                     BinOp::Geq => NirExprKind::BinOp(NirBinOp {
                         op: NirBinOpKind::Geq,
-                        left: Box::new(self.visit_expr(left)?),
-                        right: Box::new(self.visit_expr(right)?),
+                        left: self.visit_expr(left)?,
+                        right: self.visit_expr(right)?,
                     }),
                     BinOp::Lt => NirExprKind::BinOp(NirBinOp {
                         op: NirBinOpKind::Lt,
-                        left: Box::new(self.visit_expr(left)?),
-                        right: Box::new(self.visit_expr(right)?),
+                        left: self.visit_expr(left)?,
+                        right: self.visit_expr(right)?,
                     }),
                     BinOp::Leq => NirExprKind::BinOp(NirBinOp {
                         op: NirBinOpKind::Leq,
-                        left: Box::new(self.visit_expr(left)?),
-                        right: Box::new(self.visit_expr(right)?),
+                        left: self.visit_expr(left)?,
+                        right: self.visit_expr(right)?,
                     }),
                     BinOp::And => NirExprKind::BinOp(NirBinOp {
                         op: NirBinOpKind::LAnd,
-                        left: Box::new(self.visit_expr(left)?),
-                        right: Box::new(self.visit_expr(right)?),
+                        left: self.visit_expr(left)?,
+                        right: self.visit_expr(right)?,
                     }),
                     BinOp::Or => NirExprKind::BinOp(NirBinOp {
                         op: NirBinOpKind::LOr,
-                        left: Box::new(self.visit_expr(left)?),
-                        right: Box::new(self.visit_expr(right)?),
+                        left: self.visit_expr(left)?,
+                        right: self.visit_expr(right)?,
                     }),
                     BinOp::BitOr => NirExprKind::BinOp(NirBinOp {
                         op: NirBinOpKind::BOr,
-                        left: Box::new(self.visit_expr(left)?),
-                        right: Box::new(self.visit_expr(right)?),
+                        left: self.visit_expr(left)?,
+                        right: self.visit_expr(right)?,
                     }),
                     BinOp::BitAnd => NirExprKind::BinOp(NirBinOp {
                         op: NirBinOpKind::BAnd,
-                        left: Box::new(self.visit_expr(left)?),
-                        right: Box::new(self.visit_expr(right)?),
+                        left: self.visit_expr(left)?,
+                        right: self.visit_expr(right)?,
                     }),
                     BinOp::BitXor => NirExprKind::BinOp(NirBinOp {
                         op: NirBinOpKind::BXor,
-                        left: Box::new(self.visit_expr(left)?),
-                        right: Box::new(self.visit_expr(right)?),
+                        left: self.visit_expr(left)?,
+                        right: self.visit_expr(right)?,
                     }),
                     BinOp::Range => NirExprKind::Range {
-                        start: Box::new(self.visit_expr(left)?),
-                        end: Box::new(self.visit_expr(right)?),
+                        start: self.visit_expr(left)?,
+                        end: self.visit_expr(right)?,
                     },
                     BinOp::Access => NirExprKind::Access {
-                        from: Box::new(self.visit_expr(left)?),
+                        from: self.visit_expr(left)?,
                         field: self.as_field_access(right)?,
                     },
                 },
@@ -728,7 +728,7 @@ impl<'ctx> NirVisitor<'ctx> {
                 left,
                 right,
             } => {
-                let receiver = Some(Box::new(self.visit_expr(left)?));
+                let receiver = Some(self.visit_expr(left)?);
 
                 let called = match right.as_ref() {
                     Expr::Identifier(ast) => self.as_symbol(ast),
@@ -756,7 +756,7 @@ impl<'ctx> NirVisitor<'ctx> {
 
     fn visit_prefix(&mut self, expr: &Ast<Expr>, op: &PrefixExprKind) -> Result<NirExpr, NirError> {
         let span = *expr.loc();
-        let expr = Box::new(self.visit_expr(expr)?);
+        let expr = self.visit_expr(expr)?;
         Ok(NirExpr {
             kind: match op {
                 PrefixExprKind::Incr => NirExprKind::PreIncr(expr),
@@ -778,11 +778,11 @@ impl<'ctx> NirVisitor<'ctx> {
     ) -> Result<NirExpr, NirError> {
         Ok(NirExpr {
             kind: match op {
-                PostfixExprKind::Incr => NirExprKind::PostIncr(Box::new(self.visit_expr(expr)?)),
-                PostfixExprKind::Decr => NirExprKind::PostDecr(Box::new(self.visit_expr(expr)?)),
+                PostfixExprKind::Incr => NirExprKind::PostIncr(self.visit_expr(expr)?),
+                PostfixExprKind::Decr => NirExprKind::PostDecr(self.visit_expr(expr)?),
                 PostfixExprKind::Subscript(ast) => {
-                    let value = Box::new(self.visit_expr(expr)?);
-                    let index = Box::new(self.visit_expr(ast)?);
+                    let value = self.visit_expr(expr)?;
+                    let index = self.visit_expr(ast)?;
                     NirExprKind::Subscript { value, index }
                 }
                 PostfixExprKind::Call(asts) => {
@@ -806,9 +806,9 @@ impl<'ctx> NirVisitor<'ctx> {
         })
     }
 
-    fn visit_expr(&mut self, expr: &Ast<Expr>) -> Result<NirExpr, NirError> {
+    fn visit_expr(&mut self, expr: &Ast<Expr>) -> Result<ExprId, NirError> {
         let span = *expr.loc();
-        match expr.as_ref() {
+        let expr = match expr.as_ref() {
             Expr::Literal(ast) => Ok(NirExpr {
                 kind: NirExprKind::Literal(self.visit_literal(ast)?),
                 span,
@@ -831,7 +831,7 @@ impl<'ctx> NirVisitor<'ctx> {
             Expr::AsDir { ty, expr } => {
                 let ty = self.visit_ty(ty)?;
 
-                let expr = Box::new(self.visit_expr(expr)?);
+                let expr = self.visit_expr(expr)?;
                 Ok(NirExpr {
                     kind: NirExprKind::As { ty, expr },
                     span,
@@ -839,7 +839,7 @@ impl<'ctx> NirVisitor<'ctx> {
             }
             Expr::NewDir { ty, expr } => {
                 let ty = self.visit_ty(ty)?;
-                let expr = Box::new(self.visit_expr(expr)?);
+                let expr = self.visit_expr(expr)?;
                 Ok(NirExpr {
                     kind: NirExprKind::New { ty, expr },
                     span,
@@ -859,7 +859,8 @@ impl<'ctx> NirVisitor<'ctx> {
                     span,
                 })
             }
-        }
+        };
+        expr.map(|x| self.ctx.interner.insert_expr(x))
     }
 
     fn visit_let(&mut self, l: &Ast<LetDecl>) -> Result<NirStmt, NirError> {

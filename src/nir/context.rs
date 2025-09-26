@@ -7,81 +7,10 @@ use crate::{
         source_location::{FileId, FileManager},
     },
     lexer::Lexer,
-    nir::{
-        include_resolver::IncludeResolver,
-        interner::{Interner, StringInterner, StringLiteral, Symbol, SymbolInterner},
-        nir::{ItemId, ItemInterner, NirItem},
-        visitor::NirVisitor,
-    },
+    nir::{include_resolver::IncludeResolver, interner::GlobalInterner, visitor::NirVisitor},
     parser::{ast::Program, parser::Parser},
     ty::TyCtx,
 };
-
-#[derive(Debug)]
-pub struct GlobalInterner {
-    pub symbol_interner: SymbolInterner,
-    pub string_interner: StringInterner,
-    pub item_interner: ItemInterner,
-}
-
-impl GlobalInterner {
-    pub fn new() -> Self {
-        Self {
-            symbol_interner: SymbolInterner::new(),
-            string_interner: StringInterner::new(),
-            item_interner: ItemInterner::new(),
-        }
-    }
-
-    pub fn get_symbol<'ctx>(&'ctx self, id: Symbol) -> &'ctx String {
-        self.symbol_interner.get(id)
-    }
-
-    pub fn get_string<'ctx>(&'ctx self, id: StringLiteral) -> &'ctx String {
-        self.string_interner.get(id)
-    }
-
-    pub fn get_item<'ctx>(&'ctx self, id: ItemId) -> &'ctx NirItem {
-        &self.item_interner.get(id)
-    }
-
-    pub fn get_mut_symbol<'ctx>(&'ctx mut self, id: Symbol) -> &'ctx mut String {
-        self.symbol_interner.get_mut(id)
-    }
-
-    pub fn get_mut_string<'ctx>(&'ctx mut self, id: StringLiteral) -> &'ctx mut String {
-        self.string_interner.get_mut(id)
-    }
-
-    pub fn get_mut_item<'ctx>(&'ctx mut self, id: ItemId) -> &'ctx mut NirItem {
-        self.item_interner.get_mut(id)
-    }
-
-    pub fn insert_symbol<'ctx>(&'ctx mut self, val: &String) -> Symbol {
-        if let Some(id) = self.symbol_interner.contains(val) {
-            id
-        } else {
-            self.symbol_interner.insert(val.clone())
-        }
-    }
-
-    pub fn get_symbol_for<'ctx>(&'ctx self, id: &str) -> Option<Symbol> {
-        self.symbol_interner.contains(&id.to_string())
-    }
-
-    pub fn insert_string<'ctx>(&'ctx mut self, val: &String) -> StringLiteral {
-        if let Some(id) = self.string_interner.contains(val) {
-            id
-        } else {
-            self.string_interner.insert(val.clone())
-        }
-    }
-
-    pub fn insert_item<'ctx>(&'ctx mut self, val: NirItem) -> ItemId {
-        self.item_interner.insert(val)
-    }
-}
-
 #[derive(Debug)]
 pub struct GlobalContext {
     pub file_manager: FileManager,

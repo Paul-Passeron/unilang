@@ -2,8 +2,7 @@ use std::hash::Hash;
 
 use crate::{
     common::source_location::Span,
-    nir::interner::{ConstructibleId, HashInterner, StringLiteral, Symbol},
-    ty::TyId,
+    nir::interner::{ExprId, ItemId, StringLiteral, Symbol, TyId},
 };
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -135,7 +134,7 @@ pub struct NirClassDef {
 pub struct NirVarDecl {
     pub pattern: NirPattern,
     pub ty: Option<NirType>,
-    pub value: Option<NirExpr>,
+    pub value: Option<ExprId>,
     pub span: Span,
 }
 
@@ -143,7 +142,7 @@ pub struct NirVarDecl {
 pub struct NirMember {
     pub name: Symbol,
     pub ty: NirType,
-    pub value: Option<NirExpr>,
+    pub value: Option<ExprId>,
     pub span: Span,
 }
 
@@ -155,36 +154,36 @@ pub struct NirStmt {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum NirStmtKind {
-    Expr(NirExpr),
+    Expr(ExprId),
 
     Block(Vec<NirStmt>),
 
     If {
-        cond: NirExpr,
+        cond: ExprId,
         then_block: Box<NirStmt>,
         else_block: Option<Box<NirStmt>>,
     },
 
     While {
-        cond: NirExpr,
+        cond: ExprId,
         body: Box<NirStmt>,
     },
 
     For {
         var: NirPattern,
-        iterator: NirExpr,
+        iterator: ExprId,
         body: Box<NirStmt>,
     },
 
     Let(NirVarDecl),
 
     Assign {
-        assigned: NirExpr,
-        value: NirExpr,
+        assigned: ExprId,
+        value: ExprId,
     },
 
     Return {
-        value: Option<NirExpr>,
+        value: Option<ExprId>,
     },
     Break,
 }
@@ -280,7 +279,7 @@ pub enum FieldAccessKind {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct NirCalled {
-    pub receiver: Option<Box<NirExpr>>,
+    pub receiver: Option<ExprId>,
     pub called: Symbol,
     pub span: Span,
 }
@@ -289,75 +288,55 @@ pub struct NirCalled {
 pub struct NirCall {
     pub called: NirCalled,
     pub generic_args: Vec<NirType>,
-    pub args: Vec<NirExpr>,
+    pub args: Vec<ExprId>,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct NirBinOp {
     pub op: NirBinOpKind,
-    pub left: Box<NirExpr>,
-    pub right: Box<NirExpr>,
+    pub left: ExprId,
+    pub right: ExprId,
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash)]
 pub struct NirExpr {
     pub kind: NirExprKind,
     pub span: Span,
 }
 
+impl PartialEq for NirExpr {
+    fn eq(&self, _: &Self) -> bool {
+        false // context is needed to actually compare two
+        // expressions
+    }
+}
+
+impl Eq for NirExpr {}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum NirExprKind {
     Literal(NirLiteral),
     BinOp(NirBinOp),
-    UnOp {
-        op: NirUnOpKind,
-        operand: Box<NirExpr>,
-    },
+    UnOp { op: NirUnOpKind, operand: ExprId },
     Call(NirCall),
-    Subscript {
-        value: Box<NirExpr>,
-        index: Box<NirExpr>,
-    },
-    Access {
-        from: Box<NirExpr>,
-        field: FieldAccess,
-    },
+    Subscript { value: ExprId, index: ExprId },
+    Access { from: ExprId, field: FieldAccess },
     Named(Symbol),
-    PostIncr(Box<NirExpr>),
-    PreIncr(Box<NirExpr>),
-    PostDecr(Box<NirExpr>),
-    PreDecr(Box<NirExpr>),
-    AddrOf(Box<NirExpr>),
-    Deref(Box<NirExpr>),
+    PostIncr(ExprId),
+    PreIncr(ExprId),
+    PostDecr(ExprId),
+    PreDecr(ExprId),
+    AddrOf(ExprId),
+    Deref(ExprId),
     SizeOf(NirType),
     StringOf(NirType),
-    Minus(Box<NirExpr>),
-    Not(Box<NirExpr>),
-    New {
-        ty: NirType,
-        expr: Box<NirExpr>,
-    },
-    As {
-        ty: NirType,
-        expr: Box<NirExpr>,
-    },
-    Tuple(Vec<NirExpr>),
-    Range {
-        start: Box<NirExpr>,
-        end: Box<NirExpr>,
-    },
+    Minus(ExprId),
+    Not(ExprId),
+    New { ty: NirType, expr: ExprId },
+    As { ty: NirType, expr: ExprId },
+    Tuple(Vec<ExprId>),
+    Range { start: ExprId, end: ExprId },
 }
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct ItemId(pub u32);
-
-impl ConstructibleId for ItemId {
-    fn new(id: u32) -> Self {
-        Self(id)
-    }
-}
-
-pub type ItemInterner = HashInterner<ItemId, NirItem>;
 
 pub struct NirProgram(pub Vec<ItemId>);

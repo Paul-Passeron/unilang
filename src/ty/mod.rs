@@ -7,11 +7,11 @@ use strum::{EnumIter, IntoEnumIterator};
 
 use crate::nir::{
     context::GlobalContext,
-    interner::{ConstructibleId, HashInterner, Interner, Symbol},
-    nir::{
-        ItemId, NirFunctionDef, NirItem, NirProgram, NirStmt, NirStmtKind, NirType, NirTypeKind,
-    },
+    interner::{ConstructibleId, Interner, ItemId, Symbol, TyId},
+    nir::{NirFunctionDef, NirItem, NirProgram, NirStmt, NirStmtKind, NirType, NirTypeKind},
 };
+
+pub mod scope;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldTy {
@@ -80,10 +80,9 @@ pub enum TcTy {
     Unresolved(NirType),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TyId(pub u32);
-
-impl ConstructibleId for TyId {
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub struct DefId(pub u32);
+impl ConstructibleId for DefId {
     fn new(id: u32) -> Self {
         Self(id)
     }
@@ -102,11 +101,8 @@ pub struct TcFunProto {
     pub return_ty: TyId,
 }
 
-pub type TypeInterner = HashInterner<TyId, TcTy>;
-
 #[derive(Debug)]
 pub struct TyCtx<'ctx> {
-    pub interner: TypeInterner,
     pub aliases: HashMap<Symbol, TyId>,
     pub types: HashMap<TyId, NirType>,
     pub methods: HashMap<TyId, Vec<TcFunProto>>,
@@ -123,10 +119,10 @@ pub enum TcError {
 
 impl<'ctx> TyCtx<'ctx> {
     fn declare_type(&mut self, val: TcTy) -> TyId {
-        if let Some(id) = self.interner.contains(&val) {
+        if let Some(id) = self.ctx.interner.type_interner.contains(&val) {
             id
         } else {
-            let ty = self.interner.insert(val);
+            let ty = self.ctx.interner.type_interner.insert(val);
             self.methods.insert(ty, vec![]);
             ty
         }
@@ -139,14 +135,21 @@ impl<'ctx> TyCtx<'ctx> {
         }
 
         let int_ty = self
+            .ctx
             .interner
+            .type_interner
             .contains(&TcTy::Primitive(PrimitiveTy::I32))
             .unwrap();
         self.create_alias(int_ty, "int");
     }
 
     fn populate_integer_ty(&mut self, prim: PrimitiveTy) {
-        let ty = self.interner.contains(&TcTy::Primitive(prim)).unwrap();
+        let ty = self
+            .ctx
+            .interner
+            .type_interner
+            .contains(&TcTy::Primitive(prim))
+            .unwrap();
 
         let builtin_methods = self.get_methods_for_builtin(ty);
 
@@ -163,7 +166,9 @@ impl<'ctx> TyCtx<'ctx> {
 
     fn populate_void(&mut self) {
         let ty = self
+            .ctx
             .interner
+            .type_interner
             .contains(&TcTy::Primitive(PrimitiveTy::Void))
             .unwrap();
 
@@ -218,7 +223,9 @@ impl<'ctx> TyCtx<'ctx> {
             name: size_fun_name,
             params: vec![],
             return_ty: self
+                .ctx
                 .interner
+                .type_interner
                 .contains(&TcTy::Primitive(PrimitiveTy::U32))
                 .unwrap(),
         };
@@ -231,7 +238,6 @@ impl<'ctx> TyCtx<'ctx> {
 
     pub fn new(ctx: &'ctx mut GlobalContext) -> Self {
         let mut res = Self {
-            interner: TypeInterner::new(),
             types: HashMap::new(),
             methods: HashMap::new(),
             aliases: HashMap::new(),
@@ -313,22 +319,14 @@ impl<'ctx> TyCtx<'ctx> {
 
     fn visit_stmt(&mut self, stmt: &mut NirStmt) -> Result<(), TcError> {
         match &mut stmt.kind {
-            NirStmtKind::Expr(nir_expr) => todo!(),
-            NirStmtKind::Block(nir_stmts) => todo!(),
-            NirStmtKind::If {
-                cond,
-                then_block,
-                else_block,
-            } => todo!(),
-            NirStmtKind::While { cond, body } => todo!(),
-            NirStmtKind::For {
-                var,
-                iterator,
-                body,
-            } => todo!(),
-            NirStmtKind::Let(nir_var_decl) => todo!(),
-            NirStmtKind::Assign { assigned, value } => todo!(),
-            NirStmtKind::Return { value } => todo!(),
+            NirStmtKind::Expr(_nir_expr) => todo!(),
+            NirStmtKind::Block(_nir_stmts) => todo!(),
+            NirStmtKind::If { .. } => todo!(),
+            NirStmtKind::While { .. } => todo!(),
+            NirStmtKind::For { .. } => todo!(),
+            NirStmtKind::Let(_nir_var_decl) => todo!(),
+            NirStmtKind::Assign { .. } => todo!(),
+            NirStmtKind::Return { .. } => todo!(),
             NirStmtKind::Break => todo!(),
         }
     }
