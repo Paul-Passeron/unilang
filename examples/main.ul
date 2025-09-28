@@ -1,8 +1,13 @@
-@include std::io
-
 let main(): int => {
-    let x : int => 3 + 4;
-    printf("Hello, World !\n", x);
-    x();
     return 0;
+}
+
+
+class A => {
+    public x: int;
+    public y: A*;
+}
+
+class B => {
+    public y: A;
 }

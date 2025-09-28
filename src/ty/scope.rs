@@ -1,24 +1,43 @@
 use crate::{
     nir::interner::{
-        ClassId, ExprId, FunId, Interner, ModuleId, ScopeId, ScopeInterner, Symbol, TyId,
+        ClassId, ExprId, FunId, Interner, ModuleId, ScopeId, ScopeInterner, Symbol, TraitId, TyId,
         VariableId,
     },
-    ty::DefId,
+    ty::TcFunProto,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TemplateArgument {
     pub name: Symbol,
-    pub constraints: Vec<DefId>,
+    pub constraints: Vec<TraitId>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub enum TypeExpr {
+    Resolved(TyId),
+    Template(usize),
+    Instantiation {
+        template: Definition,
+        args: Vec<TypeExpr>,
+    },
+    Ptr(Box<TypeExpr>),
+    Tuple(Vec<TypeExpr>),
+}
+
+#[derive(Debug, Clone)]
+pub struct ClassMember {
+    pub name: Symbol,
+    pub ty: TypeExpr,
+}
+
+#[derive(Debug, Clone)]
 pub struct Class {
     pub name: Symbol,
     pub templates: Vec<TemplateArgument>,
+    pub members: Vec<ClassMember>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Module {}
 
 #[derive(Debug, Clone)]
@@ -39,10 +58,27 @@ pub enum Pattern {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum VarExpr {
+    Expr(Option<ExprId>),
+    Param(usize), // nth function parameter
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VarDecl {
     pub name: Pattern,
     pub ty: TyId,
-    pub expr: Option<ExprId>,
+    pub expr: VarExpr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Trait {
+    pub name: Symbol,
+    pub methods: Vec<TcFunProto>,
+}
+#[derive(Debug, Clone, Copy)]
+pub enum TypeKind {
+    Resolved(TyId),
+    Templated(usize),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -51,7 +87,8 @@ pub enum Definition {
     Function(FunId),
     Module(ModuleId),
     Variable(VariableId),
-    Builtin(TyId),
+    Trait(TraitId),
+    Type(TypeKind),
 }
 
 #[derive(Debug, Clone)]

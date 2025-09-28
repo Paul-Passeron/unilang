@@ -11,7 +11,7 @@ use crate::{
     parser::{ast::Program, parser::Parser},
     ty::{TcError, TyCtx},
 };
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GlobalContext {
     pub file_manager: FileManager,
     pub interner: GlobalInterner,
@@ -63,6 +63,7 @@ impl GlobalContext {
             for error in &errors {
                 tc.print_error(&error.1);
             }
+            panic!()
         }
         println!("Successfully type checked !")
     }

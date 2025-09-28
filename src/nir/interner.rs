@@ -9,7 +9,7 @@ use crate::{
     nir::nir::{NirExpr, NirItem},
     ty::{
         TcFunProto, TcTy,
-        scope::{Class, Module, Scope, VarDecl},
+        scope::{Class, Module, Scope, Trait, VarDecl},
     },
 };
 
@@ -118,7 +118,7 @@ pub type ItemInterner = HashInterner<ItemId, NirItem>;
 pub type ExprInterner = HashInterner<ExprId, NirExpr>;
 pub type TypeInterner = HashInterner<TyId, TcTy>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OneShotInterner<T>(Vec<T>);
 pub struct OneShotId<T>(pub u32, PhantomData<T>);
 
@@ -202,7 +202,21 @@ pub type FunId = OneShotId<TcFunProto>;
 pub type VariableInterner = OneShotInterner<VarDecl>;
 pub type VariableId = OneShotId<VarDecl>;
 
-#[derive(Debug)]
+pub type TraitInterner = OneShotInterner<Trait>;
+pub type TraitId = OneShotId<Trait>;
+
+impl TraitInterner {
+    pub fn get_with_name(&self, name: Symbol) -> Option<TraitId> {
+        for (i, x) in self.0.iter().enumerate() {
+            if x.name == name {
+                return Some(TraitId::new(i as u32));
+            }
+        }
+        None
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct GlobalInterner {
     pub symbol_interner: SymbolInterner,
     pub string_interner: StringInterner,
@@ -214,6 +228,7 @@ pub struct GlobalInterner {
     pub class_interner: ClassInterner,
     pub module_interner: ModuleInterner,
     pub variable_interner: VariableInterner,
+    pub trait_interner: TraitInterner,
 }
 
 impl GlobalInterner {
@@ -229,6 +244,7 @@ impl GlobalInterner {
             class_interner: ClassInterner::new(),
             module_interner: ModuleInterner::new(),
             variable_interner: VariableInterner::new(),
+            trait_interner: TraitInterner::new(),
         }
     }
 

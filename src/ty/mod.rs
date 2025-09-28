@@ -9,15 +9,17 @@ use crate::{
     nir::{
         context::GlobalContext,
         interner::{
-            ConstructibleId, ExprId, Interner, ItemId, ScopeId, Symbol, TyId, TypeInterner,
-            VariableId,
+            ExprId, Interner, ItemId, ScopeId, Symbol, TraitId, TyId, TypeInterner, VariableId,
         },
         nir::{
-            NirExprKind, NirFunctionDef, NirItem, NirLiteral, NirPattern, NirPatternKind,
-            NirProgram, NirStmt, NirStmtKind, NirType, NirTypeKind,
+            NirClassDef, NirExprKind, NirFunctionDef, NirItem, NirLiteral, NirPattern,
+            NirPatternKind, NirProgram, NirStmt, NirStmtKind, NirType, NirTypeKind,
         },
     },
-    ty::scope::{Definition, Pattern, Scope, ScopeKind, VarDecl},
+    ty::scope::{
+        Class, ClassMember, Definition, Pattern, Scope, ScopeKind, TemplateArgument, TypeExpr,
+        TypeKind, VarDecl, VarExpr,
+    },
 };
 
 pub mod scope;
@@ -101,25 +103,18 @@ pub enum TcTy {
     Unresolved(NirType),
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
-pub struct DefId(pub u32);
-impl ConstructibleId for DefId {
-    fn new(id: u32) -> Self {
-        Self(id)
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct TcParam {
     pub name: Symbol,
     pub ty: TyId,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct TcFunProto {
     pub name: Symbol,
     pub params: Vec<TcParam>,
     pub return_ty: TyId,
+    pub variadic: bool,
 }
 
 #[derive(Debug)]
@@ -134,11 +129,25 @@ pub struct TyCtx<'ctx> {
 
 #[derive(Debug)]
 pub enum TcError {
-    AlreadyDefinedMethod { ty: TyId, name: Symbol },
+    AlreadyDefinedMethod {
+        ty: TyId,
+        name: Symbol,
+    },
     Todo,
     NameNotFound(Symbol),
     Aggregate(Vec<(ItemId, TcError)>),
     NotAFunction(Symbol),
+    BadNumberOfArgs {
+        fun: crate::nir::interner::OneShotId<TcFunProto>,
+        got: usize,
+    },
+    ExprNotCoercible {
+        ty: TyId,
+        expr: TyId,
+    },
+    IsNotExpr(Definition),
+    NotAResolvedType(TypeExpr),
+    NotATypeDef(Definition),
 }
 
 impl TcTy {
@@ -249,8 +258,8 @@ impl<'ctx> TyCtx<'ctx> {
         Ok(())
     }
 
-    pub fn get_simple_named(&self, name: &str, ctx: &GlobalContext) -> Option<TyId> {
-        let name = ctx.interner.get_symbol_for(&name.to_string())?;
+    pub fn get_simple_named(&self, name: &str) -> Option<TyId> {
+        let name = self.ctx.interner.get_symbol_for(&name.to_string())?;
         self.aliases.get(&name).copied()
     }
 
@@ -286,6 +295,7 @@ impl<'ctx> TyCtx<'ctx> {
                 .type_interner
                 .contains(&TcTy::Primitive(PrimitiveTy::U32))
                 .unwrap(),
+            variadic: false,
         };
         vec![size_fun]
     }
@@ -319,7 +329,7 @@ impl<'ctx> TyCtx<'ctx> {
         for (symb, ty) in &res.aliases {
             first_scope
                 .definitions
-                .push((*symb, Definition::Builtin(*ty)));
+                .push((*symb, Definition::Type(TypeKind::Resolved(*ty))));
         }
         res
     }
@@ -342,11 +352,14 @@ impl<'ctx> TyCtx<'ctx> {
             errors.clear();
             let mut new_working_stack = vec![];
             for id in &working_stack {
+                let interner = self.ctx.interner.clone();
+                let current = self.current_scope;
+
                 let item = temp_interner.get_mut(id).unwrap();
                 let iteration: Result<(), TcError> = match item {
-                    NirItem::Function(fdef) => self.visit_fundef(fdef, *id),
+                    NirItem::Function(fdef) => self.visit_fundef(fdef),
                     NirItem::Module(_nir_module_def) => todo!("module"),
-                    NirItem::Class(_nir_class_def) => todo!("class"),
+                    NirItem::Class(cdef) => self.visit_class(cdef),
                     NirItem::Trait(_nir_trait_def) => todo!("trait"),
                     NirItem::Impl(_nir_impl_block) => todo!("impl"),
                     NirItem::Method(_nir_method) => unreachable!(),
@@ -354,6 +367,9 @@ impl<'ctx> TyCtx<'ctx> {
                 if iteration.is_err() {
                     new_working_stack.push(*id);
                     errors.push((*id, iteration.unwrap_err()));
+
+                    self.ctx.interner = interner;
+                    self.current_scope = current;
                 }
             }
 
@@ -423,28 +439,32 @@ impl<'ctx> TyCtx<'ctx> {
                 )
             }
             TcError::Aggregate(_) => todo!(),
+            TcError::BadNumberOfArgs { .. } => todo!(),
+            TcError::ExprNotCoercible { .. } => todo!(),
+            TcError::IsNotExpr(_) => todo!(),
+            TcError::NotAResolvedType(_) => todo!(),
+            TcError::NotATypeDef(_definition) => todo!(),
         }
     }
 
     fn visit_type(&mut self, ty: &mut NirType) -> Result<TyId, TcError> {
         let res = match &mut ty.kind {
-            NirTypeKind::Resolved(ty_id) => Ok(*ty_id),
             NirTypeKind::Ptr(t) => {
                 let inner = self.visit_type(t.as_mut())?;
                 Ok(self.ctx.interner.type_interner.insert(TcTy::Ptr(inner)))
             }
             NirTypeKind::Named { name, generic_args } if generic_args.len() == 0 => {
-                assert!(name.len() == 1, "todo: path names");
-                let name = name[0];
-                match self.aliases.get(&name) {
-                    Some(x) => Ok(*x),
-                    None => Err(TcError::NameNotFound(name)),
+                let def = self
+                    .get_last_scope()
+                    .get_definition_for_symbol(*name, &self.ctx.interner.scope_interner);
+                match def {
+                    Some(Definition::Type(TypeKind::Resolved(id))) => Ok(id),
+                    _ => todo!(),
                 }
             }
             NirTypeKind::Named { .. } => todo!("Handle generic types"),
             NirTypeKind::Tuple(_nir_types) => todo!(),
         }?;
-        ty.kind = NirTypeKind::Resolved(res);
         Ok(res)
     }
 
@@ -491,14 +511,18 @@ impl<'ctx> TyCtx<'ctx> {
             return Ok(*&self.expr_types[&expr]);
         }
 
-        let ast = self.ctx.interner.expr_interner.get(expr);
+        let ast = self.ctx.interner.expr_interner.get(expr).clone();
 
         let res = match &ast.kind {
             NirExprKind::Literal(nir_literal) => match nir_literal {
                 NirLiteral::IntLiteral(_num) => Ok(self.aliases[&self.get_symb("i64")]),
                 NirLiteral::FloatLiteral(_my_float) => todo!(),
-                NirLiteral::StringLiteral(_string_literal) => todo!(),
-                NirLiteral::CharLiteral(_) => todo!(),
+                NirLiteral::StringLiteral(_string_literal) => {
+                    let char_ty = self.get_simple_named("char").unwrap();
+                    let ty = TcTy::Ptr(char_ty);
+                    Ok(self.ctx.interner.type_interner.insert(ty))
+                }
+                NirLiteral::CharLiteral(_) => Ok(self.get_simple_named("char").unwrap()),
             },
             NirExprKind::BinOp(op) => {
                 let l = op.left;
@@ -521,17 +545,54 @@ impl<'ctx> TyCtx<'ctx> {
                         Definition::Function(f) => f,
                         _ => return Err(TcError::NotAFunction(call.called.called)),
                     };
-                    let proto = self.ctx.interner.fun_interner.get(f);
+                    let proto = self.ctx.interner.fun_interner.get(f).clone();
                     let return_ty = proto.return_ty;
 
-                    println!("Todo: check args");
+                    if proto.params.len() > call.args.len()
+                        || (!proto.variadic && proto.params.len() != call.args.len())
+                    {
+                        return Err(TcError::BadNumberOfArgs {
+                            fun: f,
+                            got: call.args.len(),
+                        });
+                    }
+
+                    for (i, TcParam { ty, .. }) in proto.params.iter().enumerate() {
+                        let arg = call.args[i];
+                        let expr_ty = self.get_type_of_expr(arg)?;
+                        if !self.type_is_coercible(expr_ty, *ty) {
+                            return Err(TcError::ExprNotCoercible {
+                                ty: *ty,
+                                expr: expr_ty,
+                            });
+                        }
+                    }
 
                     Ok(return_ty)
                 }
             },
             NirExprKind::Subscript { .. } => todo!(),
             NirExprKind::Access { .. } => todo!(),
-            NirExprKind::Named(_symbol) => todo!(),
+            NirExprKind::Named(symb) => {
+                let def = self
+                    .get_last_scope()
+                    .get_definition_for_symbol(*symb, &self.ctx.interner.scope_interner);
+                if def.is_none() {
+                    return Err(TcError::NameNotFound(*symb));
+                }
+                let var_id = match def.unwrap() {
+                    Definition::Variable(id) => id,
+                    x => return Err(TcError::IsNotExpr(x)),
+                };
+
+                let var = self.ctx.interner.variable_interner.get(var_id);
+
+                let ty = self
+                    .get_type_of_symb_in_pattern(&var.name, *symb, var.ty)
+                    .unwrap();
+
+                Ok(ty)
+            }
             NirExprKind::PostIncr(_expr_id) => todo!(),
             NirExprKind::PreIncr(_expr_id) => todo!(),
             NirExprKind::PostDecr(_expr_id) => todo!(),
@@ -565,6 +626,9 @@ impl<'ctx> TyCtx<'ctx> {
             let dest = self.ctx.interner.type_interner.get(dest);
             match (source, dest) {
                 (TcTy::Primitive(_), TcTy::Primitive(_)) => true,
+                (TcTy::Ptr(_), TcTy::Ptr(_)) => true,
+                (TcTy::Ptr(_), TcTy::Primitive(_)) => true,
+                (TcTy::Primitive(_), TcTy::Ptr(_)) => true,
                 _ => todo!(),
             }
         }
@@ -588,7 +652,7 @@ impl<'ctx> TyCtx<'ctx> {
         self.ctx.interner.scope_interner.get(self.current_scope)
     }
 
-    fn declare_variable(&mut self, pattern: Pattern, expr: Option<ExprId>, ty: TyId) {
+    fn declare_variable(&mut self, pattern: Pattern, expr: VarExpr, ty: TyId) {
         let var_decl = VarDecl {
             name: pattern.clone(),
             ty,
@@ -596,7 +660,6 @@ impl<'ctx> TyCtx<'ctx> {
         };
 
         let id = self.ctx.interner.variable_interner.insert(var_decl);
-
         self.declare_variable_impl(&pattern, id);
     }
 
@@ -647,7 +710,7 @@ impl<'ctx> TyCtx<'ctx> {
                     }
                     (None, None) => panic!("Type inference is not supported"),
                 };
-                self.declare_variable(pattern, decl.value, ty);
+                self.declare_variable(pattern, VarExpr::Expr(decl.value), ty);
                 Ok(())
             }
             NirStmtKind::Assign { .. } => todo!(),
@@ -674,10 +737,10 @@ impl<'ctx> TyCtx<'ctx> {
         }
     }
 
-    fn visit_fundef(&mut self, fdef: &mut NirFunctionDef, _id: ItemId) -> Result<(), TcError> {
+    fn visit_fundef(&mut self, fdef: &mut NirFunctionDef) -> Result<(), TcError> {
         let proto = self.visit_fundef_proto(fdef)?;
         let fun_id = self.ctx.interner.fun_interner.insert(proto);
-        let proto = self.ctx.interner.fun_interner.get(fun_id);
+        let proto = self.ctx.interner.fun_interner.get(fun_id).clone();
 
         let parent_id = self.current_scope;
 
@@ -698,6 +761,10 @@ impl<'ctx> TyCtx<'ctx> {
         let parent_scope = self.ctx.interner.scope_interner.get_mut(parent_id);
         parent_scope.children.push(scope_id);
         self.current_scope = scope_id;
+
+        for (i, param) in proto.params.iter().enumerate() {
+            self.declare_variable(Pattern::Symbol(param.name), VarExpr::Param(i), param.ty);
+        }
 
         fdef.body
             .iter_mut()
@@ -730,6 +797,7 @@ impl<'ctx> TyCtx<'ctx> {
             name,
             params,
             return_ty,
+            variadic: fdef.is_variadic,
         })
     }
 
@@ -746,5 +814,216 @@ impl<'ctx> TyCtx<'ctx> {
 
     pub fn get_return_type(&self) -> Option<TyId> {
         self.get_return_type_impl(self.current_scope)
+    }
+
+    fn get_type_of_symb_in_pattern(
+        &self,
+        pattern: &Pattern,
+        symb: Symbol,
+        ty: TyId,
+    ) -> Option<TyId> {
+        match pattern {
+            Pattern::Symbol(symbol) if *symbol == symb => Some(ty),
+            Pattern::Tuple(patterns) => {
+                let t = self.ctx.interner.type_interner.get(ty);
+                match &t {
+                    TcTy::Tuple(ty_ids) => {
+                        for (p, t) in patterns.iter().zip(ty_ids) {
+                            if let Some(x) = self.get_type_of_symb_in_pattern(p, symb, *t) {
+                                return Some(x);
+                            }
+                        }
+                        None
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn get_type_expr(&mut self, ty: &NirType) -> Result<TypeExpr, TcError> {
+        match &ty.kind {
+            NirTypeKind::Ptr(nir_type) => {
+                Ok(TypeExpr::Ptr(Box::new(self.get_type_expr(nir_type)?)))
+            }
+            NirTypeKind::Named { name, generic_args } if generic_args.len() > 0 => {
+                let def = self
+                    .get_last_scope()
+                    .get_definition_for_symbol(*name, &self.ctx.interner.scope_interner);
+
+                if def.is_none() {
+                    return Err(TcError::NameNotFound(*name));
+                }
+
+                let def = def.unwrap();
+
+                let args = generic_args
+                    .iter()
+                    .map(|x| self.get_type_expr(x))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(TypeExpr::Instantiation {
+                    template: def,
+                    args,
+                })
+            }
+
+            NirTypeKind::Named { name, .. } => {
+                let def = self
+                    .get_last_scope()
+                    .get_definition_for_symbol(*name, &self.ctx.interner.scope_interner);
+
+                if def.is_none() {
+                    return Err(TcError::NameNotFound(*name));
+                }
+
+                let def = def.unwrap();
+
+                Ok(TypeExpr::Resolved(self.get_resolved_type(def)?))
+            }
+
+            NirTypeKind::Tuple(nir_types) => Ok(TypeExpr::Tuple(
+                nir_types
+                    .iter()
+                    .map(|x| self.get_type_expr(x))
+                    .collect::<Result<_, _>>()?,
+            )),
+        }
+    }
+
+    fn get_trait(&mut self, name: Symbol) -> Option<TraitId> {
+        let s = self
+            .get_last_scope()
+            .get_definition_for_symbol(name, &self.ctx.interner.scope_interner);
+        match s {
+            Some(Definition::Trait(id)) => Some(id),
+            _ => self.ctx.interner.trait_interner.get_with_name(name),
+        }
+    }
+
+    fn visit_class(&mut self, cdef: &mut NirClassDef) -> Result<(), TcError> {
+        let templates = {
+            let mut templates = Vec::with_capacity(cdef.generic_args.len());
+            for arg in &cdef.generic_args {
+                let mut constraints = Vec::with_capacity(arg.constraints.len());
+                for constraint in &arg.constraints {
+                    let id = self.get_trait(constraint.name);
+                    if id.is_none() {
+                        return Err(TcError::NameNotFound(constraint.name));
+                    }
+                    constraints.push(id.unwrap());
+                }
+                templates.push(TemplateArgument {
+                    name: arg.name,
+                    constraints,
+                });
+            }
+            templates
+        };
+        let c = Class {
+            name: cdef.name,
+            templates: templates.clone(),
+            members: Vec::new(),
+        };
+        let id = self.ctx.interner.class_interner.insert(c);
+        let parent_scope = self.current_scope;
+
+        let new_scope = Scope {
+            kind: ScopeKind::Class(id),
+            parent: Some(self.current_scope),
+            children: Vec::new(),
+            definitions: Vec::new(),
+        };
+        let new_scope_id = self.ctx.interner.scope_interner.insert(new_scope);
+
+        let last_scope = self.get_last_scope_mut();
+        last_scope.children.push(new_scope_id);
+        last_scope
+            .definitions
+            .push((cdef.name, Definition::Class(id)));
+        self.current_scope = new_scope_id;
+
+        let current_scope = self.get_last_scope_mut();
+
+        for (i, TemplateArgument { name, .. }) in templates.iter().enumerate() {
+            current_scope
+                .definitions
+                .push((*name, Definition::Type(TypeKind::Templated(i))))
+        }
+
+        let mut members = Vec::with_capacity(cdef.members.len());
+
+        for member in &cdef.members {
+            members.push(ClassMember {
+                name: member.name,
+                ty: self.get_type_expr(&member.ty)?,
+            });
+        }
+
+        let cmut = self.ctx.interner.class_interner.get_mut(id);
+        cmut.members = members;
+
+        println!("members: {:?}", cmut.members);
+
+        println!(
+            "Todo: Do the work here ! {}:{}:{}",
+            file!(),
+            line!(),
+            column!()
+        );
+
+        self.current_scope = parent_scope;
+        Ok(())
+    }
+
+    fn resolve_type_expr(&mut self, expr: &TypeExpr) -> Result<TyId, TcError> {
+        match expr {
+            TypeExpr::Resolved(ty_id) => Ok(*ty_id),
+            TypeExpr::Template(_) => Err(TcError::NotAResolvedType(expr.clone())),
+            TypeExpr::Instantiation { template, args } => self.instantiate(*template, args),
+            TypeExpr::Ptr(type_expr) => {
+                let ty = self.resolve_type_expr(&type_expr)?;
+                Ok(self.ctx.interner.type_interner.insert(TcTy::Ptr(ty)))
+            }
+            TypeExpr::Tuple(type_exprs) => {
+                let ty = TcTy::Tuple(
+                    type_exprs
+                        .iter()
+                        .map(|x| self.resolve_type_expr(x))
+                        .collect::<Result<_, _>>()?,
+                );
+
+                Ok(self.ctx.interner.type_interner.insert(ty))
+            }
+        }
+    }
+
+    fn get_resolved_type(&mut self, def: Definition) -> Result<TyId, TcError> {
+        match def {
+            Definition::Class(id) => {
+                let mems = self.ctx.interner.class_interner.get(id).members.clone();
+                let ty = TcTy::Struct {
+                    fields: mems
+                        .iter()
+                        .map(|x| {
+                            self.resolve_type_expr(&x.ty).map(|y| StructField {
+                                name: x.name,
+                                ty: y,
+                            })
+                        })
+                        .collect::<Result<_, _>>()?,
+                };
+                Ok(self.ctx.interner.type_interner.insert(ty))
+            }
+            Definition::Type(type_kind) => match type_kind {
+                TypeKind::Resolved(ty_id) => Ok(ty_id),
+                TypeKind::Templated(x) => Err(TcError::NotAResolvedType(TypeExpr::Template(x))),
+            },
+            _ => Err(TcError::NotATypeDef(def)),
+        }
+    }
+
+    fn instantiate(&mut self, _template: Definition, _args: &[TypeExpr]) -> Result<TyId, TcError> {
+        todo!()
     }
 }

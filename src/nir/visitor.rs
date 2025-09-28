@@ -90,7 +90,7 @@ impl<'ctx> NirVisitor<'ctx> {
         Ok(NirType {
             kind: match ty.as_ref() {
                 Ty::Named { name, templates } => NirTypeKind::Named {
-                    name: vec![self.as_symbol(name)],
+                    name: self.as_symbol(name),
                     generic_args: templates
                         .iter()
                         .map(|x| self.visit_ty(x))

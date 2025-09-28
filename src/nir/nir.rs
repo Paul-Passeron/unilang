@@ -2,7 +2,7 @@ use std::hash::Hash;
 
 use crate::{
     common::source_location::Span,
-    nir::interner::{ExprId, ItemId, StringLiteral, Symbol, TyId},
+    nir::interner::{ExprId, ItemId, StringLiteral, Symbol},
 };
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -51,10 +51,9 @@ pub struct NirTraitDef {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum NirTypeKind {
-    Resolved(TyId),
     Ptr(Box<NirType>),
     Named {
-        name: Vec<Symbol>,
+        name: Symbol,
         generic_args: Vec<NirType>,
     },
     Tuple(Vec<NirType>),
