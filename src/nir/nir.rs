@@ -223,17 +223,11 @@ impl PartialEq for MyFloat {
 impl Eq for MyFloat {}
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub enum NirLiteralKind {
+pub enum NirLiteral {
     IntLiteral(i128),
     FloatLiteral(F64),
     StringLiteral(StringLiteral),
     CharLiteral(char),
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct NirLiteral {
-    pub kind: NirLiteralKind,
-    pub span: Span,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

@@ -9,7 +9,7 @@ use crate::{
     lexer::Lexer,
     nir::{include_resolver::IncludeResolver, interner::GlobalInterner, visitor::NirVisitor},
     parser::{ast::Program, parser::Parser},
-    ty::TyCtx,
+    ty::{TcError, TyCtx},
 };
 #[derive(Debug)]
 pub struct GlobalContext {
@@ -59,9 +59,11 @@ impl GlobalContext {
         };
 
         let mut tc = TyCtx::new(&mut self);
-        if let Err(_) = tc.visit_program(&nir) {
-            panic!();
+        if let Err(TcError::Aggregate(errors)) = tc.visit_program(&nir) {
+            for error in &errors {
+                tc.print_error(&error.1);
+            }
         }
-        todo!()
+        println!("Successfully type checked !")
     }
 }

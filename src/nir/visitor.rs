@@ -6,9 +6,9 @@ use crate::{
         nir::{
             FieldAccess, FieldAccessKind, NirArgument, NirAssociatedType, NirBinOp, NirBinOpKind,
             NirCall, NirCalled, NirClassDef, NirExpr, NirExprKind, NirFunctionDef, NirGenericArg,
-            NirImplBlock, NirItem, NirLiteral, NirLiteralKind, NirMember, NirMethod, NirPattern,
-            NirPatternKind, NirProgram, NirStmtKind, NirTraitConstraint, NirTraitDef, NirType,
-            NirTypeBound, NirTypeKind, NirVarDecl, SelfKind,
+            NirImplBlock, NirItem, NirLiteral, NirMember, NirMethod, NirPattern, NirPatternKind,
+            NirProgram, NirStmtKind, NirTraitConstraint, NirTraitDef, NirType, NirTypeBound,
+            NirTypeKind, NirVarDecl, SelfKind,
         },
     },
     parser::ast::{
@@ -708,15 +708,10 @@ impl<'ctx> NirVisitor<'ctx> {
     }
 
     fn visit_literal(&mut self, lit: &Ast<Literal>) -> Result<NirLiteral, NirError> {
-        Ok(NirLiteral {
-            kind: match lit.as_ref() {
-                Literal::Int(x) => NirLiteralKind::IntLiteral(*x as i128),
-                Literal::Char(x) => NirLiteralKind::CharLiteral(*x),
-                Literal::String(x) => {
-                    NirLiteralKind::StringLiteral(self.ctx.interner.insert_string(x))
-                }
-            },
-            span: *lit.loc(),
+        Ok(match lit.as_ref() {
+            Literal::Int(x) => NirLiteral::IntLiteral(*x as i128),
+            Literal::Char(x) => NirLiteral::CharLiteral(*x),
+            Literal::String(x) => NirLiteral::StringLiteral(self.ctx.interner.insert_string(x)),
         })
     }
 

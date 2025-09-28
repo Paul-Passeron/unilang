@@ -1,8 +1,16 @@
-use std::{collections::HashMap, fmt, hash::Hash};
+use std::{
+    collections::HashMap,
+    fmt::{self, Debug},
+    hash::Hash,
+    marker::PhantomData,
+};
 
 use crate::{
     nir::nir::{NirExpr, NirItem},
-    ty::{TcTy, scope::Scope},
+    ty::{
+        TcFunProto, TcTy,
+        scope::{Class, Module, Scope, VarDecl},
+    },
 };
 
 pub trait Interner<'ctx, Value> {
@@ -74,8 +82,6 @@ pub struct ItemId(pub u32);
 pub struct ExprId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TyId(pub u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ScopeId(pub u32);
 
 impl ConstructibleId for Symbol {
     fn new(id: u32) -> Self {
@@ -106,13 +112,6 @@ impl ConstructibleId for TyId {
         Self(id)
     }
 }
-
-impl ConstructibleId for ScopeId {
-    fn new(id: u32) -> Self {
-        Self(id)
-    }
-}
-
 pub type SymbolInterner = HashInterner<Symbol, String>;
 pub type StringInterner = HashInterner<StringLiteral, String>;
 pub type ItemInterner = HashInterner<ItemId, NirItem>;
@@ -120,35 +119,88 @@ pub type ExprInterner = HashInterner<ExprId, NirExpr>;
 pub type TypeInterner = HashInterner<TyId, TcTy>;
 
 #[derive(Debug)]
-pub struct ScopeInterner(Vec<Scope>);
+pub struct OneShotInterner<T>(Vec<T>);
+pub struct OneShotId<T>(pub u32, PhantomData<T>);
 
-impl ScopeInterner {
+impl<T> Hash for OneShotId<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+impl<T> PartialEq for OneShotId<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<T> Eq for OneShotId<T> {}
+
+impl<T> fmt::Debug for OneShotId<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}({})", std::any::type_name::<T>(), self.0)
+    }
+}
+
+impl<T> Clone for OneShotId<T> {
+    fn clone(&self) -> Self {
+        Self(self.0, PhantomData::default())
+    }
+}
+
+impl<T> Copy for OneShotId<T> {}
+
+impl<T: fmt::Debug> ConstructibleId for OneShotId<T> {
+    fn new(id: u32) -> Self {
+        Self(id, PhantomData::default())
+    }
+}
+
+impl<T> OneShotInterner<T> {
     fn new() -> Self {
         Self(Vec::new())
     }
 }
 
-impl<'ctx> Interner<'ctx, Scope> for ScopeInterner {
-    type Id = ScopeId;
+impl<'ctx, T> Interner<'ctx, T> for OneShotInterner<T>
+where
+    T: Debug,
+{
+    type Id = OneShotId<T>;
 
-    fn contains(&'ctx self, _: &Scope) -> Option<Self::Id> {
+    fn contains(&'ctx self, _: &T) -> Option<Self::Id> {
         None
     }
 
-    fn insert(&'ctx mut self, v: Scope) -> Self::Id {
-        let id = ScopeId::new(self.0.len() as u32);
+    fn insert(&'ctx mut self, v: T) -> Self::Id {
+        let id = OneShotId::new(self.0.len() as u32);
         self.0.push(v);
         id
     }
 
-    fn get(&'ctx self, id: Self::Id) -> &'ctx Scope {
-        self.0.get(id.0 as usize).unwrap()
+    fn get(&'ctx self, id: Self::Id) -> &'ctx T {
+        &self.0[id.0 as usize]
     }
 
-    fn get_mut(&'ctx mut self, id: Self::Id) -> &'ctx mut Scope {
-        self.0.get_mut(id.0 as usize).unwrap()
+    fn get_mut(&'ctx mut self, id: Self::Id) -> &'ctx mut T {
+        &mut self.0[id.0 as usize]
     }
 }
+
+pub type ScopeInterner = OneShotInterner<Scope>;
+pub type ScopeId = OneShotId<Scope>;
+
+pub type ModuleInterner = OneShotInterner<Module>;
+pub type ModuleId = OneShotId<Module>;
+
+pub type ClassInterner = OneShotInterner<Class>;
+pub type ClassId = OneShotId<Class>;
+
+pub type FunInterner = OneShotInterner<TcFunProto>;
+pub type FunId = OneShotId<TcFunProto>;
+
+pub type VariableInterner = OneShotInterner<VarDecl>;
+pub type VariableId = OneShotId<VarDecl>;
 
 #[derive(Debug)]
 pub struct GlobalInterner {
@@ -158,6 +210,10 @@ pub struct GlobalInterner {
     pub expr_interner: ExprInterner,
     pub type_interner: TypeInterner,
     pub scope_interner: ScopeInterner,
+    pub fun_interner: FunInterner,
+    pub class_interner: ClassInterner,
+    pub module_interner: ModuleInterner,
+    pub variable_interner: VariableInterner,
 }
 
 impl GlobalInterner {
@@ -169,6 +225,10 @@ impl GlobalInterner {
             expr_interner: ExprInterner::new(),
             type_interner: TypeInterner::new(),
             scope_interner: ScopeInterner::new(),
+            fun_interner: FunInterner::new(),
+            class_interner: ClassInterner::new(),
+            module_interner: ModuleInterner::new(),
+            variable_interner: VariableInterner::new(),
         }
     }
 
