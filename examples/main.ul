@@ -1,98 +1,105 @@
-impl <T> Iterable for Vec<T> => {
-    type Iter => VecIter<T>;
+mod opt => {
+    impl <T> iter::Iterable for Option<T> => {
+        type Iter => OptionIter<T>;
 
-    public to_iter(): Iter => {
-        @todo();
+        public to_iter(): Iter => {
+            @todo;
+        }
+    }
+
+    impl <T> iter::Iterator for OptionIter<T> => {
+        type Output => T;
+
+        public has_next(): bool => {
+            @todo;
+        }
+
+        public next(): Output => {
+            @todo;
+        }
+    }
+
+    class <T> Option => {
+        private item: T*;
+
+        public Option(x: T) => {
+            @todo;
+        }
+
+        public Option() => {
+            @todo;
+        }
+
+        public unwrap(): T => {
+            @todo;
+        }
+    }
+
+    class <T> OptionIter => {
+        public OptionIter(from: Option<T>) => {
+            @todo;
+        }
     }
 }
 
-impl <T> Iterator for VecIter<T> => {
-    type Output => T;
-
-    public has_next(): bool => {
-        @todo;
+mod iter => {
+    interface Iterator T => {
+        type Output;
+        has_next(): bool;
+        next(): Output;
     }
 
-    public next(): Output => {
-        @todo;
-    }
-}
-
-impl <T> Iterable for Option<T> => {
-    type Iter => OptionIter<T>;
-
-    public to_iter(): Iter => {
-        @todo;
+    interface Iterable T => {
+        type Iter impl Iterator;
+        to_iter(): Iter;
     }
 }
 
-impl <T> Iterator for OptionIter<T> => {
-    type Output => T;
 
-    public has_next(): bool => {
-        @todo;
+mod vec => {
+    class <T> Vec => {
+        private items: T*;
+        private count: u32;
+        private capacity: u32;
+
+        public Vec() => {
+            @todo;
+        }
+
+        public Vec(with_capacity: u32) => {
+            @todo;
+        }
+
+
+        public get(i: u32): opt::Option<T> => {
+            @todo;
+        }
+
     }
 
-    public next(): Output => {
-        @todo;
-    }
-}
-
-class <T> Option => {
-    private item: T*;
-
-    public Option(x: T) => {
-        @todo;
+    class <T> VecIter => {
+        public VecIter(from: Vec<T>) => {
+            @todo;
+        }
     }
 
-    public Option() => {
-        @todo;
+    impl <T> iter::Iterable for Vec<T> => {
+        type Iter => VecIter<T>;
+
+        public to_iter(): Iter => {
+            @todo();
+        }
     }
 
-    public unwrap(): T => {
-        @todo;
+    impl <T> iter::Iterator for VecIter<T> => {
+        type Output => T;
+
+        public has_next(): bool => {
+            @todo;
+        }
+
+        public next(): Output => {
+            @todo;
+        }
     }
-}
-
-class <T> Vec => {
-    private items: T*;
-    private count: u32;
-    private capacity: u32;
-
-    public Vec() => {
-        @todo;
-    }
-
-    public Vec(with_capacity: u32) => {
-        @todo;
-    }
-
-
-    public get(i: u32): Option<T> => {
-        @todo;
-    }
-
-}
-
-class <T> VecIter => {
-    public VecIter(from: Vec<T>) => {
-        @todo;
-    }
-}
-
-class <T> OptionIter => {
-    public OptionIter(from: Option<T>) => {
-        @todo;
-    }
-}
-
-interface Iterator T => {
-    type Output;
-    has_next(): bool;
-    next(): Output;
-}
-
-interface Iterable T => {
-    type Iter impl Iterator;
-    to_iter(): Iter;
 }
