@@ -435,11 +435,13 @@ impl<'ctx> NirVisitor<'ctx> {
     fn visit_implementation(&mut self, implem: &Ast<Implementation>) -> Result<ItemId, NirError> {
         let idef = implem.as_ref();
 
-        let name = NirExpr {
-            kind: NirExprKind::Named(self.as_symbol(&idef.trait_name)),
-            span: idef.trait_name.loc().clone(),
+        let name = match self.visit_ty(&idef.trait_name)?.kind {
+            NirTypeKind::Named { name, generic_args } => {
+                assert!(generic_args.len() == 0);
+                name
+            }
+            _ => unreachable!(),
         };
-        let name = self.ctx.interner.expr_interner.insert(name);
         let implements = Some(NirTraitConstraint {
             name,
             span: *idef.trait_name.loc(),

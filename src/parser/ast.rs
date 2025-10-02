@@ -167,7 +167,7 @@ pub struct ConstrainedType {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Implementation {
     pub templates: Vec<Ast<TemplateDecl>>,
-    pub trait_name: Ast<String>,
+    pub trait_name: Ast<Ty>,
     pub for_type: Ast<Ty>,
     pub body: Vec<(Ast<AccessSpec>, Ast<TopLevel>)>,
     pub type_aliases: Vec<(Ast<String>, Ast<Ty>)>,

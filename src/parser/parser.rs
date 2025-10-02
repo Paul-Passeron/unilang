@@ -1390,7 +1390,7 @@ impl Parser {
         }
 
         // Parse trait name
-        let trait_name = self.parse_identifier_as_string()?;
+        let trait_name = self.parse_type()?;
 
         // Expect 'for' keyword
         if !self.match_tokenkind(TokenKind::For) {

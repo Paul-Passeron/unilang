@@ -4,20 +4,20 @@ use crate::{
     common::source_location::Span,
     nir::{
         interner::{
-            ConstructibleId, ExprId, ImplBlockId, Interner, ItemId, ScopeId, Symbol, TypeExprId,
-            UnresolvedId,
+            ClassId, ConstructibleId, ExprId, ImplBlockId, Interner, ItemId, ScopeId, Symbol,
+            TraitId, TypeExprId, UnresolvedId,
         },
         nir::{
             FieldAccessKind, NirArgument, NirClassDef, NirExpr, NirExprKind, NirFunctionDef,
-            NirImplBlock, NirItem, NirMethod, NirModuleDef, NirProgram, NirTraitDef, NirType,
-            NirTypeKind,
+            NirGenericArg, NirImplBlock, NirItem, NirMethod, NirModuleDef, NirProgram,
+            NirTraitConstraint, NirTraitDef, NirType, NirTypeBound, NirTypeKind,
         },
     },
     ty::{
         TcError, TcFunProto, TcParam,
         pass::Pass,
         scope::{
-            Class, ClassMember, Definition, ImplBlock, ImplKind, Method, MethodKind, Module, Scope,
+            Class, ClassMember, Definition, ImplBlock, ImplKind, Method, MethodKind, Module,
             ScopeKind, TemplateArgument, Trait, TypeExpr, Unresolved, UnresolvedKind,
         },
     },
@@ -172,10 +172,8 @@ impl<'ctx> SurfaceResolution {
         ctx: &mut TyCtx<'ctx>,
         input: UnresolvedId,
     ) -> Result<Rc<Definition>, TcError> {
-        let old_scope = ctx.current_scope;
         let Unresolved { scope, kind } = ctx.ctx.interner.unresolved_interner.get(input).clone();
-        ctx.current_scope = scope;
-        let res = match kind {
+        ctx.with_scope_id(scope, |ctx| match kind {
             UnresolvedKind::Symb(symbol, span) => {
                 let expr = NirExpr {
                     kind: NirExprKind::Named(symbol),
@@ -205,10 +203,7 @@ impl<'ctx> SurfaceResolution {
                     Definition::Unresolved(_) => panic!(),
                 }
             }
-        };
-
-        ctx.current_scope = old_scope;
-        res
+        })
     }
 
     fn visit_item(&mut self, ctx: &mut TyCtx<'ctx>, input: ItemId) -> Result<ScopeId, TcError> {
@@ -231,6 +226,7 @@ impl<'ctx> SurfaceResolution {
     ) -> Result<ScopeId, TcError> {
         let name = input.name;
         let return_ty = self.visit_type(ctx, &input.return_ty)?;
+
         let params = input
             .args
             .iter()
@@ -239,29 +235,20 @@ impl<'ctx> SurfaceResolution {
                     .map(|ty| TcParam { name: x.name, ty })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let proto = TcFunProto {
+
+        let fun_id = ctx.ctx.interner.fun_interner.insert(TcFunProto {
             name,
             params,
             return_ty,
             variadic: input.is_variadic,
-        };
+        });
 
-        let fun_id = ctx.ctx.interner.fun_interner.insert(proto);
-
-        let def = Rc::new(Definition::Function(fun_id));
-
-        let scope = Scope {
-            kind: ScopeKind::Function(fun_id, item_id),
-            parent: Some(ctx.current_scope),
-            children: vec![],
-            definitions: vec![(input.name, def)],
-        };
-
-        let scope_id = ctx.ctx.interner.scope_interner.insert(scope);
-
-        ctx.get_last_scope_mut().children.push(scope_id);
-
-        Ok(scope_id)
+        ctx.with_scope(ScopeKind::Function(fun_id, item_id), |ctx| {
+            ctx.get_last_scope_mut()
+                .definitions
+                .push((input.name, Rc::new(Definition::Function(fun_id))));
+            Ok(ctx.current_scope)
+        })
     }
 
     fn resolve_access(
@@ -419,41 +406,43 @@ impl<'ctx> SurfaceResolution {
         item_id: ItemId,
     ) -> Result<ScopeId, TcError> {
         let name = input.name;
-        println!("Visiting Module {}", ctx.ctx.interner.get_symbol(name));
+        // println!("Visiting Module {}", ctx.ctx.interner.get_symbol(name));
+
         let module_id = ctx.ctx.interner.module_interner.insert(Module {
             name,
             scope: ctx.current_scope,
         });
-
-        let scope = Scope {
-            kind: ScopeKind::Module(module_id, item_id),
-            parent: Some(ctx.current_scope),
-            children: vec![],
-            definitions: vec![],
-        };
-
-        let parent_id = ctx.current_scope;
-
-        let scope_id = ctx.ctx.interner.scope_interner.insert(scope);
-
-        ctx.ctx.interner.module_interner.get_mut(module_id).scope = scope_id;
-
-        let parent_scope = ctx.get_last_scope_mut();
-        parent_scope.children.push(scope_id);
-        parent_scope
+        ctx.get_last_scope_mut()
             .definitions
             .push((name, Rc::new(Definition::Module(module_id))));
-        ctx.current_scope = scope_id;
-        println!("ctx.current_scope = {:?}", ctx.current_scope);
+        ctx.with_scope(ScopeKind::Module(module_id, item_id), |ctx| {
+            // Fixing the scope of the module
+            ctx.ctx.interner.module_interner.get_mut(module_id).scope = ctx.current_scope;
+            for item in &input.items {
+                self.visit_item(ctx, *item)?;
+            }
+            Ok(ctx.current_scope)
+        })
+    }
 
-        for item in &input.items {
-            self.visit_item(ctx, *item)?;
+    fn get_templates(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        args: &Vec<NirGenericArg>,
+    ) -> Result<Vec<TemplateArgument>, TcError> {
+        let mut templates = Vec::with_capacity(args.len());
+        for arg in args {
+            let mut constraints = Vec::with_capacity(arg.constraints.len());
+            for constraint in &arg.constraints {
+                let def = self.resolve_expr(ctx, constraint.name)?;
+                constraints.push(def);
+            }
+            templates.push(TemplateArgument {
+                name: arg.name,
+                constraints,
+            });
         }
-
-        ctx.current_scope = parent_id;
-        println!("ctx.current_scope = {:?}", ctx.current_scope);
-
-        Ok(scope_id)
+        Ok(templates)
     }
 
     fn visit_class(
@@ -462,49 +451,41 @@ impl<'ctx> SurfaceResolution {
         input: &NirClassDef,
         item_id: ItemId,
     ) -> Result<ScopeId, TcError> {
-        println!("Visiting Class {}", ctx.ctx.interner.get_symbol(input.name));
-
-        let templates = {
-            let mut templates = Vec::with_capacity(input.generic_args.len());
-            for arg in &input.generic_args {
-                let mut constraints = Vec::with_capacity(arg.constraints.len());
-                for constraint in &arg.constraints {
-                    let def = self.resolve_expr(ctx, constraint.name)?;
-                    constraints.push(def);
-                }
-                templates.push(TemplateArgument {
-                    name: arg.name,
-                    constraints,
-                });
-            }
-            templates
-        };
         let c = Class {
             name: input.name,
-            templates: templates.clone(),
+            templates: Vec::new(),
             members: Vec::new(),
             methods: Vec::new(),
         };
 
         let id = ctx.ctx.interner.class_interner.insert(c);
-        let parent_scope = ctx.current_scope;
 
-        let new_scope = Scope {
-            kind: ScopeKind::Class(id, item_id),
-            parent: Some(ctx.current_scope),
-            children: Vec::new(),
-            definitions: Vec::new(),
-        };
-        let new_scope_id = ctx.ctx.interner.scope_interner.insert(new_scope);
-
-        let last_scope = ctx.get_last_scope_mut();
-        last_scope.children.push(new_scope_id);
-        last_scope
+        ctx.get_last_scope_mut()
             .definitions
             .push((input.name, Rc::new(Definition::Class(id))));
-        ctx.current_scope = new_scope_id;
-        println!("ctx.current_scope = {:?}", ctx.current_scope);
 
+        ctx.with_scope(ScopeKind::Class(id, item_id), |ctx| {
+            let templates = self.get_templates(ctx, &input.generic_args)?;
+            Self::add_templates_to_scope(ctx, &templates);
+            self.add_templates_to_class(ctx, id, templates)?;
+            self.add_members_to_class(ctx, id, input)?;
+            self.add_methods_to_class(ctx, id, input)?;
+            Ok(ctx.current_scope)
+        })
+    }
+
+    fn add_templates_to_class(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        id: ClassId,
+        templates: Vec<TemplateArgument>,
+    ) -> Result<(), TcError> {
+        let cmut = ctx.ctx.interner.class_interner.get_mut(id);
+        cmut.templates = templates;
+        Ok(())
+    }
+
+    fn add_templates_to_scope(ctx: &mut TyCtx<'ctx>, templates: &Vec<TemplateArgument>) {
         for (i, TemplateArgument { name, .. }) in templates.iter().enumerate() {
             let res = (
                 *name,
@@ -518,19 +499,14 @@ impl<'ctx> SurfaceResolution {
             let current_scope = ctx.get_last_scope_mut();
             current_scope.definitions.push(res);
         }
+    }
 
-        let mut members = Vec::with_capacity(input.members.len());
-
-        for member in &input.members {
-            members.push(ClassMember {
-                name: member.name,
-                ty: self.visit_type(ctx, &member.ty)?,
-            });
-        }
-
-        let cmut = ctx.ctx.interner.class_interner.get_mut(id);
-        cmut.members = members;
-
+    fn add_methods_to_class(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        id: ClassId,
+        input: &NirClassDef,
+    ) -> Result<(), TcError> {
         let mut methods = Vec::with_capacity(input.methods.len());
         for method in &input.methods {
             let meth = match ctx.ctx.interner.item_interner.get(*method) {
@@ -540,11 +516,34 @@ impl<'ctx> SurfaceResolution {
             .clone();
             methods.push(self.visit_method(ctx, &meth)?);
         }
+        let cmut = ctx.ctx.interner.class_interner.get_mut(id);
+        cmut.methods = methods;
+        Ok(())
+    }
 
-        ctx.current_scope = parent_scope;
-        println!("ctx.current_scope = {:?}", ctx.current_scope);
+    fn add_members_to_class(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        id: ClassId,
+        input: &NirClassDef,
+    ) -> Result<(), TcError> {
+        let mut members = Vec::with_capacity(input.members.len());
+        for member in &input.members {
+            members.push(ClassMember {
+                name: member.name,
+                ty: self.visit_type(ctx, &member.ty)?,
+            });
+        }
+        let cmut = ctx.ctx.interner.class_interner.get_mut(id);
+        cmut.members = members;
+        Ok(())
+    }
 
-        Ok(new_scope_id)
+    fn get_template_type_expr(ctx: &mut TyCtx<'ctx>, index: usize) -> TypeExprId {
+        ctx.ctx
+            .interner
+            .type_expr_interner
+            .insert(TypeExpr::Template(index))
     }
 
     fn visit_trait(
@@ -553,45 +552,64 @@ impl<'ctx> SurfaceResolution {
         input: &NirTraitDef,
         item_id: ItemId,
     ) -> Result<ScopeId, TcError> {
-        let mut constraints = Vec::with_capacity(input.ty.constraints.len());
-        for constraint in &input.ty.constraints {
-            let def = self.resolve_expr(ctx, constraint.name)?;
-            constraints.push(def);
-        }
         let for_ty = TemplateArgument {
             name: input.ty.name,
-            constraints,
+            constraints: self.get_constraints(ctx, &input.ty.constraints)?,
         };
-        let type_id = ctx
-            .ctx
-            .interner
-            .type_expr_interner
-            .insert(TypeExpr::Template(0));
-        let ty_name = input.ty.name;
         let tr = Trait {
             name: input.name,
             for_ty,
-            methods: vec![],
-            types: vec![],
+            methods: Vec::new(),
+            types: Vec::new(),
         };
         let id = ctx.ctx.interner.trait_interner.insert(tr);
-        let def = Rc::new(Definition::Trait(id));
-        ctx.get_last_scope_mut().definitions.push((input.name, def));
+        ctx.push_def(input.name, Rc::new(Definition::Trait(id)));
 
-        let scope = Scope {
-            kind: ScopeKind::Trait(id, item_id),
-            parent: Some(ctx.current_scope),
-            children: vec![],
-            definitions: vec![(ty_name, Rc::new(Definition::Type(type_id)))],
+        ctx.with_scope(ScopeKind::Trait(id, item_id), |ctx| {
+            let type_id = Self::get_template_type_expr(ctx, 0);
+            ctx.push_def(input.ty.name, Rc::new(Definition::Type(type_id)));
+            self.add_methods_to_trait(ctx, id, input)?;
+            Self::add_types_to_trait(ctx, input);
+            Ok(ctx.current_scope)
+        })
+    }
+
+    fn get_constraints(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        input: &Vec<NirTraitConstraint>,
+    ) -> Result<Vec<Rc<Definition>>, TcError> {
+        let constraints = {
+            let mut constraints = Vec::with_capacity(input.len());
+            for constraint in input {
+                let def = self.resolve_expr(ctx, constraint.name)?;
+                constraints.push(def);
+            }
+            constraints
         };
+        Ok(constraints)
+    }
 
-        let scope_id = ctx.ctx.interner.scope_interner.insert(scope);
-        ctx.get_last_scope_mut().children.push(scope_id);
+    fn add_types_to_trait(ctx: &mut TyCtx<'ctx>, input: &NirTraitDef) {
+        for (i, ty) in input.types.iter().enumerate() {
+            let type_id = ctx
+                .ctx
+                .interner
+                .type_expr_interner
+                .insert(TypeExpr::Associated(i));
+            ctx.get_last_scope_mut()
+                .definitions
+                .push((ty.name, Rc::new(Definition::Type(type_id))))
+        }
+    }
 
-        let parent_id = ctx.current_scope;
-        ctx.current_scope = scope_id;
-
-        for method_id in &input.methods {
+    fn add_methods_to_trait(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        id: TraitId,
+        input: &NirTraitDef,
+    ) -> Result<(), TcError> {
+        Ok(for method_id in &input.methods {
             let method = match ctx.ctx.interner.item_interner.get(*method_id) {
                 NirItem::Method(nir_method) => nir_method,
                 _ => unreachable!(),
@@ -604,21 +622,7 @@ impl<'ctx> SurfaceResolution {
                 .get_mut(id)
                 .methods
                 .push(proto);
-        }
-
-        for (i, ty) in input.types.iter().enumerate() {
-            let type_id = ctx
-                .ctx
-                .interner
-                .type_expr_interner
-                .insert(TypeExpr::Associated(i));
-            ctx.get_last_scope_mut()
-                .definitions
-                .push((ty.name, Rc::new(Definition::Type(type_id))))
-        }
-
-        ctx.current_scope = parent_id;
-        Ok(scope_id)
+        })
     }
 
     fn visit_impl(
@@ -627,84 +631,67 @@ impl<'ctx> SurfaceResolution {
         input: &NirImplBlock,
         item_id: ItemId,
     ) -> Result<ScopeId, TcError> {
-        let templates = {
-            let mut templates = Vec::with_capacity(input.generic_args.len());
-            for arg in &input.generic_args {
-                let mut constraints = Vec::with_capacity(arg.constraints.len());
-                for constraint in &arg.constraints {
-                    let def = self.resolve_expr(ctx, constraint.name)?;
-                    constraints.push(def);
-                }
-                templates.push(TemplateArgument {
-                    name: arg.name,
-                    constraints,
-                });
-            }
-            templates
-        };
+        let templates = self.get_templates(ctx, &input.generic_args)?;
 
         let dummy_id = ImplBlockId::new(0);
-        // let id = ctx.ctx.interner.impl_interner.insert(impl_block);
 
-        let scope = Scope {
-            kind: ScopeKind::Impl(dummy_id, item_id),
-            parent: Some(ctx.current_scope),
-            children: vec![],
-            definitions: vec![],
-        };
+        // let scope = Scope {
+        //     kind: ScopeKind::Impl(dummy_id, item_id),
+        //     parent: Some(ctx.current_scope),
+        //     children: vec![],
+        //     definitions: vec![],
+        // };
 
-        let scope_id = ctx.ctx.interner.scope_interner.insert(scope);
-        ctx.get_last_scope_mut().children.push(scope_id);
+        // let scope_id = ctx.ctx.interner.scope_interner.insert(scope);
+        // ctx.get_last_scope_mut().children.push(scope_id);
 
-        let parent_id = ctx.current_scope;
-        ctx.current_scope = scope_id;
+        // let parent_id = ctx.current_scope;
+        // ctx.current_scope = scope_id;
 
-        for (i, t) in templates.iter().enumerate() {
-            let type_id = ctx
-                .ctx
-                .interner
-                .type_expr_interner
-                .insert(TypeExpr::Template(i));
+        ctx.with_scope(ScopeKind::Impl(dummy_id, item_id), |ctx| {
+            for (i, t) in templates.iter().enumerate() {
+                let type_id = ctx
+                    .ctx
+                    .interner
+                    .type_expr_interner
+                    .insert(TypeExpr::Template(i));
 
-            ctx.get_last_scope_mut()
-                .definitions
-                .push((t.name, Rc::new(Definition::Type(type_id))));
-        }
-
-        let for_ty = self.visit_type(ctx, &input.ty)?;
-
-        let impl_block = ImplBlock {
-            for_ty,
-            templates,
-            methods: vec![],
-            kind: match &input.implements {
-                Some(constraint) => ImplKind::WithTrait {
-                    impl_trait: self.resolve_expr(ctx, constraint.name)?,
-                    types: HashMap::new(),
-                },
-                None => ImplKind::NoTrait,
-            },
-        };
-
-        let actual_id = ctx.ctx.interner.impl_interner.insert(impl_block);
-        ctx.get_last_scope_mut().kind = ScopeKind::Impl(actual_id, item_id);
-
-        for ty in &input.types {
-            let name = ty.name;
-            let rhs = self.visit_type(ctx, &ty.ty)?;
-            match &mut ctx.ctx.interner.impl_interner.get_mut(actual_id).kind {
-                ImplKind::WithTrait { types, .. } => {
-                    types.insert(name, rhs);
-                }
-                _ => unreachable!(),
+                ctx.get_last_scope_mut()
+                    .definitions
+                    .push((t.name, Rc::new(Definition::Type(type_id))));
             }
 
-            ctx.get_last_scope_mut()
-                .definitions
-                .push((name, Rc::new(Definition::Type(rhs))));
-        }
+            let for_ty = self.visit_type(ctx, &input.ty)?;
 
-        for method_id in &input.methods {
+            let impl_block = ImplBlock {
+                for_ty,
+                templates,
+                methods: vec![],
+                kind: match &input.implements {
+                    Some(constraint) => ImplKind::WithTrait {
+                        impl_trait: self.resolve_expr(ctx, constraint.name)?,
+                        types: HashMap::new(),
+                    },
+                    None => ImplKind::NoTrait,
+                },
+            };
+            let actual_id = ctx.ctx.interner.impl_interner.insert(impl_block);
+            ctx.get_last_scope_mut().kind = ScopeKind::Impl(actual_id, item_id);
+
+            self.add_types_to_impl(ctx, actual_id, &input.types)?;
+            self.add_methods_to_impl(ctx, actual_id, &input.methods)?;
+
+            Ok(ctx.current_scope)
+        })
+    }
+
+    fn add_methods_to_impl(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        id: ImplBlockId,
+        input: &Vec<ItemId>,
+    ) -> Result<(), TcError> {
+        for method_id in input {
             let method = match ctx.ctx.interner.item_interner.get(*method_id) {
                 NirItem::Method(nir_method) => nir_method,
                 _ => unreachable!(),
@@ -714,13 +701,30 @@ impl<'ctx> SurfaceResolution {
             ctx.ctx
                 .interner
                 .impl_interner
-                .get_mut(actual_id)
+                .get_mut(id)
                 .methods
                 .push(method);
         }
+        Ok(())
+    }
 
-        ctx.current_scope = parent_id;
-        Ok(scope_id)
+    fn add_types_to_impl(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        id: ImplBlockId,
+        input: &Vec<NirTypeBound>,
+    ) -> Result<(), TcError> {
+        Ok(for ty in input {
+            let name = ty.name;
+            let rhs = self.visit_type(ctx, &ty.ty)?;
+            match &mut ctx.ctx.interner.impl_interner.get_mut(id).kind {
+                ImplKind::WithTrait { types, .. } => {
+                    types.insert(name, rhs);
+                }
+                _ => unreachable!(),
+            }
+            ctx.push_def(name, Rc::new(Definition::Type(rhs)));
+        })
     }
 
     fn visit_method(
@@ -771,6 +775,7 @@ impl<'ctx> SurfaceResolution {
         Ok(Method { name, kind, args })
     }
 }
+
 impl<'ctx> Pass<'ctx, &'ctx NirProgram> for SurfaceResolution {
     type Output = SurfaceResolutionPassOutput<'ctx>;
 

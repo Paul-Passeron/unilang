@@ -132,6 +132,75 @@ impl TcTy {
 }
 
 impl<'ctx> TyCtx<'ctx> {
+    pub fn enter_scope(&mut self, kind: ScopeKind) -> ScopeId {
+        let parent = self.current_scope;
+        let scope = Scope {
+            kind,
+            parent: Some(parent),
+            children: Vec::new(),
+            definitions: Vec::new(),
+        };
+        let id = self.ctx.interner.scope_interner.insert(scope);
+        // register in parent
+        let parent_mut = self.ctx.interner.scope_interner.get_mut(parent);
+        parent_mut.children.push(id);
+        self.current_scope = id;
+        println!("Entering scope {:?}", id);
+        id
+    }
+
+    pub fn exit_scope(&mut self) {
+        if let Some(parent) = self
+            .ctx
+            .interner
+            .scope_interner
+            .get(self.current_scope)
+            .parent
+        {
+            println!("Exiting scope {:?}", self.current_scope);
+            self.current_scope = parent;
+        }
+    }
+
+    pub fn with_scope<F, R>(&mut self, kind: ScopeKind, f: F) -> R
+    where
+        F: FnOnce(&mut TyCtx<'ctx>) -> R,
+    {
+        let _scope = self.enter_scope(kind);
+        let res = f(self);
+        self.exit_scope();
+        res
+    }
+
+    pub fn with_scope_id<F, R>(&mut self, id: ScopeId, f: F) -> R
+    where
+        F: FnOnce(&mut TyCtx<'ctx>) -> R,
+    {
+        let before = self.current_scope;
+        self.current_scope = id;
+        let res = f(self);
+        self.current_scope = before;
+        res
+    }
+
+    pub fn get_symbol_def_in_scope(&self, id: ScopeId, symb: Symbol) -> Option<Rc<Definition>> {
+        self.get_scope(id)
+            .get_definition_for_symbol(symb, &self.ctx.interner.scope_interner)
+    }
+
+    pub fn get_symbol_def(&self, symb: Symbol) -> Option<Rc<Definition>> {
+        self.get_last_scope()
+            .get_definition_for_symbol(symb, &self.ctx.interner.scope_interner)
+    }
+
+    pub fn push_def(&mut self, symb: Symbol, def: Rc<Definition>) {
+        self.get_last_scope_mut().definitions.push((symb, def));
+    }
+
+    pub fn get_scope(&self, id: ScopeId) -> &Scope {
+        self.ctx.interner.scope_interner.get(id)
+    }
+
     fn declare_type(&mut self, val: TcTy) -> TyId {
         if let Some(id) = self.ctx.interner.type_interner.contains(&val) {
             id
