@@ -9,7 +9,7 @@ use crate::{
     lexer::Lexer,
     nir::{include_resolver::IncludeResolver, interner::GlobalInterner, visitor::NirVisitor},
     parser::{ast::Program, parser::Parser},
-    ty::{TcError, TyCtx},
+    ty::{TyCtx, pass::Pass, surface_resolution::SurfaceResolution},
 };
 #[derive(Debug, Clone)]
 pub struct GlobalContext {
@@ -59,12 +59,15 @@ impl GlobalContext {
         };
 
         let mut tc = TyCtx::new(&mut self);
-        if let Err(TcError::Aggregate(errors)) = tc.visit_program(&nir) {
-            for error in &errors {
-                tc.print_error(&error.1);
+
+        let _resolved = match SurfaceResolution::new().run(&mut tc, &nir) {
+            Ok(resolved) => resolved,
+            Err(err) => {
+                tc.print_error(&err);
+                panic!()
             }
-            panic!()
-        }
-        println!("Successfully type checked !")
+        };
+
+        println!("Successfully surface resolved!")
     }
 }

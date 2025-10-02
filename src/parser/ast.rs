@@ -95,12 +95,13 @@ pub enum Expr {
     },
     SizeDir(Ast<Ty>),
     StrDir(Ast<Ty>),
+    TodoDir,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Ty {
     Named {
-        name: Ast<String>,
+        name: Ast<Expr>,
         templates: Vec<Ast<Ty>>,
     },
     Ptr(Ast<Ty>),
@@ -365,6 +366,9 @@ impl PrettyPrint for Expr {
                 write!(f, "@size {}", parse_result)
             }
             Expr::StrDir(ast) => todo!(),
+            Expr::TodoDir => {
+                write!(f, "@todo")
+            }
         }
     }
 }

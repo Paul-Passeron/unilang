@@ -1,7 +1,7 @@
 #![feature(formatting_options)]
 #![allow(dead_code)]
 #![feature(let_chains)]
-
+#![feature(get_mut_unchecked)]
 use std::path::PathBuf;
 
 use crate::{common::config::Config, nir::context::GlobalContext};

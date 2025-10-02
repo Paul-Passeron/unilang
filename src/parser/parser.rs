@@ -15,9 +15,7 @@ use crate::{
         errors::ParseError,
         source_location::{Location, Span},
     },
-    lexer::{
-        Token, TokenKind,
-    },
+    lexer::{Token, TokenKind},
     parser::ast::{ConstrainedType, Implementation, PostfixExprKind, TemplateDecl, TySpec},
 };
 
@@ -359,6 +357,44 @@ impl Parser {
         }
     }
 
+    pub fn parse_type_expr(&mut self) -> Result<Ast<Expr>, ParseError> {
+        // not ideal
+        let original = self.position;
+        let mut current = {
+            if let Some(tok) = self.peek()
+                && let TokenKind::Identifier(symb) = tok.kind
+            {
+                let iden = self.parse_identifier_as_string()?;
+                let span = iden.loc().clone();
+                Ast::new(Expr::Identifier(iden), span)
+            } else {
+                panic!()
+            }
+        };
+        while self.match_tokenkind(TokenKind::Access) {
+            self.next();
+            let next = if let Some(tok) = self.peek()
+                && let TokenKind::Identifier(symb) = tok.kind
+            {
+                let iden = self.parse_identifier_as_string()?;
+                let span = iden.loc().clone();
+                Ast::new(Expr::Identifier(iden), span)
+            } else {
+                return self.emit_abort(ParseErrKind::ExpectedIden);
+            };
+            let span = current.loc().start().span_to(&next.loc().end());
+            current = Ast::new(
+                Expr::BinOp {
+                    left: current,
+                    op: BinOp::Access,
+                    right: next,
+                },
+                span,
+            )
+        }
+        Ok(current)
+    }
+
     pub fn parse_base_type(&mut self) -> Result<Ast<Ty>, ParseError> {
         // Juste name < templated args>
         let original = self.position;
@@ -382,7 +418,7 @@ impl Parser {
                 start.span_to(&end),
             ));
         } else {
-            let name = self.parse_identifier_as_string()?;
+            let name = self.parse_type_expr()?;
             let start = name.loc().start();
             let mut end = name.loc().end();
             if self.tokens.len() <= self.position {
@@ -789,7 +825,7 @@ impl Parser {
         if self.is_done() {
             return self.emit_abort(ParseErrKind::UnexpectedEOF);
         }
-        let ty = self.parse_identifier_as_string()?;
+        let ty = self.parse_type_expr()?;
 
         let constraint = if self.peek().unwrap().kind == TokenKind::Colon {
             self.next();
@@ -979,7 +1015,9 @@ impl Parser {
                 }
             }
             TokenKind::Directive(s) => {
-                let start = self.next().unwrap().location.start();
+                let loc = self.next().unwrap().location;
+                let start = loc.start();
+                let end = loc.end();
                 match s.as_str() {
                     "as" => {
                         let t = self.parse_type()?;
@@ -1010,6 +1048,7 @@ impl Parser {
                         let end = e.loc().end();
                         Ok(Ast::new(Expr::StrDir(e), start.span_to(&end)))
                     }
+                    "todo" => Ok(Ast::new(Expr::TodoDir, start.span_to(&end))),
                     _ => {
                         self.next();
                         self.emit_abort(ParseErrKind::UnsupportedDir(s))
@@ -1399,6 +1438,11 @@ impl Parser {
 
                 let ty = self.parse_type()?;
 
+                if self.match_tokenkind(TokenKind::Impl) {
+                    self.next();
+                    todo!()
+                }
+
                 if !self.match_tokenkind(TokenKind::Semicolon) {
                     return self.emit_abort(ParseErrKind::ExpectedSemicol);
                 }
@@ -1470,11 +1514,16 @@ impl Parser {
         let start = self.next().unwrap().location.start();
         let name = self.parse_identifier_as_string()?;
 
+        if !self.match_tokenkind(TokenKind::BigArrow) {
+            return self.emit_abort(ParseErrKind::ExpectedArrow);
+        }
+        self.next();
+
         if !self.match_tokenkind(TokenKind::OpenBra) {
             return self.emit_abort(ParseErrKind::Todo);
         }
-
         let bra = self.next().unwrap().location;
+
         let mut toplevels = Vec::new();
         while !self.match_tokenkind(TokenKind::CloseBra) {
             let t = self.parse_top_level()?;

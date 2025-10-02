@@ -1,13 +1,98 @@
-let main(): int => {
-    return 0;
+impl <T> Iterable for Vec<T> => {
+    type Iter => VecIter<T>;
+
+    public to_iter(): Iter => {
+        @todo();
+    }
 }
 
+impl <T> Iterator for VecIter<T> => {
+    type Output => T;
 
-class A => {
-    public x: int;
-    public y: A*;
+    public has_next(): bool => {
+        @todo;
+    }
+
+    public next(): Output => {
+        @todo;
+    }
 }
 
-class B => {
-    public y: A;
+impl <T> Iterable for Option<T> => {
+    type Iter => OptionIter<T>;
+
+    public to_iter(): Iter => {
+        @todo;
+    }
+}
+
+impl <T> Iterator for OptionIter<T> => {
+    type Output => T;
+
+    public has_next(): bool => {
+        @todo;
+    }
+
+    public next(): Output => {
+        @todo;
+    }
+}
+
+class <T> Option => {
+    private item: T*;
+
+    public Option(x: T) => {
+        @todo;
+    }
+
+    public Option() => {
+        @todo;
+    }
+
+    public unwrap(): T => {
+        @todo;
+    }
+}
+
+class <T> Vec => {
+    private items: T*;
+    private count: u32;
+    private capacity: u32;
+
+    public Vec() => {
+        @todo;
+    }
+
+    public Vec(with_capacity: u32) => {
+        @todo;
+    }
+
+
+    public get(i: u32): Option<T> => {
+        @todo;
+    }
+
+}
+
+class <T> VecIter => {
+    public VecIter(from: Vec<T>) => {
+        @todo;
+    }
+}
+
+class <T> OptionIter => {
+    public OptionIter(from: Option<T>) => {
+        @todo;
+    }
+}
+
+interface Iterator T => {
+    type Output;
+    has_next(): bool;
+    next(): Output;
+}
+
+interface Iterable T => {
+    type Iter impl Iterator;
+    to_iter(): Iter;
 }

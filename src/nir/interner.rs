@@ -9,7 +9,7 @@ use crate::{
     nir::nir::{NirExpr, NirItem},
     ty::{
         TcFunProto, TcTy,
-        scope::{Class, Module, Scope, Trait, VarDecl},
+        scope::{Class, ImplBlock, Module, Scope, Trait, TypeExpr, Unresolved, VarDecl},
     },
 };
 
@@ -205,6 +205,15 @@ pub type VariableId = OneShotId<VarDecl>;
 pub type TraitInterner = OneShotInterner<Trait>;
 pub type TraitId = OneShotId<Trait>;
 
+pub type UnresolvedInterner = OneShotInterner<Unresolved>;
+pub type UnresolvedId = OneShotId<Unresolved>;
+
+pub type ImplBlockInterner = OneShotInterner<ImplBlock>;
+pub type ImplBlockId = OneShotId<ImplBlock>;
+
+pub type TypeExprId = OneShotId<TypeExpr>;
+pub type TypeExprInterner = HashInterner<TypeExprId, TypeExpr>;
+
 impl TraitInterner {
     pub fn get_with_name(&self, name: Symbol) -> Option<TraitId> {
         for (i, x) in self.0.iter().enumerate() {
@@ -229,6 +238,9 @@ pub struct GlobalInterner {
     pub module_interner: ModuleInterner,
     pub variable_interner: VariableInterner,
     pub trait_interner: TraitInterner,
+    pub unresolved_interner: UnresolvedInterner,
+    pub type_expr_interner: TypeExprInterner,
+    pub impl_interner: ImplBlockInterner,
 }
 
 impl GlobalInterner {
@@ -245,6 +257,9 @@ impl GlobalInterner {
             module_interner: ModuleInterner::new(),
             variable_interner: VariableInterner::new(),
             trait_interner: TraitInterner::new(),
+            unresolved_interner: UnresolvedInterner::new(),
+            type_expr_interner: TypeExprInterner::new(),
+            impl_interner: ImplBlockInterner::new(),
         }
     }
 

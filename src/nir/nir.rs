@@ -35,7 +35,7 @@ pub struct NirAssociatedType {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct NirTypeBound {
-    pub name: Vec<Symbol>,
+    pub name: Symbol,
     pub ty: NirType,
     pub span: Span,
 }
@@ -53,7 +53,7 @@ pub struct NirTraitDef {
 pub enum NirTypeKind {
     Ptr(Box<NirType>),
     Named {
-        name: Symbol,
+        name: ExprId,
         generic_args: Vec<NirType>,
     },
     Tuple(Vec<NirType>),
@@ -92,7 +92,7 @@ pub struct NirGenericArg {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct NirTraitConstraint {
-    pub name: Symbol,
+    pub name: ExprId,
     pub span: Span,
 }
 
@@ -330,6 +330,7 @@ pub enum NirExprKind {
     As { ty: NirType, expr: ExprId },
     Tuple(Vec<ExprId>),
     Range { start: ExprId, end: ExprId },
+    TodoDir,
 }
 
 pub struct NirProgram(pub Vec<ItemId>);

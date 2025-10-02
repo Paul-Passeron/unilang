@@ -2,7 +2,7 @@
 name = "unilang"
 version = "0.1.0"
 edition = "2024"
-
+channel = "nightly"
 [dependencies]
 escape_string = "0.1.2"
 nonempty = "0.12.0"

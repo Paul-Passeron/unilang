@@ -6,9 +6,9 @@ use crate::{
         nir::{
             FieldAccess, FieldAccessKind, NirArgument, NirAssociatedType, NirBinOp, NirBinOpKind,
             NirCall, NirCalled, NirClassDef, NirExpr, NirExprKind, NirFunctionDef, NirGenericArg,
-            NirImplBlock, NirItem, NirLiteral, NirMember, NirMethod, NirPattern, NirPatternKind,
-            NirProgram, NirStmtKind, NirTraitConstraint, NirTraitDef, NirType, NirTypeBound,
-            NirTypeKind, NirVarDecl, SelfKind,
+            NirImplBlock, NirItem, NirLiteral, NirMember, NirMethod, NirModuleDef, NirPattern,
+            NirPatternKind, NirProgram, NirStmtKind, NirTraitConstraint, NirTraitDef, NirType,
+            NirTypeBound, NirTypeKind, NirVarDecl, SelfKind,
         },
     },
     parser::ast::{
@@ -70,9 +70,16 @@ impl<'ctx> NirVisitor<'ctx> {
         let constraints = d
             .interface
             .iter()
-            .map(|x| NirTraitConstraint {
-                name: self.as_symbol(x),
-                span: *x.loc(),
+            .map(|x| {
+                let name = NirExpr {
+                    kind: NirExprKind::Named(self.as_symbol(x)),
+                    span: x.loc().clone(),
+                };
+                let name = self.ctx.interner.expr_interner.insert(name);
+                NirTraitConstraint {
+                    name,
+                    span: *x.loc(),
+                }
             })
             .collect();
 
@@ -89,8 +96,8 @@ impl<'ctx> NirVisitor<'ctx> {
         let span = *ty.loc();
         Ok(NirType {
             kind: match ty.as_ref() {
-                Ty::Named { name, templates } => NirTypeKind::Named {
-                    name: self.as_symbol(name),
+                Ty::Named { templates, name } => NirTypeKind::Named {
+                    name: self.visit_expr(name)?,
                     generic_args: templates
                         .iter()
                         .map(|x| self.visit_ty(x))
@@ -364,9 +371,16 @@ impl<'ctx> NirVisitor<'ctx> {
         let bounds = tdef
             .implements
             .iter()
-            .map(|x| NirTraitConstraint {
-                name: self.as_symbol(x),
-                span: *x.loc(),
+            .map(|x| {
+                let name = NirExpr {
+                    kind: NirExprKind::Named(self.as_symbol(x)),
+                    span: x.loc().clone(),
+                };
+                let name = self.ctx.interner.expr_interner.insert(name);
+                NirTraitConstraint {
+                    name,
+                    span: *x.loc(),
+                }
             })
             .collect::<Vec<_>>();
 
@@ -421,8 +435,13 @@ impl<'ctx> NirVisitor<'ctx> {
     fn visit_implementation(&mut self, implem: &Ast<Implementation>) -> Result<ItemId, NirError> {
         let idef = implem.as_ref();
 
+        let name = NirExpr {
+            kind: NirExprKind::Named(self.as_symbol(&idef.trait_name)),
+            span: idef.trait_name.loc().clone(),
+        };
+        let name = self.ctx.interner.expr_interner.insert(name);
         let implements = Some(NirTraitConstraint {
-            name: self.as_symbol(&idef.trait_name),
+            name,
             span: *idef.trait_name.loc(),
         });
 
@@ -444,7 +463,7 @@ impl<'ctx> NirVisitor<'ctx> {
                     Span::from(&start, &end).unwrap()
                 };
                 self.visit_ty(ty).map(|t| NirTypeBound {
-                    name: vec![self.as_symbol(name)],
+                    name: self.as_symbol(name),
                     ty: t,
                     span,
                 })
@@ -503,16 +522,26 @@ impl<'ctx> NirVisitor<'ctx> {
                     NirGenericArg {
                         name: match cons.ty.as_ref() {
                             Ty::Named { name, templates } if templates.is_empty() => {
-                                self.as_symbol(name)
+                                match name.as_ref() {
+                                    Expr::Identifier(ast) => self.as_symbol(ast),
+                                    _ => unreachable!(),
+                                }
                             }
                             _ => unreachable!(),
                         },
                         constraints: cons
                             .constraint
                             .iter()
-                            .map(|x| NirTraitConstraint {
-                                name: self.as_symbol(x),
-                                span: *x.loc(),
+                            .map(|x| {
+                                let name = NirExpr {
+                                    kind: NirExprKind::Named(self.as_symbol(x)),
+                                    span: x.loc().clone(),
+                                };
+                                let name = self.ctx.interner.expr_interner.insert(name);
+                                NirTraitConstraint {
+                                    name,
+                                    span: *x.loc(),
+                                }
                             })
                             .collect(),
                         span: *cons.ty.loc(),
@@ -549,7 +578,25 @@ impl<'ctx> NirVisitor<'ctx> {
                 let nir = self.visit_class(ast)?;
                 Ok(vec![nir])
             }
-            TopLevel::Module(_ast, _asts) => todo!(),
+            TopLevel::Module(name, items) => {
+                let end = items.last().map_or(name.loc().end(), |x| x.loc().end());
+
+                let def = NirModuleDef {
+                    name: self.as_symbol(name),
+                    items: items
+                        .iter()
+                        .map(|x| self.visit_item(x))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_iter()
+                        .flatten()
+                        .collect(),
+                    span: name.loc().start().span_to(&end),
+                };
+
+                let nir = self.ctx.interner.item_interner.insert(NirItem::Module(def));
+
+                Ok(vec![nir])
+            }
             TopLevel::NameAlias(_ast, _ast1) => todo!(),
             TopLevel::Implementation(ast) => {
                 let nir = self.visit_implementation(ast)?;
@@ -854,6 +901,10 @@ impl<'ctx> NirVisitor<'ctx> {
                     span,
                 })
             }
+            Expr::TodoDir => Ok(NirExpr {
+                kind: NirExprKind::TodoDir,
+                span,
+            }),
         };
         expr.map(|x| self.ctx.interner.insert_expr(x))
     }
