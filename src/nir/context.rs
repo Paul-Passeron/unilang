@@ -90,7 +90,7 @@ impl GlobalContext {
             ((tc_time.as_seconds_f64() - nir_time.as_seconds_f64()) * res).round() / res
         );
 
-        self.interner.debug_print();
+        // self.interner.debug_print();
         // println!("Successfully surface resolved!")
     }
 }

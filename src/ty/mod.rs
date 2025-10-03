@@ -5,7 +5,7 @@ use strum::{EnumIter, IntoEnumIterator};
 use crate::{
     nir::{
         context::GlobalContext,
-        interner::{Interner, ItemId, ScopeId, Symbol, TyId, TypeExprId, TypeInterner},
+        interner::{Interner, ScopeId, Symbol, TyId, TypeExprId, TypeInterner},
         nir::NirType,
     },
     ty::scope::{Definition, Scope, ScopeKind, TypeExpr},
@@ -70,7 +70,7 @@ pub struct TyCtx<'ctx> {
 pub enum TcError {
     Todo,
     NameNotFound(Symbol),
-    Aggregate(Vec<(ItemId, TcError)>),
+    Aggregate(Vec<TcError>),
 }
 
 impl PrimitiveTy {
@@ -145,7 +145,7 @@ impl<'ctx> TyCtx<'ctx> {
         let parent_mut = self.ctx.interner.scope_interner.get_mut(parent);
         parent_mut.children.push(id);
         self.current_scope = id;
-        // println!("Entering scope {:?}", id);
+        println!("Entering scope {:?}", id);
         id
     }
 
@@ -157,7 +157,10 @@ impl<'ctx> TyCtx<'ctx> {
             .get(self.current_scope)
             .parent
         {
-            // println!("Exiting scope {:?}", self.current_scope);
+            println!(
+                "Exiting scope {:?} to scope {:?}",
+                self.current_scope, parent
+            );
             self.current_scope = parent;
         }
     }

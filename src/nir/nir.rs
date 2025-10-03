@@ -1,9 +1,16 @@
 use std::hash::Hash;
 
+use nonempty::NonEmpty;
+
 use crate::{
     common::source_location::Span,
     nir::interner::{ExprId, ItemId, StringLiteral, Symbol},
 };
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct NirPath {
+    pub path: NonEmpty<(Symbol, Span)>,
+}
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum NirItem {
@@ -13,6 +20,7 @@ pub enum NirItem {
     Trait(NirTraitDef),
     Impl(NirImplBlock),
     Method(NirMethod),
+    Alias(Symbol, NirType),
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -53,7 +61,7 @@ pub struct NirTraitDef {
 pub enum NirTypeKind {
     Ptr(Box<NirType>),
     Named {
-        name: ExprId,
+        name: NirPath,
         generic_args: Vec<NirType>,
     },
     Tuple(Vec<NirType>),
@@ -92,7 +100,7 @@ pub struct NirGenericArg {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct NirTraitConstraint {
-    pub name: ExprId,
+    pub name: NirPath,
     pub span: Span,
 }
 

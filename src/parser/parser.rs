@@ -16,7 +16,9 @@ use crate::{
         source_location::{Location, Span},
     },
     lexer::{Token, TokenKind},
-    parser::ast::{ConstrainedType, Implementation, PostfixExprKind, TemplateDecl, TySpec},
+    parser::ast::{
+        ConstrainedType, Implementation, PostfixExprKind, TemplateDecl, TySpec, TypeName,
+    },
 };
 
 #[derive(Clone, Debug)]
@@ -357,42 +359,33 @@ impl Parser {
         }
     }
 
-    pub fn parse_type_expr(&mut self) -> Result<Ast<Expr>, ParseError> {
+    pub fn parse_type_expr(&mut self) -> Result<Ast<TypeName>, ParseError> {
         // not ideal
         let original = self.position;
-        let mut current = {
+        let mut ne = NonEmpty::new({
             if let Some(tok) = self.peek()
                 && let TokenKind::Identifier(symb) = tok.kind
             {
                 let iden = self.parse_identifier_as_string()?;
-                let span = iden.loc().clone();
-                Ast::new(Expr::Identifier(iden), span)
+                iden
             } else {
                 panic!()
             }
-        };
+        });
         while self.match_tokenkind(TokenKind::Access) {
             self.next();
             let next = if let Some(tok) = self.peek()
                 && let TokenKind::Identifier(symb) = tok.kind
             {
-                let iden = self.parse_identifier_as_string()?;
-                let span = iden.loc().clone();
-                Ast::new(Expr::Identifier(iden), span)
+                self.parse_identifier_as_string()?
             } else {
                 return self.emit_abort(ParseErrKind::ExpectedIden);
             };
-            let span = current.loc().start().span_to(&next.loc().end());
-            current = Ast::new(
-                Expr::BinOp {
-                    left: current,
-                    op: BinOp::Access,
-                    right: next,
-                },
-                span,
-            )
+            let span = ne.last().loc().start().span_to(&next.loc().end());
+            ne.push(next);
         }
-        Ok(current)
+        let span = ne.first().loc().start().span_to(&ne.last().loc().end());
+        Ok(Ast::new(TypeName { path: ne }, span))
     }
 
     pub fn parse_base_type(&mut self) -> Result<Ast<Ty>, ParseError> {

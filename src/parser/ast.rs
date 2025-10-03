@@ -99,9 +99,13 @@ pub enum Expr {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct TypeName {
+    pub path: NonEmpty<Ast<String>>,
+}
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Ty {
     Named {
-        name: Ast<Expr>,
+        name: Ast<TypeName>,
         templates: Vec<Ast<Ty>>,
     },
     Ptr(Ast<Ty>),
@@ -370,6 +374,20 @@ impl PrettyPrint for Expr {
                 write!(f, "@todo")
             }
         }
+    }
+}
+
+impl PrettyPrint for TypeName {
+    fn fmt_with_indent(&self, f: &mut fmt::Formatter<'_>, _indent_level: usize) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            self.path
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join("::")
+        )
     }
 }
 
