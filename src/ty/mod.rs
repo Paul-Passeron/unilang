@@ -145,7 +145,7 @@ impl<'ctx> TyCtx<'ctx> {
         let parent_mut = self.ctx.interner.scope_interner.get_mut(parent);
         parent_mut.children.push(id);
         self.current_scope = id;
-        println!("Entering scope {:?}", id);
+        // println!("Entering scope {:?}", id);
         id
     }
 
@@ -157,7 +157,7 @@ impl<'ctx> TyCtx<'ctx> {
             .get(self.current_scope)
             .parent
         {
-            println!("Exiting scope {:?}", self.current_scope);
+            // println!("Exiting scope {:?}", self.current_scope);
             self.current_scope = parent;
         }
     }

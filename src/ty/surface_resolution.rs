@@ -5,7 +5,7 @@ use crate::{
     nir::{
         interner::{
             ClassId, ConstructibleId, ExprId, ImplBlockId, Interner, ItemId, ScopeId, Symbol,
-            TraitId, TypeExprId, UnresolvedId,
+            TraitId, TypeExprId, UnresolvedId, UnresolvedInterner,
         },
         nir::{
             FieldAccessKind, NirArgument, NirClassDef, NirExpr, NirExprKind, NirFunctionDef,
@@ -27,6 +27,7 @@ use super::TyCtx;
 
 pub struct SurfaceResolution {
     backpatching: Vec<(Rc<Definition>, UnresolvedId)>,
+    unresolved_interner: UnresolvedInterner,
 }
 pub type SurfaceResolutionPassOutput<'ctx> = Vec<(ScopeId, ItemId)>;
 
@@ -34,6 +35,7 @@ impl<'ctx> SurfaceResolution {
     pub fn new() -> Self {
         Self {
             backpatching: Vec::new(),
+            unresolved_interner: UnresolvedInterner::new(),
         }
     }
 
@@ -154,7 +156,7 @@ impl<'ctx> SurfaceResolution {
     }
 
     fn print_unresolved(&mut self, ctx: &mut TyCtx<'ctx>, input: UnresolvedId) -> String {
-        let un = ctx.ctx.interner.unresolved_interner.get(input);
+        let un = self.unresolved_interner.get(input);
         match un.kind {
             UnresolvedKind::Symb(symbol, _) => format!("{}", ctx.ctx.interner.get_symbol(symbol)),
             UnresolvedKind::From(id, symbol) => {
@@ -172,7 +174,7 @@ impl<'ctx> SurfaceResolution {
         ctx: &mut TyCtx<'ctx>,
         input: UnresolvedId,
     ) -> Result<Rc<Definition>, TcError> {
-        let Unresolved { scope, kind } = ctx.ctx.interner.unresolved_interner.get(input).clone();
+        let Unresolved { scope, kind } = self.unresolved_interner.get(input).clone();
         ctx.with_scope_id(scope, |ctx| match kind {
             UnresolvedKind::Symb(symbol, span) => {
                 let expr = NirExpr {
@@ -263,11 +265,11 @@ impl<'ctx> SurfaceResolution {
             Definition::Function(_) => todo!(),
             Definition::Module(module_id) => {
                 let module = ctx.ctx.interner.module_interner.get(*module_id);
-                println!(
-                    "Looking for {} in module {}",
-                    ctx.ctx.interner.get_symbol(index),
-                    ctx.ctx.interner.get_symbol(module.name)
-                );
+                // println!(
+                //     "Looking for {} in module {}",
+                //     ctx.ctx.interner.get_symbol(index),
+                //     ctx.ctx.interner.get_symbol(module.name)
+                // );
                 Ok(ctx
                     .ctx
                     .interner
@@ -275,12 +277,12 @@ impl<'ctx> SurfaceResolution {
                     .get(module.scope)
                     .get_definition_for_symbol(index, &ctx.ctx.interner.scope_interner)
                     .unwrap_or_else(|| {
-                        Rc::new(Definition::Unresolved(
-                            ctx.ctx.interner.unresolved_interner.insert(Unresolved {
+                        Rc::new(Definition::Unresolved(self.unresolved_interner.insert(
+                            Unresolved {
                                 scope: module.scope,
                                 kind: UnresolvedKind::Symb(index, span),
-                            }),
-                        ))
+                            },
+                        )))
                     }))
             }
             Definition::Variable(_) => todo!(),
@@ -291,7 +293,7 @@ impl<'ctx> SurfaceResolution {
                     scope: ctx.current_scope,
                     kind: UnresolvedKind::From(*u_id, index),
                 };
-                let id = ctx.ctx.interner.unresolved_interner.insert(un);
+                let id = self.unresolved_interner.insert(un);
                 let def = Rc::new(Definition::Unresolved(id));
                 self.backpatching.insert(0, (def.clone(), id));
                 Ok(def)
@@ -322,8 +324,8 @@ impl<'ctx> SurfaceResolution {
                 .get_last_scope()
                 .get_definition_for_symbol(symb, &ctx.ctx.interner.scope_interner)
                 .unwrap_or_else(|| {
-                    println!("Unresolved {}", ctx.ctx.interner.get_symbol(symb));
-                    let id = ctx.ctx.interner.unresolved_interner.insert(Unresolved {
+                    // println!("Unresolved {}", ctx.ctx.interner.get_symbol(symb));
+                    let id = self.unresolved_interner.insert(Unresolved {
                         scope: ctx.current_scope,
                         kind: UnresolvedKind::Symb(symb, expr.span),
                     });

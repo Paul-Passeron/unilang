@@ -19,6 +19,7 @@ pub trait Interner<'ctx, Value> {
     fn insert(&'ctx mut self, v: Value) -> Self::Id;
     fn get(&'ctx self, id: Self::Id) -> &'ctx Value;
     fn get_mut(&'ctx mut self, id: Self::Id) -> &'ctx mut Value;
+    fn len(&'ctx self) -> usize;
 }
 
 pub trait ConstructibleId: fmt::Debug + Eq + Hash + Copy {
@@ -29,7 +30,6 @@ pub trait ConstructibleId: fmt::Debug + Eq + Hash + Copy {
 pub struct HashInterner<Id: ConstructibleId, Value> {
     last_id: u32,
     map: HashMap<Id, Value>,
-    rev_map: HashMap<Value, Id>,
 }
 
 impl<Id: ConstructibleId, Value: Hash + Eq + Clone> HashInterner<Id, Value> {
@@ -37,7 +37,6 @@ impl<Id: ConstructibleId, Value: Hash + Eq + Clone> HashInterner<Id, Value> {
         Self {
             last_id: 0,
             map: HashMap::new(),
-            rev_map: HashMap::new(),
         }
     }
 }
@@ -48,7 +47,9 @@ impl<'ctx, Id: ConstructibleId, Value: Hash + Eq + Clone> Interner<'ctx, Value>
     type Id = Id;
 
     fn contains(&'ctx self, v: &Value) -> Option<Self::Id> {
-        self.rev_map.get(v).map(|x| *x)
+        self.map
+            .iter()
+            .find_map(|(k, val)| (val == v).then_some(*k))
     }
 
     fn insert(&'ctx mut self, v: Value) -> Self::Id {
@@ -57,7 +58,6 @@ impl<'ctx, Id: ConstructibleId, Value: Hash + Eq + Clone> Interner<'ctx, Value>
         } else {
             let res = Id::new(self.last_id);
             self.last_id += 1;
-            self.rev_map.insert(v.clone(), res);
             self.map.insert(res, v);
             res
         }
@@ -69,6 +69,10 @@ impl<'ctx, Id: ConstructibleId, Value: Hash + Eq + Clone> Interner<'ctx, Value>
 
     fn get_mut(&'ctx mut self, id: Self::Id) -> &'ctx mut Value {
         self.map.get_mut(&id).unwrap()
+    }
+
+    fn len(&'ctx self) -> usize {
+        self.map.len()
     }
 }
 
@@ -185,6 +189,10 @@ where
     fn get_mut(&'ctx mut self, id: Self::Id) -> &'ctx mut T {
         &mut self.0[id.0 as usize]
     }
+
+    fn len(&'ctx self) -> usize {
+        self.0.len()
+    }
 }
 
 pub type ScopeInterner = OneShotInterner<Scope>;
@@ -205,7 +213,7 @@ pub type VariableId = OneShotId<VarDecl>;
 pub type TraitInterner = OneShotInterner<Trait>;
 pub type TraitId = OneShotId<Trait>;
 
-pub type UnresolvedInterner = OneShotInterner<Unresolved>;
+pub type UnresolvedInterner = HashInterner<UnresolvedId, Unresolved>;
 pub type UnresolvedId = OneShotId<Unresolved>;
 
 pub type ImplBlockInterner = OneShotInterner<ImplBlock>;
@@ -213,17 +221,6 @@ pub type ImplBlockId = OneShotId<ImplBlock>;
 
 pub type TypeExprId = OneShotId<TypeExpr>;
 pub type TypeExprInterner = HashInterner<TypeExprId, TypeExpr>;
-
-impl TraitInterner {
-    pub fn get_with_name(&self, name: Symbol) -> Option<TraitId> {
-        for (i, x) in self.0.iter().enumerate() {
-            if x.name == name {
-                return Some(TraitId::new(i as u32));
-            }
-        }
-        None
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct GlobalInterner {
@@ -238,7 +235,6 @@ pub struct GlobalInterner {
     pub module_interner: ModuleInterner,
     pub variable_interner: VariableInterner,
     pub trait_interner: TraitInterner,
-    pub unresolved_interner: UnresolvedInterner,
     pub type_expr_interner: TypeExprInterner,
     pub impl_interner: ImplBlockInterner,
 }
@@ -257,7 +253,6 @@ impl GlobalInterner {
             module_interner: ModuleInterner::new(),
             variable_interner: VariableInterner::new(),
             trait_interner: TraitInterner::new(),
-            unresolved_interner: UnresolvedInterner::new(),
             type_expr_interner: TypeExprInterner::new(),
             impl_interner: ImplBlockInterner::new(),
         }
@@ -321,5 +316,24 @@ impl GlobalInterner {
 
     pub fn insert_expr<'ctx>(&'ctx mut self, val: NirExpr) -> ExprId {
         self.expr_interner.insert(val)
+    }
+
+    pub fn debug_print(&self) {
+        println!("symbol_interner: {} items", self.symbol_interner.len());
+        println!("string_interner: {} items", self.string_interner.len());
+        println!("item_interner: {} items", self.item_interner.len());
+        println!("expr_interner: {} items", self.expr_interner.len());
+        println!("type_interner: {} items", self.type_interner.len());
+        println!("scope_interner: {} items", self.scope_interner.len());
+        println!("fun_interner: {} items", self.fun_interner.len());
+        println!("class_interner: {} items", self.class_interner.len());
+        println!("module_interner: {} items", self.module_interner.len());
+        println!("variable_interner: {} items", self.variable_interner.len());
+        println!("trait_interner: {} items", self.trait_interner.len());
+        println!(
+            "type_expr_interner: {} items",
+            self.type_expr_interner.len()
+        );
+        println!("impl_interner: {} items", self.impl_interner.len());
     }
 }

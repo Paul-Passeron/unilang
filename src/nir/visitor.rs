@@ -967,7 +967,7 @@ impl<'ctx> NirVisitor<'ctx> {
 
                 let id = self.ctx.file_manager.add_file(&path).unwrap();
 
-                println!("{:?} => {}", id, path.display());
+                // println!("{:?} => {}", id, path.display());
 
                 let prgm = self.ctx.parse_file(id);
 

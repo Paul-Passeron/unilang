@@ -47,9 +47,25 @@ impl GlobalContext {
     }
 
     pub fn compile(mut self) {
+        let start = chrono::Local::now();
+        let res = 100000.0;
         let id = self.file_manager.add_file(&self.config.files).unwrap();
         let prgm = self.parse_file(id).unwrap();
+
+        let parsing = chrono::Local::now().signed_duration_since(start);
+        println!(
+            "Finished parsing at {}",
+            (parsing.as_seconds_f64() * res).round() / res
+        );
+
         let nir = NirVisitor::new(&mut self, true).visit_program(&prgm);
+        let nir_time = chrono::Local::now().signed_duration_since(start);
+        println!(
+            "Finished NIR at {} ({})s.",
+            (nir_time.as_seconds_f64() * res).round() / res,
+            ((nir_time.as_seconds_f64() - parsing.as_seconds_f64()) * res).round() / res
+        );
+
         let nir = match nir {
             Ok(nir) => nir,
             Err(x) => {
@@ -67,7 +83,14 @@ impl GlobalContext {
                 panic!()
             }
         };
+        let tc_time = chrono::Local::now().signed_duration_since(start);
+        println!(
+            "Finished Surface Resolution at {} ({})s.",
+            (tc_time.as_seconds_f64() * res).round() / res,
+            ((tc_time.as_seconds_f64() - nir_time.as_seconds_f64()) * res).round() / res
+        );
 
-        println!("Successfully surface resolved!")
+        self.interner.debug_print();
+        // println!("Successfully surface resolved!")
     }
 }
