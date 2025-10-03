@@ -130,6 +130,6 @@ let other3(): std::vec::Vec<int> => {}
 let main(): int => {
     let x: int => 7;
     let c: Vec<int>;
-    a::fn::hey();
+    a::fn();
     return 0;
 }
