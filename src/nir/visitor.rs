@@ -601,14 +601,14 @@ impl<'ctx> NirVisitor<'ctx> {
                     span: name.loc().start().span_to(&end),
                 };
 
-                let nir = self.ctx.interner.item.insert(NirItem::Module(def));
+                let nir = self.ctx.interner.insert_item(NirItem::Module(def));
 
                 Ok(vec![nir])
             }
             TopLevel::NameAlias(name, aliased) => {
                 let name = self.as_symbol(name);
                 let ty = self.visit_ty(aliased)?;
-                let nir = self.ctx.interner.item.insert(NirItem::Alias(name, ty));
+                let nir = self.ctx.interner.insert_item(NirItem::Alias(name, ty));
                 Ok(vec![nir])
             }
             TopLevel::Implementation(ast) => {

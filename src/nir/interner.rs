@@ -229,20 +229,20 @@ pub type DefId = OneShotId<Definition>;
 
 #[derive(Debug, Clone)]
 pub struct GlobalInterner {
-    pub symbol: SymbolInterner,
-    pub string: StringInterner,
-    pub item: ItemInterner,
-    pub expr: ExprInterner,
-    pub ty: TypeInterner,
-    pub scope: ScopeInterner,
-    pub fun: FunInterner,
-    pub class: ClassInterner,
-    pub module: ModuleInterner,
-    pub variable: VariableInterner,
-    pub tr: TraitInterner,
-    pub type_expr: TypeExprInterner,
-    pub imp: ImplBlockInterner,
-    pub def: DefInterner,
+    symbol: SymbolInterner,
+    string: StringInterner,
+    item: ItemInterner,
+    expr: ExprInterner,
+    ty: TypeInterner,
+    scope: ScopeInterner,
+    fun: FunInterner,
+    class: ClassInterner,
+    module: ModuleInterner,
+    variable: VariableInterner,
+    tr: TraitInterner,
+    type_expr: TypeExprInterner,
+    imp: ImplBlockInterner,
+    def: DefInterner,
 }
 
 impl GlobalInterner {
@@ -279,6 +279,7 @@ impl GlobalInterner {
             self.string.insert(value.clone())
         }
     }
+
     pub fn insert_item(&mut self, value: NirItem) -> ItemId {
         self.item.insert(value)
     }
@@ -402,6 +403,43 @@ impl GlobalInterner {
         self.def.get_mut(id)
     }
 
+    pub fn contains_item(&self, value: &NirItem) -> Option<ItemId> {
+        self.item.contains(value)
+    }
+    pub fn contains_expr(&self, value: &NirExpr) -> Option<ExprId> {
+        self.expr.contains(value)
+    }
+    pub fn contains_ty(&self, value: &TcTy) -> Option<TyId> {
+        self.ty.contains(value)
+    }
+    pub fn contains_scope(&self, value: &Scope) -> Option<ScopeId> {
+        self.scope.contains(value)
+    }
+    pub fn contains_fun(&self, value: &TcFunProto) -> Option<FunId> {
+        self.fun.contains(value)
+    }
+    pub fn contains_class(&self, value: &Class) -> Option<ClassId> {
+        self.class.contains(value)
+    }
+    pub fn contains_module(&self, value: &Module) -> Option<ModuleId> {
+        self.module.contains(value)
+    }
+    pub fn contains_variable(&self, value: &VarDecl) -> Option<VariableId> {
+        self.variable.contains(value)
+    }
+    pub fn contains_tr(&self, value: &Trait) -> Option<TraitId> {
+        self.tr.contains(value)
+    }
+    pub fn contains_type_expr(&self, value: &TypeExpr) -> Option<TypeExprId> {
+        self.type_expr.contains(value)
+    }
+    pub fn contains_imp(&self, value: &ImplBlock) -> Option<ImplBlockId> {
+        self.imp.contains(value)
+    }
+    pub fn contains_def(&self, value: &Definition) -> Option<DefId> {
+        self.def.contains(value)
+    }
+
     pub fn debug_print(&self) {
         println!("symbol_interner: {} items", self.symbol.len());
         println!("string_interner: {} items", self.string.len());
@@ -420,5 +458,12 @@ impl GlobalInterner {
 
     pub fn get_symbol_for(&self, value: &String) -> Symbol {
         self.symbol.contains(value).unwrap()
+    }
+
+    pub fn scope_interner(&self) -> &OneShotInterner<Scope> {
+        &self.scope
+    }
+    pub fn get_ty_interner(&self) -> &TypeInterner {
+        &self.ty
     }
 }
