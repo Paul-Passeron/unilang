@@ -512,7 +512,7 @@ impl<'ctx> NirVisitor<'ctx> {
             TopLevel::ExternDir(ast, ast1) => {
                 let is_variadic = *ast1.as_ref();
                 let proto_id = self.visit_proto(ast)?;
-                let proto = self.ctx.interner.get_mut_item(proto_id);
+                let proto = self.ctx.interner.get_item_mut(proto_id);
                 let proto = match proto {
                     NirItem::Function(x) => x,
                     _ => unreachable!(),
@@ -601,18 +601,14 @@ impl<'ctx> NirVisitor<'ctx> {
                     span: name.loc().start().span_to(&end),
                 };
 
-                let nir = self.ctx.interner.item_interner.insert(NirItem::Module(def));
+                let nir = self.ctx.interner.item.insert(NirItem::Module(def));
 
                 Ok(vec![nir])
             }
             TopLevel::NameAlias(name, aliased) => {
                 let name = self.as_symbol(name);
                 let ty = self.visit_ty(aliased)?;
-                let nir = self
-                    .ctx
-                    .interner
-                    .item_interner
-                    .insert(NirItem::Alias(name, ty));
+                let nir = self.ctx.interner.item.insert(NirItem::Alias(name, ty));
                 Ok(vec![nir])
             }
             TopLevel::Implementation(ast) => {

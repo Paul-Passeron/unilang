@@ -9,7 +9,9 @@ use crate::{
     nir::nir::{NirExpr, NirItem},
     ty::{
         TcFunProto, TcTy,
-        scope::{Class, ImplBlock, Module, Scope, Trait, TypeExpr, Unresolved, VarDecl},
+        scope::{
+            Class, Definition, ImplBlock, Module, Scope, Trait, TypeExpr, Unresolved, VarDecl,
+        },
     },
 };
 
@@ -222,118 +224,201 @@ pub type ImplBlockId = OneShotId<ImplBlock>;
 pub type TypeExprId = OneShotId<TypeExpr>;
 pub type TypeExprInterner = HashInterner<TypeExprId, TypeExpr>;
 
+pub type DefInterner = OneShotInterner<Definition>;
+pub type DefId = OneShotId<Definition>;
+
 #[derive(Debug, Clone)]
 pub struct GlobalInterner {
-    pub symbol_interner: SymbolInterner,
-    pub string_interner: StringInterner,
-    pub item_interner: ItemInterner,
-    pub expr_interner: ExprInterner,
-    pub type_interner: TypeInterner,
-    pub scope_interner: ScopeInterner,
-    pub fun_interner: FunInterner,
-    pub class_interner: ClassInterner,
-    pub module_interner: ModuleInterner,
-    pub variable_interner: VariableInterner,
-    pub trait_interner: TraitInterner,
-    pub type_expr_interner: TypeExprInterner,
-    pub impl_interner: ImplBlockInterner,
+    pub symbol: SymbolInterner,
+    pub string: StringInterner,
+    pub item: ItemInterner,
+    pub expr: ExprInterner,
+    pub ty: TypeInterner,
+    pub scope: ScopeInterner,
+    pub fun: FunInterner,
+    pub class: ClassInterner,
+    pub module: ModuleInterner,
+    pub variable: VariableInterner,
+    pub tr: TraitInterner,
+    pub type_expr: TypeExprInterner,
+    pub imp: ImplBlockInterner,
+    pub def: DefInterner,
 }
 
 impl GlobalInterner {
     pub fn new() -> Self {
         Self {
-            symbol_interner: SymbolInterner::new(),
-            string_interner: StringInterner::new(),
-            item_interner: ItemInterner::new(),
-            expr_interner: ExprInterner::new(),
-            type_interner: TypeInterner::new(),
-            scope_interner: ScopeInterner::new(),
-            fun_interner: FunInterner::new(),
-            class_interner: ClassInterner::new(),
-            module_interner: ModuleInterner::new(),
-            variable_interner: VariableInterner::new(),
-            trait_interner: TraitInterner::new(),
-            type_expr_interner: TypeExprInterner::new(),
-            impl_interner: ImplBlockInterner::new(),
+            symbol: SymbolInterner::new(),
+            string: StringInterner::new(),
+            item: ItemInterner::new(),
+            expr: ExprInterner::new(),
+            ty: TypeInterner::new(),
+            scope: ScopeInterner::new(),
+            fun: FunInterner::new(),
+            class: ClassInterner::new(),
+            module: ModuleInterner::new(),
+            variable: VariableInterner::new(),
+            tr: TraitInterner::new(),
+            type_expr: TypeExprInterner::new(),
+            imp: ImplBlockInterner::new(),
+            def: DefInterner::new(),
         }
     }
 
-    pub fn get_symbol<'ctx>(&'ctx self, id: Symbol) -> &'ctx String {
-        self.symbol_interner.get(id)
-    }
-
-    pub fn get_string<'ctx>(&'ctx self, id: StringLiteral) -> &'ctx String {
-        self.string_interner.get(id)
-    }
-
-    pub fn get_item<'ctx>(&'ctx self, id: ItemId) -> &'ctx NirItem {
-        &self.item_interner.get(id)
-    }
-
-    pub fn get_expr<'ctx>(&'ctx self, id: ExprId) -> &'ctx NirExpr {
-        &self.expr_interner.get(id)
-    }
-
-    pub fn get_mut_symbol<'ctx>(&'ctx mut self, id: Symbol) -> &'ctx mut String {
-        self.symbol_interner.get_mut(id)
-    }
-
-    pub fn get_mut_string<'ctx>(&'ctx mut self, id: StringLiteral) -> &'ctx mut String {
-        self.string_interner.get_mut(id)
-    }
-
-    pub fn get_mut_item<'ctx>(&'ctx mut self, id: ItemId) -> &'ctx mut NirItem {
-        self.item_interner.get_mut(id)
-    }
-
-    pub fn get_mut_expr<'ctx>(&'ctx mut self, id: ExprId) -> &'ctx mut NirExpr {
-        self.expr_interner.get_mut(id)
-    }
-
-    pub fn insert_symbol<'ctx>(&'ctx mut self, val: &String) -> Symbol {
-        if let Some(id) = self.symbol_interner.contains(val) {
-            id
+    pub fn insert_symbol(&mut self, value: &String) -> Symbol {
+        if let Some(res) = self.symbol.contains(value) {
+            res
         } else {
-            self.symbol_interner.insert(val.clone())
+            self.symbol.insert(value.clone())
         }
     }
-
-    pub fn get_symbol_for<'ctx>(&'ctx self, id: &str) -> Option<Symbol> {
-        self.symbol_interner.contains(&id.to_string())
-    }
-
-    pub fn insert_string<'ctx>(&'ctx mut self, val: &String) -> StringLiteral {
-        if let Some(id) = self.string_interner.contains(val) {
-            id
+    pub fn insert_string(&mut self, value: &String) -> StringLiteral {
+        if let Some(res) = self.string.contains(value) {
+            res
         } else {
-            self.string_interner.insert(val.clone())
+            self.string.insert(value.clone())
         }
     }
-
-    pub fn insert_item<'ctx>(&'ctx mut self, val: NirItem) -> ItemId {
-        self.item_interner.insert(val)
+    pub fn insert_item(&mut self, value: NirItem) -> ItemId {
+        self.item.insert(value)
+    }
+    pub fn insert_expr(&mut self, value: NirExpr) -> ExprId {
+        self.expr.insert(value)
+    }
+    pub fn insert_ty(&mut self, value: TcTy) -> TyId {
+        self.ty.insert(value)
+    }
+    pub fn insert_scope(&mut self, value: Scope) -> ScopeId {
+        self.scope.insert(value)
+    }
+    pub fn insert_fun(&mut self, value: TcFunProto) -> FunId {
+        self.fun.insert(value)
+    }
+    pub fn insert_class(&mut self, value: Class) -> ClassId {
+        self.class.insert(value)
+    }
+    pub fn insert_module(&mut self, value: Module) -> ModuleId {
+        self.module.insert(value)
+    }
+    pub fn insert_variable(&mut self, value: VarDecl) -> VariableId {
+        self.variable.insert(value)
+    }
+    pub fn insert_tr(&mut self, value: Trait) -> TraitId {
+        self.tr.insert(value)
+    }
+    pub fn insert_type_expr(&mut self, value: TypeExpr) -> TypeExprId {
+        self.type_expr.insert(value)
+    }
+    pub fn insert_imp(&mut self, value: ImplBlock) -> ImplBlockId {
+        self.imp.insert(value)
+    }
+    pub fn insert_def(&mut self, value: Definition) -> DefId {
+        self.def.insert(value)
     }
 
-    pub fn insert_expr<'ctx>(&'ctx mut self, val: NirExpr) -> ExprId {
-        self.expr_interner.insert(val)
+    pub fn get_symbol(&self, id: Symbol) -> &String {
+        self.symbol.get(id)
+    }
+    pub fn get_string(&self, id: StringLiteral) -> &String {
+        self.string.get(id)
+    }
+    pub fn get_item(&self, id: ItemId) -> &NirItem {
+        self.item.get(id)
+    }
+    pub fn get_expr(&self, id: ExprId) -> &NirExpr {
+        self.expr.get(id)
+    }
+    pub fn get_ty(&self, id: TyId) -> &TcTy {
+        self.ty.get(id)
+    }
+    pub fn get_scope(&self, id: ScopeId) -> &Scope {
+        self.scope.get(id)
+    }
+    pub fn get_fun(&self, id: FunId) -> &TcFunProto {
+        self.fun.get(id)
+    }
+    pub fn get_class(&self, id: ClassId) -> &Class {
+        self.class.get(id)
+    }
+    pub fn get_module(&self, id: ModuleId) -> &Module {
+        self.module.get(id)
+    }
+    pub fn get_variable(&self, id: VariableId) -> &VarDecl {
+        self.variable.get(id)
+    }
+    pub fn get_tr(&self, id: TraitId) -> &Trait {
+        self.tr.get(id)
+    }
+    pub fn get_type_expr(&self, id: TypeExprId) -> &TypeExpr {
+        self.type_expr.get(id)
+    }
+    pub fn get_imp(&self, id: ImplBlockId) -> &ImplBlock {
+        self.imp.get(id)
+    }
+    pub fn get_def(&self, id: DefId) -> &Definition {
+        self.def.get(id)
+    }
+
+    pub fn get_symbol_mut(&mut self, id: Symbol) -> &mut String {
+        self.symbol.get_mut(id)
+    }
+    pub fn get_string_mut(&mut self, id: StringLiteral) -> &mut String {
+        self.string.get_mut(id)
+    }
+    pub fn get_item_mut(&mut self, id: ItemId) -> &mut NirItem {
+        self.item.get_mut(id)
+    }
+    pub fn get_expr_mut(&mut self, id: ExprId) -> &mut NirExpr {
+        self.expr.get_mut(id)
+    }
+    pub fn get_ty_mut(&mut self, id: TyId) -> &mut TcTy {
+        self.ty.get_mut(id)
+    }
+    pub fn get_scope_mut(&mut self, id: ScopeId) -> &mut Scope {
+        self.scope.get_mut(id)
+    }
+    pub fn get_fun_mut(&mut self, id: FunId) -> &mut TcFunProto {
+        self.fun.get_mut(id)
+    }
+    pub fn get_class_mut(&mut self, id: ClassId) -> &mut Class {
+        self.class.get_mut(id)
+    }
+    pub fn get_module_mut(&mut self, id: ModuleId) -> &mut Module {
+        self.module.get_mut(id)
+    }
+    pub fn get_variable_mut(&mut self, id: VariableId) -> &mut VarDecl {
+        self.variable.get_mut(id)
+    }
+    pub fn get_tr_mut(&mut self, id: TraitId) -> &mut Trait {
+        self.tr.get_mut(id)
+    }
+    pub fn get_type_expr_mut(&mut self, id: TypeExprId) -> &mut TypeExpr {
+        self.type_expr.get_mut(id)
+    }
+    pub fn get_imp_mut(&mut self, id: ImplBlockId) -> &mut ImplBlock {
+        self.imp.get_mut(id)
+    }
+    pub fn get_def_mut(&mut self, id: DefId) -> &mut Definition {
+        self.def.get_mut(id)
     }
 
     pub fn debug_print(&self) {
-        println!("symbol_interner: {} items", self.symbol_interner.len());
-        println!("string_interner: {} items", self.string_interner.len());
-        println!("item_interner: {} items", self.item_interner.len());
-        println!("expr_interner: {} items", self.expr_interner.len());
-        println!("type_interner: {} items", self.type_interner.len());
-        println!("scope_interner: {} items", self.scope_interner.len());
-        println!("fun_interner: {} items", self.fun_interner.len());
-        println!("class_interner: {} items", self.class_interner.len());
-        println!("module_interner: {} items", self.module_interner.len());
-        println!("variable_interner: {} items", self.variable_interner.len());
-        println!("trait_interner: {} items", self.trait_interner.len());
-        println!(
-            "type_expr_interner: {} items",
-            self.type_expr_interner.len()
-        );
-        println!("impl_interner: {} items", self.impl_interner.len());
+        println!("symbol_interner: {} items", self.symbol.len());
+        println!("string_interner: {} items", self.string.len());
+        println!("item_interner: {} items", self.item.len());
+        println!("expr_interner: {} items", self.expr.len());
+        println!("type_interner: {} items", self.ty.len());
+        println!("scope_interner: {} items", self.scope.len());
+        println!("fun_interner: {} items", self.fun.len());
+        println!("class_interner: {} items", self.class.len());
+        println!("module_interner: {} items", self.module.len());
+        println!("variable_interner: {} items", self.variable.len());
+        println!("trait_interner: {} items", self.tr.len());
+        println!("type_expr_interner: {} items", self.ty.len());
+        println!("impl_interner: {} items", self.imp.len());
+    }
+
+    pub fn get_symbol_for(&self, value: &String) -> Symbol {
+        self.symbol.contains(value).unwrap()
     }
 }

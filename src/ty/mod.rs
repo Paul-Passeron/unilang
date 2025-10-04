@@ -140,9 +140,9 @@ impl<'ctx> TyCtx<'ctx> {
             children: Vec::new(),
             definitions: Vec::new(),
         };
-        let id = self.ctx.interner.scope_interner.insert(scope);
+        let id = self.ctx.interner.scope.insert(scope);
         // register in parent
-        let parent_mut = self.ctx.interner.scope_interner.get_mut(parent);
+        let parent_mut = self.ctx.interner.scope.get_mut(parent);
         parent_mut.children.push(id);
         self.current_scope = id;
         println!("Entering scope {:?}", id);
@@ -150,13 +150,7 @@ impl<'ctx> TyCtx<'ctx> {
     }
 
     pub fn exit_scope(&mut self) {
-        if let Some(parent) = self
-            .ctx
-            .interner
-            .scope_interner
-            .get(self.current_scope)
-            .parent
-        {
+        if let Some(parent) = self.ctx.interner.scope.get(self.current_scope).parent {
             println!(
                 "Exiting scope {:?} to scope {:?}",
                 self.current_scope, parent
@@ -188,12 +182,12 @@ impl<'ctx> TyCtx<'ctx> {
 
     pub fn get_symbol_def_in_scope(&self, id: ScopeId, symb: Symbol) -> Option<Rc<Definition>> {
         self.get_scope(id)
-            .get_definition_for_symbol(symb, &self.ctx.interner.scope_interner)
+            .get_definition_for_symbol(symb, &self.ctx.interner.scope)
     }
 
     pub fn get_symbol_def(&self, symb: Symbol) -> Option<Rc<Definition>> {
         self.get_last_scope()
-            .get_definition_for_symbol(symb, &self.ctx.interner.scope_interner)
+            .get_definition_for_symbol(symb, &self.ctx.interner.scope)
     }
 
     pub fn push_def(&mut self, symb: Symbol, def: Rc<Definition>) {
@@ -201,14 +195,14 @@ impl<'ctx> TyCtx<'ctx> {
     }
 
     pub fn get_scope(&self, id: ScopeId) -> &Scope {
-        self.ctx.interner.scope_interner.get(id)
+        self.ctx.interner.scope.get(id)
     }
 
     fn declare_type(&mut self, val: TcTy) -> TyId {
-        if let Some(id) = self.ctx.interner.type_interner.contains(&val) {
+        if let Some(id) = self.ctx.interner.ty.contains(&val) {
             id
         } else {
-            let ty = self.ctx.interner.type_interner.insert(val);
+            let ty = self.ctx.interner.ty.insert(val);
             self.methods.insert(ty, vec![]);
             ty
         }
@@ -216,14 +210,11 @@ impl<'ctx> TyCtx<'ctx> {
 
     fn declare_primitive_types(&mut self) {
         let create_alias = |this: &mut Self, ty, name: &str| {
-            let symb = this.ctx.interner.symbol_interner.insert(name.to_string());
+            let symb = this.ctx.interner.symbol.insert(name.to_string());
             let res = (
                 symb,
                 Rc::new(Definition::Type(
-                    this.ctx
-                        .interner
-                        .type_expr_interner
-                        .insert(TypeExpr::Resolved(ty)),
+                    this.ctx.interner.type_expr.insert(TypeExpr::Resolved(ty)),
                 )),
             );
             this.get_last_scope_mut().definitions.push(res);
@@ -237,7 +228,7 @@ impl<'ctx> TyCtx<'ctx> {
         let int_ty = self
             .ctx
             .interner
-            .type_interner
+            .ty
             .contains(&TcTy::Primitive(PrimitiveTy::I32))
             .unwrap();
         create_alias(self, int_ty, "int");
@@ -245,7 +236,7 @@ impl<'ctx> TyCtx<'ctx> {
         let usize_ty = self
             .ctx
             .interner
-            .type_interner
+            .ty
             .contains(&TcTy::Primitive(PrimitiveTy::U32))
             .unwrap();
         create_alias(self, usize_ty, "usize");
@@ -253,7 +244,7 @@ impl<'ctx> TyCtx<'ctx> {
         let char_ty = self
             .ctx
             .interner
-            .type_interner
+            .ty
             .contains(&TcTy::Primitive(PrimitiveTy::U8))
             .unwrap();
         create_alias(self, char_ty, "char");
@@ -263,7 +254,7 @@ impl<'ctx> TyCtx<'ctx> {
     //     let ty = self
     //         .ctx
     //         .interner
-    //         .type_interner
+    //         .ty
     //         .contains(&TcTy::Primitive(prim))
     //         .unwrap();
 
@@ -284,7 +275,7 @@ impl<'ctx> TyCtx<'ctx> {
     //     let ty = self
     //         .ctx
     //         .interner
-    //         .type_interner
+    //         .ty
     //         .contains(&TcTy::Primitive(PrimitiveTy::Void))
     //         .unwrap();
 
@@ -310,7 +301,7 @@ impl<'ctx> TyCtx<'ctx> {
     }
 
     fn get_symb(&self, s: &str) -> Symbol {
-        self.ctx.interner.get_symbol_for(&s.to_string()).unwrap()
+        self.ctx.interner.get_symbol_for(&s.to_string())
     }
 
     // fn get_methods_for_builtin(&mut self, _ty: TyId) -> Vec<TcFunProto> {
@@ -321,7 +312,7 @@ impl<'ctx> TyCtx<'ctx> {
     //         return_ty: self
     //             .ctx
     //             .interner
-    //             .type_interner
+    //             .ty
     //             .contains(&TcTy::Primitive(PrimitiveTy::U32))
     //             .unwrap(),
     //         variadic: false,
@@ -341,7 +332,7 @@ impl<'ctx> TyCtx<'ctx> {
             definitions: Vec::new(),
         };
 
-        let scope_id = ctx.interner.scope_interner.insert(first_scope);
+        let scope_id = ctx.interner.scope.insert(first_scope);
 
         let mut res = Self {
             types: HashMap::new(),
@@ -425,12 +416,12 @@ impl<'ctx> TyCtx<'ctx> {
     //     let res = match &mut ty.kind {
     //         NirTypeKind::Ptr(t) => {
     //             let inner = self.visit_type(t.as_mut())?;
-    //             Ok(self.ctx.interner.type_interner.insert(TcTy::Ptr(inner)))
+    //             Ok(self.ctx.interner.ty.insert(TcTy::Ptr(inner)))
     //         }
     //         NirTypeKind::Named { name, generic_args } if generic_args.len() == 0 => {
     //             let def = self
     //                 .get_last_scope()
-    //                 .get_definition_for_symbol(*name, &self.ctx.interner.scope_interner);
+    //                 .get_definition_for_symbol(*name, &self.ctx.interner.scope);
     //             match def {
     //                 Some(Definition::Type(TypeKind::Resolved(id))) => Ok(id),
     //                 Some(Definition::Class(_)) => {
@@ -452,7 +443,7 @@ impl<'ctx> TyCtx<'ctx> {
     // }
 
     fn is_type_primitive(&self, ty: TyId) -> bool {
-        let t = self.ctx.interner.type_interner.get(ty);
+        let t = self.ctx.interner.ty.get(ty);
         match &t {
             TcTy::Primitive(_) => true,
             _ => false,
@@ -460,12 +451,12 @@ impl<'ctx> TyCtx<'ctx> {
     }
 
     fn get_size(&self, ty: TyId) -> usize {
-        let t = self.ctx.interner.type_interner.get(ty);
-        t.get_size(&self.ctx.interner.type_interner)
+        let t = self.ctx.interner.ty.get(ty);
+        t.get_size(&self.ctx.interner.ty)
     }
 
     fn is_type_ptr(&mut self, ty: TyId) -> bool {
-        let t = self.ctx.interner.type_interner.get(ty);
+        let t = self.ctx.interner.ty.get(ty);
         matches!(t, TcTy::Ptr(_))
     }
 
@@ -503,7 +494,7 @@ impl<'ctx> TyCtx<'ctx> {
     //             NirLiteral::StringLiteral(_string_literal) => {
     //                 let char_ty = self.get_simple_named("char").unwrap();
     //                 let ty = TcTy::Ptr(char_ty);
-    //                 Ok(self.ctx.interner.type_interner.insert(ty))
+    //                 Ok(self.ctx.interner.ty.insert(ty))
     //             }
     //             NirLiteral::CharLiteral(_) => Ok(self.get_simple_named("char").unwrap()),
     //         },
@@ -519,7 +510,7 @@ impl<'ctx> TyCtx<'ctx> {
     //                 let scope = self.get_last_scope();
     //                 let def = scope.get_definition_for_symbol(
     //                     call.called.called,
-    //                     &self.ctx.interner.scope_interner,
+    //                     &self.ctx.interner.scope,
     //                 );
     //                 if def.is_none() {
     //                     return Err(TcError::NameNotFound(call.called.called));
@@ -559,7 +550,7 @@ impl<'ctx> TyCtx<'ctx> {
     //         NirExprKind::Named(symb) => {
     //             let def = self
     //                 .get_last_scope()
-    //                 .get_definition_for_symbol(*symb, &self.ctx.interner.scope_interner);
+    //                 .get_definition_for_symbol(*symb, &self.ctx.interner.scope);
     //             if def.is_none() {
     //                 return Err(TcError::NameNotFound(*symb));
     //             }
@@ -607,8 +598,8 @@ impl<'ctx> TyCtx<'ctx> {
     //     if source == dest {
     //         true
     //     } else {
-    //         let source = self.ctx.interner.type_interner.get(source);
-    //         let dest = self.ctx.interner.type_interner.get(dest);
+    //         let source = self.ctx.interner.ty.get(source);
+    //         let dest = self.ctx.interner.ty.get(dest);
     //         match (source, dest) {
     //             (TcTy::Primitive(_), TcTy::Primitive(_)) => true,
     //             (TcTy::Ptr(_), TcTy::Ptr(_)) => true,
@@ -630,11 +621,11 @@ impl<'ctx> TyCtx<'ctx> {
     // }
 
     fn get_last_scope_mut(&mut self) -> &mut Scope {
-        self.ctx.interner.scope_interner.get_mut(self.current_scope)
+        self.ctx.interner.scope.get_mut(self.current_scope)
     }
 
     fn get_last_scope(&self) -> &Scope {
-        self.ctx.interner.scope_interner.get(self.current_scope)
+        self.ctx.interner.scope.get(self.current_scope)
     }
 
     // fn declare_variable(&mut self, pattern: Pattern, expr: VarExpr, ty: TyId) {
@@ -729,7 +720,7 @@ impl<'ctx> TyCtx<'ctx> {
 
     //     let parent_id = self.current_scope;
 
-    //     let parent_scope = self.ctx.interner.scope_interner.get_mut(parent_id);
+    //     let parent_scope = self.ctx.interner.scope.get_mut(parent_id);
     //     parent_scope
     //         .definitions
     //         .push((proto.name, Definition::Function(fun_id)));
@@ -741,9 +732,9 @@ impl<'ctx> TyCtx<'ctx> {
     //         definitions: Vec::new(),
     //     };
 
-    //     let scope_id = self.ctx.interner.scope_interner.insert(scope);
+    //     let scope_id = self.ctx.interner.scope.insert(scope);
 
-    //     let parent_scope = self.ctx.interner.scope_interner.get_mut(parent_id);
+    //     let parent_scope = self.ctx.interner.scope.get_mut(parent_id);
     //     parent_scope.children.push(scope_id);
     //     self.current_scope = scope_id;
 
@@ -787,7 +778,7 @@ impl<'ctx> TyCtx<'ctx> {
     // }
 
     // fn get_return_type_impl(&self, id: ScopeId) -> Option<TyId> {
-    //     let scope = self.ctx.interner.scope_interner.get(id);
+    //     let scope = self.ctx.interner.scope.get(id);
     //     match scope.kind {
     //         ScopeKind::Function(fun_id) => {
     //             let fun = self.ctx.interner.fun_interner.get(fun_id);
@@ -810,7 +801,7 @@ impl<'ctx> TyCtx<'ctx> {
     //     match pattern {
     //         Pattern::Symbol(symbol) if *symbol == symb => Some(ty),
     //         Pattern::Tuple(patterns) => {
-    //             let t = self.ctx.interner.type_interner.get(ty);
+    //             let t = self.ctx.interner.ty.get(ty);
     //             match &t {
     //                 TcTy::Tuple(ty_ids) => {
     //                     for (p, t) in patterns.iter().zip(ty_ids) {
@@ -835,7 +826,7 @@ impl<'ctx> TyCtx<'ctx> {
     //         NirTypeKind::Named { name, generic_args } if generic_args.len() > 0 => {
     //             let def = self
     //                 .get_last_scope()
-    //                 .get_definition_for_symbol(*name, &self.ctx.interner.scope_interner);
+    //                 .get_definition_for_symbol(*name, &self.ctx.interner.scope);
 
     //             if def.is_none() {
     //                 return Err(TcError::NameNotFound(*name));
@@ -856,7 +847,7 @@ impl<'ctx> TyCtx<'ctx> {
     //         NirTypeKind::Named { name, .. } => {
     //             let def = self
     //                 .get_last_scope()
-    //                 .get_definition_for_symbol(*name, &self.ctx.interner.scope_interner);
+    //                 .get_definition_for_symbol(*name, &self.ctx.interner.scope);
 
     //             if def.is_none() {
     //                 return Err(TcError::NameNotFound(*name));
@@ -879,7 +870,7 @@ impl<'ctx> TyCtx<'ctx> {
     // fn get_trait(&mut self, name: Symbol) -> Option<TraitId> {
     //     let s = self
     //         .get_last_scope()
-    //         .get_definition_for_symbol(name, &self.ctx.interner.scope_interner);
+    //         .get_definition_for_symbol(name, &self.ctx.interner.scope);
     //     match s {
     //         Some(Definition::Trait(id)) => Some(id),
     //         _ => self.ctx.interner.trait_interner.get_with_name(name),
@@ -919,7 +910,7 @@ impl<'ctx> TyCtx<'ctx> {
     //         children: Vec::new(),
     //         definitions: Vec::new(),
     //     };
-    //     let new_scope_id = self.ctx.interner.scope_interner.insert(new_scope);
+    //     let new_scope_id = self.ctx.interner.scope.insert(new_scope);
 
     //     let last_scope = self.get_last_scope_mut();
     //     last_scope.children.push(new_scope_id);
@@ -968,7 +959,7 @@ impl<'ctx> TyCtx<'ctx> {
     //         TypeExpr::Instantiation { template, args } => self.instantiate(*template, args),
     //         TypeExpr::Ptr(type_expr) => {
     //             let ty = self.resolve_type_expr(&type_expr)?;
-    //             Ok(self.ctx.interner.type_interner.insert(TcTy::Ptr(ty)))
+    //             Ok(self.ctx.interner.ty.insert(TcTy::Ptr(ty)))
     //         }
     //         TypeExpr::Tuple(type_exprs) => {
     //             let ty = TcTy::Tuple(
@@ -978,7 +969,7 @@ impl<'ctx> TyCtx<'ctx> {
     //                     .collect::<Result<_, _>>()?,
     //             );
 
-    //             Ok(self.ctx.interner.type_interner.insert(ty))
+    //             Ok(self.ctx.interner.ty.insert(ty))
     //         }
     //     }
     // }
@@ -998,7 +989,7 @@ impl<'ctx> TyCtx<'ctx> {
     //                     })
     //                     .collect::<Result<_, _>>()?,
     //             };
-    //             Ok(self.ctx.interner.type_interner.insert(ty))
+    //             Ok(self.ctx.interner.ty.insert(ty))
     //         }
     //         Definition::Type(type_kind) => match type_kind {
     //             TypeKind::Resolved(ty_id) => Ok(ty_id),
