@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     nir::{
         interner::{
-            ClassId, ConstructibleId, DefId, ExprId, ImplBlockId, ItemId, ScopeId, TraitId, TyId,
+            ClassId, ConstructibleId, DefId, ExprId, ImplBlockId, ItemId, ScopeId, TraitId,
             TypeExprId, UnresolvedId,
         },
         nir::{
@@ -208,69 +208,6 @@ impl<'ctx> SurfaceResolution {
                 Ok(ctx.current_scope)
             }
             _ => unreachable!(),
-        }
-    }
-
-    fn ty_id_to_string(&self, _ctx: &TyCtx<'ctx>, ty: TyId) -> String {
-        format!("{:?}", ty)
-    }
-
-    fn def_to_string(&self, ctx: &TyCtx<'ctx>, def: DefId) -> String {
-        match ctx.ctx.interner.get_def(def) {
-            Definition::Class(id) => {
-                let cdef = ctx.ctx.interner.get_class(*id);
-                format!(
-                    "{}{}",
-                    ctx.ctx.interner.get_symbol(cdef.name),
-                    if cdef.templates.len() > 0 {
-                        "<".to_string()
-                            + (cdef
-                                .templates
-                                .iter()
-                                .map(|x| ctx.ctx.interner.get_symbol(x.name).clone())
-                                .collect::<Vec<_>>()
-                                .join(", "))
-                            .as_str()
-                            + ">"
-                    } else {
-                        String::new()
-                    }
-                )
-            }
-            Definition::Function(_) => todo!(),
-            Definition::Module(id) => format!("(Module {})", {
-                let mdef = ctx.ctx.interner.get_module(*id);
-                ctx.ctx.interner.get_symbol(mdef.name)
-            }),
-            Definition::Variable(_) => todo!(),
-            Definition::Trait(id) => format!("(Trait {})", {
-                let tdef = ctx.ctx.interner.get_tr(*id);
-                ctx.ctx.interner.get_symbol(tdef.name)
-            }),
-
-            Definition::Type(id) => self.tyexpr_to_string(ctx, *id),
-            Definition::Unresolved(id) => format!("Unresolved({})", id.0),
-        }
-    }
-
-    fn tyexpr_to_string(&self, ctx: &TyCtx<'ctx>, ty: TypeExprId) -> String {
-        let ty_expr = ctx.ctx.interner.get_type_expr(ty);
-        match ty_expr {
-            TypeExpr::Template(x) => format!("Template({})", x),
-            TypeExpr::Associated(x) => format!("Associated({})", x),
-            TypeExpr::Instantiation { template, args } => {
-                format!(
-                    "{}<{}>",
-                    self.def_to_string(ctx, *template),
-                    args.iter()
-                        .map(|x| self.tyexpr_to_string(ctx, *x))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            }
-            TypeExpr::Ptr(_) => todo!(),
-            TypeExpr::Tuple(_) => todo!(),
-            TypeExpr::Primitive(primitive_ty) => primitive_ty.get_name().to_string(),
         }
     }
 

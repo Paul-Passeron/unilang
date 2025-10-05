@@ -1,7 +1,6 @@
 #![feature(formatting_options)]
 #![allow(dead_code)]
 #![feature(let_chains)]
-#![feature(get_mut_unchecked)]
 
 use clap::Parser;
 

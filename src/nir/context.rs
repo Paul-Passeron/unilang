@@ -27,7 +27,7 @@ impl GlobalContext {
             interner: GlobalInterner::new(),
             file_manager: FileManager::new(),
             config,
-            include_resolver: IncludeResolver { std },
+            include_resolver: IncludeResolver::new(std),
         }
     }
 
