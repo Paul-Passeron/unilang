@@ -1,4 +1,4 @@
-use std::{path::PathBuf, process::exit, rc::Rc};
+use std::{collections::HashSet, process::exit, rc::Rc};
 
 use crate::{
     common::{
@@ -21,13 +21,7 @@ pub struct GlobalContext {
 
 impl GlobalContext {
     pub fn new(config: Config) -> Self {
-        let std = config.std.as_ref().map_or_else(
-            || {
-                std::env::var("UL_STD_PATH")
-                    .map_or(std::env::current_dir().unwrap(), |x| PathBuf::from(x))
-            },
-            |x| x.clone(),
-        );
+        let std = config.std.clone();
 
         Self {
             interner: GlobalInterner::new(),
@@ -49,8 +43,22 @@ impl GlobalContext {
     pub fn compile(mut self) {
         let start = chrono::Local::now();
         let res = 100000.0;
-        let id = self.file_manager.add_file(&self.config.files).unwrap();
-        let prgm = self.parse_file(id).unwrap();
+
+        let mut p = vec![];
+        let mut ids = HashSet::new();
+
+        for f in &self.config.files.clone() {
+            let id = self.file_manager.add_file(f).unwrap();
+            if ids.contains(&id) {
+                continue;
+            }
+            ids.insert(id);
+            println!("{id:?}");
+            let mut prgm = self.parse_file(id).unwrap();
+            p.append(&mut prgm.0);
+        }
+
+        let prgm = Program(p);
 
         let parsing = chrono::Local::now().signed_duration_since(start);
         println!(

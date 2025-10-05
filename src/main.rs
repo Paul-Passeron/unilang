@@ -2,7 +2,8 @@
 #![allow(dead_code)]
 #![feature(let_chains)]
 #![feature(get_mut_unchecked)]
-use std::path::PathBuf;
+
+use clap::Parser;
 
 use crate::{common::config::Config, nir::context::GlobalContext};
 
@@ -13,11 +14,7 @@ mod parser;
 mod ty;
 
 fn main() {
-    let config = Config {
-        files: PathBuf::from("./examples/main.ul"),
-        output: None,
-        std: None,
-    };
+    let config = Config::parse();
 
     let ctx = GlobalContext::new(config);
 
