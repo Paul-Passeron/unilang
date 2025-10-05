@@ -605,10 +605,45 @@ impl<'ctx> NirVisitor<'ctx> {
 
                 Ok(vec![nir])
             }
-            TopLevel::NameAlias(name, aliased) => {
+            TopLevel::Use(Some(name), aliased) => {
                 let name = self.as_symbol(name);
                 let ty = self.visit_ty(aliased)?;
                 let nir = self.ctx.interner.insert_item(NirItem::Alias(name, ty));
+                Ok(vec![nir])
+            }
+            TopLevel::Use(None, aliased) => {
+                let ty = self.visit_ty(aliased)?;
+                let (name, ty) = match ty.kind {
+                    NirTypeKind::Named { name, generic_args } if generic_args.len() == 0 => {
+                        if name.path.len() == 1 {
+                            let n = name.path[0];
+                            (
+                                n,
+                                NirType {
+                                    kind: NirTypeKind::Named {
+                                        name: name.clone(),
+                                        generic_args: vec![],
+                                    },
+                                    span: n.1,
+                                },
+                            )
+                        } else {
+                            let last = name.path.last().clone();
+                            (
+                                last,
+                                NirType {
+                                    kind: NirTypeKind::Named {
+                                        name: name,
+                                        generic_args: vec![],
+                                    },
+                                    span: aliased.loc().clone(),
+                                },
+                            )
+                        }
+                    }
+                    _ => unreachable!(),
+                };
+                let nir = self.ctx.interner.insert_item(NirItem::Alias(name.0, ty));
                 Ok(vec![nir])
             }
             TopLevel::Implementation(ast) => {

@@ -129,6 +129,12 @@ impl Parser {
         self.clone().next()
     }
 
+    fn peek_n(&self, i: usize) -> Option<Token> {
+        let mut x = self.clone();
+        x.next();
+        x.next()
+    }
+
     fn match_tokenkind(&self, k: TokenKind) -> bool {
         if self.position >= self.tokens.len() {
             return false;
@@ -782,20 +788,29 @@ impl Parser {
         ))
     }
 
-    pub fn parse_name_alias(&mut self) -> Result<((Ast<String>, Ast<Ty>), Span), ParseError> {
+    pub fn parse_name_alias(
+        &mut self,
+    ) -> Result<((Option<Ast<String>>, Ast<Ty>), Span), ParseError> {
         if !self.match_tokenkind(TokenKind::Use) {
             return self.emit_error(ParseErrKind::BadStartToken);
         }
 
         let start = self.next().unwrap().location.start();
-        let name = self.parse_identifier_as_string()?;
 
-        if !self.match_tokenkind(TokenKind::BigArrow) {
-            return self.emit_abort(ParseErrKind::ExpectedArrow);
-        }
+        let name = if let Some(arr) = self.peek_n(2)
+            && matches!(arr.kind, TokenKind::BigArrow)
+        {
+            let name = self.parse_identifier_as_string()?;
 
-        self.next();
+            if !self.match_tokenkind(TokenKind::BigArrow) {
+                return self.emit_abort(ParseErrKind::ExpectedArrow);
+            }
 
+            self.next();
+            Some(name)
+        } else {
+            None
+        };
         let ty = self.parse_type()?;
 
         if !self.match_tokenkind(TokenKind::Semicolon) {
@@ -1588,7 +1603,7 @@ impl Parser {
 
     pub fn parse_top_level_name_alias(&mut self) -> Result<Ast<TopLevel>, ParseError> {
         let (res, span) = self.parse_name_alias()?;
-        return Ok(Ast::new(TopLevel::NameAlias(res.0, res.1), span));
+        return Ok(Ast::new(TopLevel::Use(res.0, res.1), span));
     }
 
     pub fn parse_top_level(&mut self) -> Result<Ast<TopLevel>, ParseError> {

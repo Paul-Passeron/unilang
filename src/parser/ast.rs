@@ -192,7 +192,7 @@ pub enum TopLevel {
     Interface(Ast<Interface>),
     Class(Ast<Class>),
     Module(Ast<String>, Vec<Ast<TopLevel>>),
-    NameAlias(Ast<String>, Ast<Ty>),
+    Use(Option<Ast<String>>, Ast<Ty>),
     Implementation(Ast<Implementation>),
 }
 
@@ -583,7 +583,7 @@ impl PrettyPrint for TopLevel {
                 writeln!(f, "{}}}", TAB_SPACE.repeat(indent_level))
             }
             TopLevel::ExternDir(ast, is_var_arg) => todo!(),
-            TopLevel::NameAlias(ast, ast1) => todo!(),
+            TopLevel::Use(ast, ast1) => todo!(),
             TopLevel::Implementation(ast) => {
                 let data = ast.as_ref();
                 write!(

@@ -127,7 +127,9 @@ let test_alias():  Vector<int> => { @todo; }
 
 use vec => std::vec;
 use Vector => vec::Vec;
+use std::str;
 
+let x(): str::String => { @todo; }
 
 let main(): int => {
     let instance => @as MyClass(69, 420);
