@@ -782,6 +782,31 @@ impl Parser {
         ))
     }
 
+    pub fn parse_name_alias(&mut self) -> Result<((Ast<String>, Ast<Ty>), Span), ParseError> {
+        if !self.match_tokenkind(TokenKind::Use) {
+            return self.emit_error(ParseErrKind::BadStartToken);
+        }
+
+        let start = self.next().unwrap().location.start();
+        let name = self.parse_identifier_as_string()?;
+
+        if !self.match_tokenkind(TokenKind::BigArrow) {
+            return self.emit_abort(ParseErrKind::ExpectedArrow);
+        }
+
+        self.next();
+
+        let ty = self.parse_type()?;
+
+        if !self.match_tokenkind(TokenKind::Semicolon) {
+            return self.emit_abort(ParseErrKind::ExpectedSemicol);
+        }
+
+        let end = self.next().unwrap().location.end();
+
+        Ok(((name, ty), start.span_to(&end)))
+    }
+
     pub fn parse_type_alias(&mut self) -> Result<((Ast<String>, Ast<Ty>), Span), ParseError> {
         if !self.match_tokenkind(TokenKind::Type) {
             return self.emit_error(ParseErrKind::BadStartToken);
@@ -1561,9 +1586,8 @@ impl Parser {
         }
     }
 
-    pub fn parse_top_level_type_alias(&mut self) -> Result<Ast<TopLevel>, ParseError> {
-        let (res, span) = self.parse_type_alias()?;
-
+    pub fn parse_top_level_name_alias(&mut self) -> Result<Ast<TopLevel>, ParseError> {
+        let (res, span) = self.parse_name_alias()?;
         return Ok(Ast::new(TopLevel::NameAlias(res.0, res.1), span));
     }
 
@@ -1573,7 +1597,7 @@ impl Parser {
             Self::parse_extern_dir,
             Self::parse_top_level_let,
             Self::parse_fundef,
-            Self::parse_top_level_type_alias,
+            Self::parse_top_level_name_alias,
             Self::parse_interface,
             Self::parse_impl,
             Self::parse_class_top_level,

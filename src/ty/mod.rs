@@ -237,6 +237,29 @@ impl<'ctx> TyCtx<'ctx> {
         self.ctx.interner.get_scope(self.current_scope)
     }
 
+    fn visit_type_as_def(&mut self, input: &NirType) -> Result<DefId, TcError> {
+        match &input.kind {
+            NirTypeKind::Named { name, generic_args } if generic_args.len() == 0 => {
+                let def = self.resolve_path(name);
+                Ok(def)
+            }
+            NirTypeKind::Named { name, generic_args } => {
+                let args = generic_args
+                    .iter()
+                    .map(|x| self.visit_type(x))
+                    .collect::<Result<_, _>>()?;
+                let from = self.resolve_path(name);
+                let te = self.ctx.interner.insert_type_expr(TypeExpr::Instantiation {
+                    template: from,
+                    args,
+                });
+                let def = self.ctx.interner.insert_def(Definition::Type(te));
+                Ok(def)
+            }
+            _ => unreachable!(),
+        }
+    }
+
     fn visit_type(&mut self, input: &NirType) -> Result<TypeExprId, TcError> {
         match &input.kind {
             NirTypeKind::Ptr(nir_type) => self

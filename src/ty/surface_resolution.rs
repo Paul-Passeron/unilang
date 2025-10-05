@@ -202,8 +202,7 @@ impl<'ctx> SurfaceResolution {
             NirItem::Trait(x) => self.visit_trait(ctx, &x, input),
             NirItem::Impl(x) => self.visit_impl(ctx, &x, input),
             NirItem::Alias(name, ty) => {
-                let ty = ctx.visit_type(&ty)?;
-                let def = ctx.ctx.interner.insert_def(Definition::Type(ty));
+                let def = ctx.visit_type_as_def(&ty)?;
                 ctx.push_def(name, def);
                 Ok(ctx.current_scope)
             }

@@ -28,6 +28,7 @@ pub enum TokenKind {
     In,
     Type,
     Break,
+    Use,
 
     // Operators
     Plus,
@@ -120,6 +121,7 @@ impl fmt::Display for TokenKind {
             TokenKind::In => write!(f, "in"),
             TokenKind::Type => write!(f, "type"),
             TokenKind::Break => write!(f, "break"),
+            TokenKind::Use => write!(f, "use"),
         }
     }
 }

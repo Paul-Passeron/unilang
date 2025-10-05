@@ -123,20 +123,15 @@ mod a => {
     }
 }
 
+let test_alias():  Vector<int> => { @todo; }
 
-let other():  Vector<int> => { @todo; }
-let other1(): Vector<int> => { @todo; }
-let other3(): Vector<int> => { @todo; }
-let other4(): Vector<int> => { @todo; }
-let other5(): Vector<int> => { @todo; }
-let other6(): Vector<int> => { @todo; }
-let other7(): Vector<int> =>  { @todo; }
-
-
-type Vector => std::vec::Vec;
+use vec => std::vec;
+use Vector => vec::Vec;
 
 
 let main(): int => {
+    let instance => @as MyClass(69, 420);
+    instance::method();
     printf("Hello, World !\n");
     return 0;
 }
