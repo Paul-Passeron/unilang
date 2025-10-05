@@ -130,16 +130,16 @@ let other3(): Vector<int> => { @todo; }
 let other4(): Vector<int> => { @todo; }
 let other5(): Vector<int> => { @todo; }
 let other6(): Vector<int> => { @todo; }
-let other7(): std::str::String =>  { @todo; }
+let other7(): Vector<int> =>  { @todo; }
+
 
 type Vector => std::vec::Vec;
+
 
 let main(): int => {
     printf("Hello, World !\n");
     return 0;
 }
-
-
 
 class MyClass => {
     private x: int;

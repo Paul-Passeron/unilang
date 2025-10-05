@@ -22,6 +22,7 @@ pub trait Interner<'ctx, Value> {
     fn get(&'ctx self, id: Self::Id) -> &'ctx Value;
     fn get_mut(&'ctx mut self, id: Self::Id) -> &'ctx mut Value;
     fn len(&'ctx self) -> usize;
+    fn clear(&mut self);
 }
 
 pub trait ConstructibleId: fmt::Debug + Eq + Hash + Copy {
@@ -75,6 +76,11 @@ impl<'ctx, Id: ConstructibleId, Value: Hash + Eq + Clone> Interner<'ctx, Value>
 
     fn len(&'ctx self) -> usize {
         self.map.len()
+    }
+
+    fn clear(&mut self) {
+        self.map.clear();
+        self.last_id = 0;
     }
 }
 
@@ -194,6 +200,10 @@ where
     fn len(&'ctx self) -> usize {
         self.0.len()
     }
+
+    fn clear(&mut self) {
+        self.0.clear();
+    }
 }
 
 pub type ScopeInterner = OneShotInterner<Scope>;
@@ -241,6 +251,7 @@ pub struct GlobalInterner {
     type_expr: TypeExprInterner,
     imp: ImplBlockInterner,
     def: DefInterner,
+    unresolved: UnresolvedInterner,
 }
 
 impl GlobalInterner {
@@ -259,6 +270,7 @@ impl GlobalInterner {
             type_expr: TypeExprInterner::new(),
             imp: ImplBlockInterner::new(),
             def: DefInterner::new(),
+            unresolved: UnresolvedInterner::new(),
         }
     }
 
@@ -310,6 +322,9 @@ impl GlobalInterner {
     pub fn insert_def(&mut self, value: Definition) -> DefId {
         self.def.insert(value)
     }
+    pub fn insert_unresolved(&mut self, value: Unresolved) -> UnresolvedId {
+        self.unresolved.insert(value)
+    }
 
     pub fn get_symbol(&self, id: Symbol) -> &String {
         self.symbol.get(id)
@@ -349,6 +364,9 @@ impl GlobalInterner {
     }
     pub fn get_def(&self, id: DefId) -> &Definition {
         self.def.get(id)
+    }
+    pub fn get_unresolved(&self, id: UnresolvedId) -> &Unresolved {
+        self.unresolved.get(id)
     }
 
     pub fn get_symbol_mut(&mut self, id: Symbol) -> &mut String {
@@ -390,6 +408,9 @@ impl GlobalInterner {
     pub fn get_def_mut(&mut self, id: DefId) -> &mut Definition {
         self.def.get_mut(id)
     }
+    pub fn get_unresolved_mut(&mut self, id: UnresolvedId) -> &mut Unresolved {
+        self.unresolved.get_mut(id)
+    }
 
     pub fn contains_item(&self, value: &NirItem) -> Option<ItemId> {
         self.item.contains(value)
@@ -424,6 +445,52 @@ impl GlobalInterner {
     pub fn contains_def(&self, value: &Definition) -> Option<DefId> {
         self.def.contains(value)
     }
+    pub fn contains_urnesolved(&self, value: &Unresolved) -> Option<UnresolvedId> {
+        self.unresolved.contains(value)
+    }
+
+    pub fn clear_symbol(&mut self) {
+        self.symbol.clear();
+    }
+    pub fn clear_string(&mut self) {
+        self.string.clear();
+    }
+    pub fn clear_item(&mut self) {
+        self.item.clear();
+    }
+    pub fn clear_expr(&mut self) {
+        self.expr.clear();
+    }
+    pub fn clear_scope(&mut self) {
+        self.scope.clear();
+    }
+    pub fn clear_fun(&mut self) {
+        self.fun.clear();
+    }
+    pub fn clear_class(&mut self) {
+        self.class.clear();
+    }
+    pub fn clear_module(&mut self) {
+        self.module.clear();
+    }
+    pub fn clear_variable(&mut self) {
+        self.variable.clear();
+    }
+    pub fn clear_tr(&mut self) {
+        self.tr.clear();
+    }
+    pub fn clear_type_expr(&mut self) {
+        self.type_expr.clear();
+    }
+    pub fn clear_imp(&mut self) {
+        self.imp.clear();
+    }
+    pub fn clear_def(&mut self) {
+        self.def.clear();
+    }
+    pub fn clear_unresolved(&mut self) {
+        self.unresolved.clear();
+    }
 
     pub fn debug_print(&self) {
         println!("symbol: {} items", self.symbol.len());
@@ -439,6 +506,7 @@ impl GlobalInterner {
         println!("type_expr: {} items", self.type_expr.len());
         println!("imp: {} items", self.imp.len());
         println!("def: {} items", self.def.len());
+        println!("unresolved: {} items", self.unresolved.len());
     }
 
     pub fn get_symbol_for(&self, value: &String) -> Symbol {

@@ -1,11 +1,13 @@
 use strum::{EnumIter, IntoEnumIterator};
 
 use crate::{
+    common::source_location::Span,
     nir::{
         context::GlobalContext,
-        interner::{DefId, ScopeId, Symbol, TypeExprId},
+        interner::{DefId, ScopeId, Symbol, TypeExprId, UnresolvedId},
+        nir::{NirPath, NirType, NirTypeKind},
     },
-    ty::scope::{Definition, Scope, ScopeKind, TypeExpr},
+    ty::scope::{Definition, Scope, ScopeKind, TypeExpr, Unresolved, UnresolvedKind},
 };
 
 pub mod pass;
@@ -50,6 +52,7 @@ pub struct TcFunProto {
 pub struct TyCtx<'ctx> {
     pub current_scope: ScopeId,
     pub ctx: &'ctx mut GlobalContext,
+    pub backpatching: Vec<(DefId, UnresolvedId)>,
 }
 
 #[derive(Debug)]
@@ -212,6 +215,7 @@ impl<'ctx> TyCtx<'ctx> {
         let mut res = Self {
             current_scope: scope_id,
             ctx,
+            backpatching: Vec::new(),
         };
         res.add_builtins();
         res
@@ -231,5 +235,114 @@ impl<'ctx> TyCtx<'ctx> {
 
     fn get_last_scope(&self) -> &Scope {
         self.ctx.interner.get_scope(self.current_scope)
+    }
+
+    fn visit_type(&mut self, input: &NirType) -> Result<TypeExprId, TcError> {
+        match &input.kind {
+            NirTypeKind::Ptr(nir_type) => self
+                .visit_type(nir_type)
+                .map(|x| self.ctx.interner.insert_type_expr(TypeExpr::Ptr(x))),
+            NirTypeKind::Named { name, generic_args } if generic_args.len() == 0 => {
+                let def = self.resolve_path(name);
+                match self.ctx.interner.get_def(def) {
+                    Definition::Class(_) => {
+                        Ok(self.ctx.interner.insert_type_expr(TypeExpr::Instantiation {
+                            template: def,
+                            args: vec![],
+                        }))
+                    }
+                    Definition::Type(x) => Ok(*x),
+                    Definition::Unresolved(_) => {
+                        let ty = TypeExpr::Instantiation {
+                            template: def,
+                            args: vec![],
+                        };
+                        Ok(self.ctx.interner.insert_type_expr(ty))
+                    }
+                    _ => todo!("{def:?}"),
+                }
+            }
+            NirTypeKind::Named { name, generic_args } => {
+                let args = generic_args
+                    .iter()
+                    .map(|x| self.visit_type(x))
+                    .collect::<Result<_, _>>()?;
+                let def = self.resolve_path(name);
+
+                Ok(self.ctx.interner.insert_type_expr(TypeExpr::Instantiation {
+                    template: def,
+                    args,
+                }))
+            }
+            NirTypeKind::Tuple(nir_types) => {
+                let tys = nir_types
+                    .iter()
+                    .map(|x| self.visit_type(x))
+                    .collect::<Result<_, _>>()?;
+                Ok(self.ctx.interner.insert_type_expr(TypeExpr::Tuple(tys)))
+            }
+        }
+    }
+
+    fn resolve_path(&mut self, name: &NirPath) -> DefId {
+        let def = {
+            name.path.iter().fold(None, |acc, (x, span)| match acc {
+                Some(def) => Some(self.resolve_access(def, *x, *span).unwrap()),
+                None => self.get_symbol_def(*x).or_else(|| {
+                    let insert = self.ctx.interner.insert_unresolved(Unresolved {
+                        scope: self.current_scope,
+                        kind: UnresolvedKind::Symb(*x, *span),
+                    });
+                    let def = self.ctx.interner.insert_def(Definition::Unresolved(insert));
+                    self.backpatching.insert(0, (def, insert));
+                    Some(def)
+                }),
+            })
+        }
+        .unwrap();
+        def
+    }
+
+    fn resolve_access(
+        &mut self,
+        from_def: DefId,
+        index: Symbol,
+        span: Span,
+    ) -> Result<DefId, TcError> {
+        match self.ctx.interner.get_def(from_def) {
+            Definition::Class(_) => todo!(),
+            Definition::Function(_) => todo!(),
+            Definition::Module(module_id) => {
+                let module = self.ctx.interner.get_module(*module_id);
+                let def_opt = self.get_symbol_def_in_scope(module.scope, index);
+                if def_opt.is_some() {
+                    return Ok(def_opt.unwrap());
+                }
+
+                let id = self.ctx.interner.insert_unresolved(Unresolved {
+                    scope: module.scope,
+                    kind: UnresolvedKind::Symb(index, span),
+                });
+
+                let def = self.ctx.interner.insert_def(Definition::Unresolved(id));
+                self.backpatching.insert(0, (def, id));
+                Ok(def)
+            }
+            Definition::Variable(_) => todo!(),
+            Definition::Trait(_) => todo!(),
+            Definition::Type(_) => todo!(),
+            Definition::Unresolved(u_id) => {
+                println!("Here !\n");
+
+                let un = Unresolved {
+                    scope: self.current_scope,
+                    kind: UnresolvedKind::From(*u_id, index),
+                };
+                let id = self.ctx.interner.insert_unresolved(un);
+                let def = self.ctx.interner.insert_def(Definition::Unresolved(id));
+                self.backpatching.insert(0, (def, id));
+                Ok(def)
+            }
+        }
     }
 }

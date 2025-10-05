@@ -1,16 +1,15 @@
 use std::collections::HashMap;
 
 use crate::{
-    common::source_location::Span,
     nir::{
         interner::{
-            ClassId, ConstructibleId, DefId, ExprId, ImplBlockId, Interner, ItemId, ScopeId,
-            Symbol, TraitId, TyId, TypeExprId, UnresolvedId, UnresolvedInterner,
+            ClassId, ConstructibleId, DefId, ExprId, ImplBlockId, ItemId, ScopeId, TraitId, TyId,
+            TypeExprId, UnresolvedId,
         },
         nir::{
             FieldAccessKind, NirArgument, NirClassDef, NirExpr, NirExprKind, NirFunctionDef,
-            NirGenericArg, NirImplBlock, NirItem, NirMethod, NirModuleDef, NirPath, NirProgram,
-            NirTraitConstraint, NirTraitDef, NirType, NirTypeBound, NirTypeKind,
+            NirGenericArg, NirImplBlock, NirItem, NirMethod, NirModuleDef, NirProgram,
+            NirTraitConstraint, NirTraitDef, NirTypeBound,
         },
     },
     ty::{
@@ -25,18 +24,12 @@ use crate::{
 
 use super::TyCtx;
 
-pub struct SurfaceResolution {
-    backpatching: Vec<(DefId, UnresolvedId)>,
-    unresolved_interner: UnresolvedInterner,
-}
+pub struct SurfaceResolution {}
 pub type SurfaceResolutionPassOutput<'ctx> = Vec<(ScopeId, ItemId)>;
 
 impl<'ctx> SurfaceResolution {
     pub fn new() -> Self {
-        Self {
-            backpatching: Vec::new(),
-            unresolved_interner: UnresolvedInterner::new(),
-        }
+        Self {}
     }
 
     fn visit_method_for_trait(
@@ -45,7 +38,7 @@ impl<'ctx> SurfaceResolution {
         method: &NirMethod,
     ) -> Result<TcFunProto, TcError> {
         let name = method.name;
-        let return_ty = self.visit_type(ctx, method.return_ty.as_ref().unwrap())?;
+        let return_ty = ctx.visit_type(method.return_ty.as_ref().unwrap())?;
         let params = method
             .args
             .iter()
@@ -53,7 +46,7 @@ impl<'ctx> SurfaceResolution {
                 |NirArgument {
                      name: arg_name, ty, ..
                  }| {
-                    self.visit_type(ctx, ty).map(|ty| TcParam {
+                    ctx.visit_type(ty).map(|ty| TcParam {
                         name: *arg_name,
                         ty,
                     })
@@ -70,20 +63,15 @@ impl<'ctx> SurfaceResolution {
 
     fn check_scope(&self, ctx: &TyCtx<'ctx>, id: ScopeId) -> bool {
         let scope = ctx.ctx.interner.get_scope(id);
-        for (_, def) in &scope.definitions {
-            match ctx.ctx.interner.get_def(*def) {
-                Definition::Unresolved(_) => return false,
-                _ => (),
-            }
-        }
 
-        for child in &scope.children {
-            if !self.check_scope(ctx, *child) {
-                return false;
-            }
-        }
-
-        true
+        scope
+            .definitions
+            .iter()
+            .all(|(_, def)| !matches!(ctx.ctx.interner.get_def(*def), Definition::Unresolved(_)))
+            && scope
+                .children
+                .iter()
+                .all(|child| self.check_scope(ctx, *child))
     }
 
     fn check_scopes(&self, ctx: &TyCtx<'ctx>) -> bool {
@@ -112,9 +100,9 @@ impl<'ctx> SurfaceResolution {
             .collect();
 
         loop {
-            let to_backpatch: Vec<_> = self.backpatching.iter().cloned().collect();
+            let to_backpatch: Vec<_> = ctx.backpatching.iter().cloned().collect();
 
-            self.backpatching.clear();
+            ctx.backpatching.clear();
             let mut worked_once = false;
 
             for (def, id) in to_backpatch {
@@ -136,10 +124,10 @@ impl<'ctx> SurfaceResolution {
             }
         }
 
-        if self.backpatching.len() > 0 {
+        if ctx.backpatching.len() > 0 {
             println!("\n\n");
             let mut errors = vec![];
-            for (_, id) in self.backpatching.clone() {
+            for (_, id) in ctx.backpatching.clone() {
                 let symb = self.print_unresolved(ctx, id);
                 println!("[Error]: Unresolved symbol {}", symb);
                 let s = ctx.ctx.interner.insert_symbol(&symb);
@@ -147,6 +135,9 @@ impl<'ctx> SurfaceResolution {
             }
             return Err(TcError::Aggregate(errors));
         }
+
+        ctx.backpatching.clear();
+        ctx.ctx.interner.clear_unresolved();
 
         if !(self.check_scopes(ctx)) {
             panic!("Bad scopes !!!!\n");
@@ -156,7 +147,7 @@ impl<'ctx> SurfaceResolution {
     }
 
     fn print_unresolved(&mut self, ctx: &mut TyCtx<'ctx>, input: UnresolvedId) -> String {
-        let un = self.unresolved_interner.get(input);
+        let un = ctx.ctx.interner.get_unresolved(input);
         match un.kind {
             UnresolvedKind::Symb(symbol, _) => format!("{}", ctx.ctx.interner.get_symbol(symbol)),
             UnresolvedKind::From(id, symbol) => {
@@ -174,7 +165,7 @@ impl<'ctx> SurfaceResolution {
         ctx: &mut TyCtx<'ctx>,
         input: UnresolvedId,
     ) -> Result<DefId, TcError> {
-        let Unresolved { scope, kind } = self.unresolved_interner.get(input).clone();
+        let Unresolved { scope, kind } = ctx.ctx.interner.get_unresolved(input).clone();
         ctx.with_scope_id(scope, |ctx| match kind {
             UnresolvedKind::Symb(symbol, span) => {
                 let expr = NirExpr {
@@ -211,7 +202,7 @@ impl<'ctx> SurfaceResolution {
             NirItem::Trait(x) => self.visit_trait(ctx, &x, input),
             NirItem::Impl(x) => self.visit_impl(ctx, &x, input),
             NirItem::Alias(name, ty) => {
-                let ty = self.visit_type(ctx, &ty)?;
+                let ty = ctx.visit_type(&ty)?;
                 let def = ctx.ctx.interner.insert_def(Definition::Type(ty));
                 ctx.push_def(name, def);
                 Ok(ctx.current_scope)
@@ -290,14 +281,11 @@ impl<'ctx> SurfaceResolution {
         item_id: ItemId,
     ) -> Result<ScopeId, TcError> {
         let name = input.name;
-        let return_ty = self.visit_type(ctx, &input.return_ty)?;
+        let return_ty = ctx.visit_type(&input.return_ty)?;
         let params = input
             .args
             .iter()
-            .map(|x| {
-                self.visit_type(ctx, &x.ty)
-                    .map(|ty| TcParam { name: x.name, ty })
-            })
+            .map(|x| ctx.visit_type(&x.ty).map(|ty| TcParam { name: x.name, ty }))
             .collect::<Result<Vec<_>, _>>()?;
 
         let fun_id = ctx.ctx.interner.insert_fun(TcFunProto {
@@ -314,57 +302,12 @@ impl<'ctx> SurfaceResolution {
         })
     }
 
-    fn resolve_access(
-        &mut self,
-        ctx: &mut TyCtx<'ctx>,
-        from_def: DefId,
-        index: Symbol,
-        span: Span,
-    ) -> Result<DefId, TcError> {
-        match ctx.ctx.interner.get_def(from_def) {
-            Definition::Class(_) => todo!(),
-            Definition::Function(_) => todo!(),
-            Definition::Module(module_id) => {
-                let module = ctx.ctx.interner.get_module(*module_id);
-                let def_opt = ctx.get_symbol_def_in_scope(module.scope, index);
-                if def_opt.is_some() {
-                    return Ok(def_opt.unwrap());
-                }
-
-                let id = self.unresolved_interner.insert(Unresolved {
-                    scope: module.scope,
-                    kind: UnresolvedKind::Symb(index, span),
-                });
-
-                let def = ctx.ctx.interner.insert_def(Definition::Unresolved(id));
-                self.backpatching.insert(0, (def, id));
-                Ok(def)
-            }
-            Definition::Variable(_) => todo!(),
-            Definition::Trait(_) => todo!(),
-            Definition::Type(_) => todo!(),
-            Definition::Unresolved(u_id) => {
-                println!("Here !\n");
-
-                let un = Unresolved {
-                    scope: ctx.current_scope,
-                    kind: UnresolvedKind::From(*u_id, index),
-                };
-                let id = self.unresolved_interner.insert(un);
-                let def = ctx.ctx.interner.insert_def(Definition::Unresolved(id));
-                self.backpatching.insert(0, (def, id));
-                Ok(def)
-            }
-        }
-    }
-
     fn resolve_expr(&mut self, ctx: &mut TyCtx<'ctx>, input: ExprId) -> Result<DefId, TcError> {
         let expr = ctx.ctx.interner.get_expr(input).clone();
         match expr.kind {
             NirExprKind::Access { from, field } => {
                 let from_def = self.resolve_expr(ctx, from)?;
-                self.resolve_access(
-                    ctx,
+                ctx.resolve_access(
                     from_def,
                     match field.kind {
                         FieldAccessKind::Symbol(symbol) => symbol,
@@ -374,86 +317,16 @@ impl<'ctx> SurfaceResolution {
                 )
             }
             NirExprKind::Named(symb) => Ok(ctx.get_symbol_def(symb).unwrap_or_else(|| {
-                let id = self.unresolved_interner.insert(Unresolved {
+                let id = ctx.ctx.interner.insert_unresolved(Unresolved {
                     scope: ctx.current_scope,
                     kind: UnresolvedKind::Symb(symb, expr.span),
                 });
                 let def = ctx.ctx.interner.insert_def(Definition::Unresolved(id));
-                self.backpatching.insert(0, (def, id));
+                ctx.backpatching.insert(0, (def, id));
                 def
             })),
             _ => unreachable!(),
         }
-    }
-
-    fn visit_type(
-        &mut self,
-        ctx: &mut TyCtx<'ctx>,
-        input: &NirType,
-    ) -> Result<TypeExprId, TcError> {
-        match &input.kind {
-            NirTypeKind::Ptr(nir_type) => self
-                .visit_type(ctx, nir_type)
-                .map(|x| ctx.ctx.interner.insert_type_expr(TypeExpr::Ptr(x))),
-            NirTypeKind::Named { name, generic_args } if generic_args.len() == 0 => {
-                let def = self.resolve_path(ctx, name);
-                match ctx.ctx.interner.get_def(def) {
-                    Definition::Class(_) => {
-                        Ok(ctx.ctx.interner.insert_type_expr(TypeExpr::Instantiation {
-                            template: def,
-                            args: vec![],
-                        }))
-                    }
-                    Definition::Type(x) => Ok(*x),
-                    Definition::Unresolved(_) => {
-                        let ty = TypeExpr::Instantiation {
-                            template: def,
-                            args: vec![],
-                        };
-                        Ok(ctx.ctx.interner.insert_type_expr(ty))
-                    }
-                    _ => todo!("{def:?}"),
-                }
-            }
-            NirTypeKind::Named { name, generic_args } => {
-                let args = generic_args
-                    .iter()
-                    .map(|x| self.visit_type(ctx, x))
-                    .collect::<Result<_, _>>()?;
-                let def = self.resolve_path(ctx, name);
-
-                Ok(ctx.ctx.interner.insert_type_expr(TypeExpr::Instantiation {
-                    template: def,
-                    args,
-                }))
-            }
-            NirTypeKind::Tuple(nir_types) => {
-                let tys = nir_types
-                    .iter()
-                    .map(|x| self.visit_type(ctx, x))
-                    .collect::<Result<_, _>>()?;
-                Ok(ctx.ctx.interner.insert_type_expr(TypeExpr::Tuple(tys)))
-            }
-        }
-    }
-
-    fn resolve_path(&mut self, ctx: &mut TyCtx<'ctx>, name: &NirPath) -> DefId {
-        let def = {
-            name.path.iter().fold(None, |acc, (x, span)| match acc {
-                Some(def) => Some(self.resolve_access(ctx, def, *x, *span).unwrap()),
-                None => ctx.get_symbol_def(*x).or_else(|| {
-                    let insert = self.unresolved_interner.insert(Unresolved {
-                        scope: ctx.current_scope,
-                        kind: UnresolvedKind::Symb(*x, *span),
-                    });
-                    let def = ctx.ctx.interner.insert_def(Definition::Unresolved(insert));
-                    self.backpatching.insert(0, (def, insert));
-                    Some(def)
-                }),
-            })
-        }
-        .unwrap();
-        def
     }
 
     fn visit_module(
@@ -489,7 +362,7 @@ impl<'ctx> SurfaceResolution {
         for arg in args {
             let mut constraints = Vec::with_capacity(arg.constraints.len());
             for constraint in &arg.constraints {
-                let def = self.resolve_path(ctx, &constraint.name);
+                let def = ctx.resolve_path(&constraint.name);
                 constraints.push(def);
             }
             templates.push(TemplateArgument {
@@ -577,7 +450,7 @@ impl<'ctx> SurfaceResolution {
         for member in &input.members {
             members.push(ClassMember {
                 name: member.name,
-                ty: self.visit_type(ctx, &member.ty)?,
+                ty: ctx.visit_type(&member.ty)?,
             });
         }
         let cmut = ctx.ctx.interner.get_class_mut(id);
@@ -627,7 +500,7 @@ impl<'ctx> SurfaceResolution {
         let constraints = {
             let mut constraints = Vec::with_capacity(input.len());
             for constraint in input {
-                let def = self.resolve_path(ctx, &constraint.name);
+                let def = ctx.resolve_path(&constraint.name);
                 constraints.push(def);
             }
             constraints
@@ -677,7 +550,7 @@ impl<'ctx> SurfaceResolution {
                 ctx.push_def(t.name, def);
             }
 
-            let for_ty = self.visit_type(ctx, &input.ty)?;
+            let for_ty = ctx.visit_type(&input.ty)?;
 
             let impl_block = ImplBlock {
                 for_ty,
@@ -685,7 +558,7 @@ impl<'ctx> SurfaceResolution {
                 methods: vec![],
                 kind: match &input.implements {
                     Some(constraint) => ImplKind::WithTrait {
-                        impl_trait: self.resolve_path(ctx, &constraint.name),
+                        impl_trait: ctx.resolve_path(&constraint.name),
                         types: HashMap::new(),
                     },
                     None => ImplKind::NoTrait,
@@ -727,7 +600,7 @@ impl<'ctx> SurfaceResolution {
     ) -> Result<(), TcError> {
         Ok(for ty in input {
             let name = ty.name;
-            let rhs = self.visit_type(ctx, &ty.ty)?;
+            let rhs = ctx.visit_type(&ty.ty)?;
             match &mut ctx.ctx.interner.get_imp_mut(id).kind {
                 ImplKind::WithTrait { types, .. } => {
                     types.insert(name, rhs);
@@ -764,7 +637,7 @@ impl<'ctx> SurfaceResolution {
                 todo!("Report error: Return type needed for non-constructor methods.");
             }
             MethodKind::Method {
-                return_type: self.visit_type(ctx, input.return_ty.as_ref().unwrap())?,
+                return_type: ctx.visit_type(input.return_ty.as_ref().unwrap())?,
             }
         };
 
@@ -777,7 +650,7 @@ impl<'ctx> SurfaceResolution {
                 |NirArgument {
                      name: arg_name, ty, ..
                  }| {
-                    self.visit_type(ctx, ty).map(|ty| TcParam {
+                    ctx.visit_type(ty).map(|ty| TcParam {
                         name: *arg_name,
                         ty,
                     })
