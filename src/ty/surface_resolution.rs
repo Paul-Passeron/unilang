@@ -272,7 +272,6 @@ impl<'ctx> SurfaceResolution {
     fn tyexpr_to_string(&self, ctx: &TyCtx<'ctx>, ty: TypeExprId) -> String {
         let ty_expr = ctx.ctx.interner.get_type_expr(ty);
         match ty_expr {
-            TypeExpr::Resolved(ty_id) => self.ty_id_to_string(ctx, *ty_id),
             TypeExpr::Template(x) => format!("Template({})", x),
             TypeExpr::Associated(x) => format!("Associated({})", x),
             TypeExpr::Instantiation { template, args } => {
@@ -287,6 +286,7 @@ impl<'ctx> SurfaceResolution {
             }
             TypeExpr::Ptr(_) => todo!(),
             TypeExpr::Tuple(_) => todo!(),
+            TypeExpr::Primitive(primitive_ty) => primitive_ty.get_name().to_string(),
         }
     }
 

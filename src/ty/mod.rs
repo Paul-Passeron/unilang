@@ -1,12 +1,11 @@
-use std::{collections::HashMap, rc::Rc};
+use std::rc::Rc;
 
 use strum::{EnumIter, IntoEnumIterator};
 
 use crate::{
     nir::{
         context::GlobalContext,
-        interner::{ScopeId, Symbol, TyId, TypeExprId, TypeInterner},
-        nir::NirType,
+        interner::{ScopeId, Symbol, TypeExprId},
     },
     ty::scope::{Definition, Scope, ScopeKind, TypeExpr},
 };
@@ -35,15 +34,6 @@ pub enum PrimitiveTy {
     Bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum TcTy {
-    Ptr(TyId),
-    Primitive(PrimitiveTy),
-    Struct { fields: Vec<StructField> },
-    Tuple(Vec<TyId>),
-    Unresolved(NirType),
-}
-
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct TcParam {
     pub name: Symbol,
@@ -60,8 +50,6 @@ pub struct TcFunProto {
 
 #[derive(Debug)]
 pub struct TyCtx<'ctx> {
-    pub types: HashMap<TyId, NirType>,
-    pub methods: HashMap<TyId, Vec<TcFunProto>>,
     pub current_scope: ScopeId,
     pub ctx: &'ctx mut GlobalContext,
 }
@@ -113,20 +101,6 @@ impl PrimitiveTy {
             PrimitiveTy::U32 => 4,
             PrimitiveTy::U64 => 8,
             PrimitiveTy::Bool => 1,
-        }
-    }
-}
-
-impl TcTy {
-    pub fn get_size(&self, _inter: &TypeInterner) -> usize {
-        match &self {
-            TcTy::Ptr(_) => std::mem::size_of::<*const u8>(),
-            TcTy::Primitive(primitive_ty) => primitive_ty.size(),
-            TcTy::Struct { fields } => {
-                todo!("{fields:#?}")
-            }
-            TcTy::Tuple(_) => todo!(),
-            TcTy::Unresolved(_) => todo!(),
         }
     }
 }
@@ -198,93 +172,29 @@ impl<'ctx> TyCtx<'ctx> {
         self.ctx.interner.get_scope(id)
     }
 
-    fn declare_type(&mut self, val: TcTy) -> TyId {
-        self.ctx.interner.insert_ty(val)
-    }
-
     fn declare_primitive_types(&mut self) {
-        let create_alias = |this: &mut Self, ty, name: &str| {
+        let create_alias = |this: &mut Self, ty: PrimitiveTy, name: &str| {
             let symb = this.ctx.interner.insert_symbol(&name.to_string());
             let res = (
                 symb,
                 Rc::new(Definition::Type(
-                    this.ctx.interner.insert_type_expr(TypeExpr::Resolved(ty)),
+                    this.ctx.interner.insert_type_expr(TypeExpr::Primitive(ty)),
                 )),
             );
             this.get_last_scope_mut().definitions.push(res);
         };
 
         for prim in PrimitiveTy::iter() {
-            let ty = self.declare_type(TcTy::Primitive(prim));
-            create_alias(self, ty, prim.get_name());
+            create_alias(self, prim, prim.get_name());
         }
 
-        let int_ty = self
-            .ctx
-            .interner
-            .contains_ty(&TcTy::Primitive(PrimitiveTy::I32))
-            .unwrap();
-        create_alias(self, int_ty, "int");
-
-        let usize_ty = self
-            .ctx
-            .interner
-            .contains_ty(&TcTy::Primitive(PrimitiveTy::U32))
-            .unwrap();
-        create_alias(self, usize_ty, "usize");
-
-        let char_ty = self
-            .ctx
-            .interner
-            .contains_ty(&TcTy::Primitive(PrimitiveTy::U8))
-            .unwrap();
-        create_alias(self, char_ty, "char");
+        create_alias(self, PrimitiveTy::I32, "int");
+        create_alias(self, PrimitiveTy::U32, "usize");
+        create_alias(self, PrimitiveTy::U8, "char");
     }
-
-    // fn populate_integer_ty(&mut self, prim: PrimitiveTy) {
-    //     let ty = self
-    //         .ctx
-    //         .interner
-    //         .ty
-    //         .contains(&TcTy::Primitive(prim))
-    //         .unwrap();
-
-    //     let builtin_methods = self.get_methods_for_builtin(ty);
-
-    //     let int_methods = self.get_methods_for_integer(ty);
-
-    //     let methods = builtin_methods.into_iter().chain(int_methods.into_iter());
-
-    //     for m in methods {
-    //         if let Err(_) = self.add_method(ty, m) {
-    //             panic!("Could not add builtin method in builtin type, this is a compiler bug.");
-    //         }
-    //     }
-    // }
-
-    // fn populate_void(&mut self) {
-    //     let ty = self
-    //         .ctx
-    //         .interner
-    //         .ty
-    //         .contains(&TcTy::Primitive(PrimitiveTy::Void))
-    //         .unwrap();
-
-    //     let methods = self.get_methods_for_builtin(ty);
-
-    //     for m in methods {
-    //         if let Err(_) = self.add_method(ty, m) {
-    //             panic!("Could not add builtin method in builtin type, this is a compiler bug.");
-    //         }
-    //     }
-    // }
 
     pub fn add_builtins(&mut self) {
         self.declare_primitive_types();
-        // for prim in PrimitiveTy::INTEGERS {
-        //     self.populate_integer_ty(*prim);
-        // }
-        // self.populate_void();
     }
 
     fn symb(&mut self, name: &str) -> Symbol {
@@ -294,26 +204,6 @@ impl<'ctx> TyCtx<'ctx> {
     fn get_symb(&self, s: &str) -> Symbol {
         self.ctx.interner.get_symbol_for(&s.to_string())
     }
-
-    // fn get_methods_for_builtin(&mut self, _ty: TyId) -> Vec<TcFunProto> {
-    //     let size_fun_name = self.symb("__builtin_size");
-    //     let size_fun = TcFunProto {
-    //         name: size_fun_name,
-    //         params: vec![],
-    //         return_ty: self
-    //             .ctx
-    //             .interner
-    //             .ty
-    //             .contains(&TcTy::Primitive(PrimitiveTy::U32))
-    //             .unwrap(),
-    //         variadic: false,
-    //     };
-    //     vec![size_fun]
-    // }
-
-    // fn get_methods_for_integer(&mut self, _ty: TyId) -> Vec<TcFunProto> {
-    //     vec![]
-    // }
 
     pub fn new(ctx: &'ctx mut GlobalContext) -> Self {
         let first_scope = Scope {
@@ -326,8 +216,6 @@ impl<'ctx> TyCtx<'ctx> {
         let scope_id = ctx.interner.insert_scope(first_scope);
 
         let mut res = Self {
-            types: HashMap::new(),
-            methods: HashMap::new(),
             current_scope: scope_id,
             ctx,
         };
@@ -335,120 +223,12 @@ impl<'ctx> TyCtx<'ctx> {
         res
     }
 
-    // pub fn visit_program(&mut self, program: &NirProgram) -> Result<Strategy::Output, TcError> {
-    //     let items = program
-    //         .0
-    //         .iter()
-    //         .map(|id| (*id, self.ctx.interner.get_item(*id).clone()))
-    //         .collect::<Vec<_>>();
-    //     self.visit_item_group(items)
-    // }
-
-    // pub fn visit_item_group(
-    //     &mut self,
-    //     items: Vec<(ItemId, NirItem)>,
-    // ) -> Result<Strategy::Output, TcError> {
-    //     let mut successes = vec![];
-    //     let mut temp_interner: HashMap<ItemId, NirItem, RandomState> = HashMap::from_iter(items);
-
-    //     let mut working_stack: Vec<_> = temp_interner.keys().copied().collect();
-    //     let mut errors = vec![];
-    //     while working_stack.len() > 0 {
-    //         errors.clear();
-    //         let mut new_working_stack = vec![];
-    //         for id in &working_stack {
-    //             let interner = self.ctx.interner.clone();
-    //             let current = self.current_scope;
-
-    //             let item = temp_interner.get_mut(id).unwrap();
-    //             let iteration = match item {
-    //                 NirItem::Function(fdef) => self.visit_fundef(fdef),
-    //                 NirItem::Module(mdef) => self.visit_module(mdef),
-    //                 NirItem::Class(cdef) => self.visit_class(cdef),
-    //                 NirItem::Trait(tdef) => self.visit_trait(tdef),
-    //                 NirItem::Impl(impl_block) => self.visit_impl(impl_block),
-    //                 NirItem::Method(_) => unreachable!(),
-    //             };
-    //             if iteration.is_err() {
-    //                 new_working_stack.push(*id);
-    //                 errors.push((*id, iteration.unwrap_err()));
-
-    //                 self.ctx.interner = interner;
-    //                 self.current_scope = current;
-    //             } else {
-    //                 successes.push(iteration.unwrap());
-    //             }
-    //         }
-
-    //         let current_set: HashSet<ItemId, RandomState> = HashSet::from_iter(working_stack);
-    //         let new_set: HashSet<ItemId, RandomState> =
-    //             HashSet::from_iter(new_working_stack.iter().copied());
-    //         working_stack = new_working_stack;
-    //         if current_set == new_set {
-    //             break; // No progress made, we must stop
-    //         }
-    //     }
-    //     if !working_stack.is_empty() {
-    //         Err(TcError::Aggregate(errors))
-    //     } else {
-    //         Ok(Strategy::Output::from_successes(successes))
-    //     }
-    // }
-
     fn get_type_string(&self, _ty: &TypeExpr) -> String {
         todo!()
     }
 
     pub fn print_error(&mut self, _error: &TcError) {
         todo!()
-    }
-
-    // fn visit_type(&mut self, ty: &mut NirType) -> Result<TyId, TcError> {
-    //     let res = match &mut ty.kind {
-    //         NirTypeKind::Ptr(t) => {
-    //             let inner = self.visit_type(t.as_mut())?;
-    //             Ok(self.ctx.interner.insert_ty(TcTy::Ptr(inner)))
-    //         }
-    //         NirTypeKind::Named { name, generic_args } if generic_args.len() == 0 => {
-    //             let def = self
-    //                 .get_last_scope()
-    //                 .get_definition_for_symbol(*name, self.ctx.scope_interner());
-    //             match def {
-    //                 Some(Definition::Type(TypeKind::Resolved(id))) => Ok(id),
-    //                 Some(Definition::Class(_)) => {
-    //                     // let c = self.ctx.interner.get_class(id);
-    //                     // if c.templates.len() != 0 {
-    //                     //     panic!()
-    //                     // }
-
-    //                     let expr = self.get_type_expr(ty)?;
-    //                     self.resolve_type_expr(&expr)
-    //                 }
-    //                 _ => todo!(),
-    //             }
-    //         }
-    //         NirTypeKind::Named { .. } => todo!("Handle generic types"),
-    //         NirTypeKind::Tuple(_nir_types) => todo!(),
-    //     }?;
-    //     Ok(res)
-    // }
-
-    fn is_type_primitive(&self, ty: TyId) -> bool {
-        let t = self.ctx.interner.get_ty(ty);
-        match &t {
-            TcTy::Primitive(_) => true,
-            _ => false,
-        }
-    }
-
-    fn get_size(&self, ty: TyId) -> usize {
-        let t = self.ctx.interner.get_ty(ty);
-        t.get_size(self.ctx.interner.get_ty_interner())
-    }
-
-    fn is_type_ptr(&mut self, ty: TyId) -> bool {
-        let t = self.ctx.interner.get_ty(ty);
-        matches!(t, TcTy::Ptr(_))
     }
 
     fn get_last_scope_mut(&mut self) -> &mut Scope {

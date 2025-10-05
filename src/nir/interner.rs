@@ -8,7 +8,7 @@ use std::{
 use crate::{
     nir::nir::{NirExpr, NirItem},
     ty::{
-        TcFunProto, TcTy,
+        TcFunProto,
         scope::{
             Class, Definition, ImplBlock, Module, Scope, Trait, TypeExpr, Unresolved, VarDecl,
         },
@@ -122,7 +122,6 @@ pub type SymbolInterner = HashInterner<Symbol, String>;
 pub type StringInterner = HashInterner<StringLiteral, String>;
 pub type ItemInterner = HashInterner<ItemId, NirItem>;
 pub type ExprInterner = HashInterner<ExprId, NirExpr>;
-pub type TypeInterner = HashInterner<TyId, TcTy>;
 
 #[derive(Debug, Clone)]
 pub struct OneShotInterner<T>(Vec<T>);
@@ -233,7 +232,6 @@ pub struct GlobalInterner {
     string: StringInterner,
     item: ItemInterner,
     expr: ExprInterner,
-    ty: TypeInterner,
     scope: ScopeInterner,
     fun: FunInterner,
     class: ClassInterner,
@@ -252,7 +250,6 @@ impl GlobalInterner {
             string: StringInterner::new(),
             item: ItemInterner::new(),
             expr: ExprInterner::new(),
-            ty: TypeInterner::new(),
             scope: ScopeInterner::new(),
             fun: FunInterner::new(),
             class: ClassInterner::new(),
@@ -285,9 +282,6 @@ impl GlobalInterner {
     }
     pub fn insert_expr(&mut self, value: NirExpr) -> ExprId {
         self.expr.insert(value)
-    }
-    pub fn insert_ty(&mut self, value: TcTy) -> TyId {
-        self.ty.insert(value)
     }
     pub fn insert_scope(&mut self, value: Scope) -> ScopeId {
         self.scope.insert(value)
@@ -329,9 +323,6 @@ impl GlobalInterner {
     pub fn get_expr(&self, id: ExprId) -> &NirExpr {
         self.expr.get(id)
     }
-    pub fn get_ty(&self, id: TyId) -> &TcTy {
-        self.ty.get(id)
-    }
     pub fn get_scope(&self, id: ScopeId) -> &Scope {
         self.scope.get(id)
     }
@@ -372,9 +363,6 @@ impl GlobalInterner {
     pub fn get_expr_mut(&mut self, id: ExprId) -> &mut NirExpr {
         self.expr.get_mut(id)
     }
-    pub fn get_ty_mut(&mut self, id: TyId) -> &mut TcTy {
-        self.ty.get_mut(id)
-    }
     pub fn get_scope_mut(&mut self, id: ScopeId) -> &mut Scope {
         self.scope.get_mut(id)
     }
@@ -409,9 +397,6 @@ impl GlobalInterner {
     pub fn contains_expr(&self, value: &NirExpr) -> Option<ExprId> {
         self.expr.contains(value)
     }
-    pub fn contains_ty(&self, value: &TcTy) -> Option<TyId> {
-        self.ty.contains(value)
-    }
     pub fn contains_scope(&self, value: &Scope) -> Option<ScopeId> {
         self.scope.contains(value)
     }
@@ -445,14 +430,13 @@ impl GlobalInterner {
         println!("string_interner: {} items", self.string.len());
         println!("item_interner: {} items", self.item.len());
         println!("expr_interner: {} items", self.expr.len());
-        println!("type_interner: {} items", self.ty.len());
         println!("scope_interner: {} items", self.scope.len());
         println!("fun_interner: {} items", self.fun.len());
         println!("class_interner: {} items", self.class.len());
         println!("module_interner: {} items", self.module.len());
         println!("variable_interner: {} items", self.variable.len());
         println!("trait_interner: {} items", self.tr.len());
-        println!("type_expr_interner: {} items", self.ty.len());
+        println!("type_expr_interner: {} items", self.type_expr.len());
         println!("impl_interner: {} items", self.imp.len());
     }
 
@@ -462,8 +446,5 @@ impl GlobalInterner {
 
     pub fn scope_interner(&self) -> &OneShotInterner<Scope> {
         &self.scope
-    }
-    pub fn get_ty_interner(&self) -> &TypeInterner {
-        &self.ty
     }
 }

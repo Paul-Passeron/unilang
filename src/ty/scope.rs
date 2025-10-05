@@ -6,7 +6,7 @@ use crate::{
         ClassId, ExprId, FunId, ImplBlockId, Interner, ItemId, ModuleId, ScopeId, ScopeInterner,
         Symbol, TraitId, TyId, TypeExprId, UnresolvedId, VariableId,
     },
-    ty::{TcFunProto, TcParam},
+    ty::{PrimitiveTy, TcFunProto, TcParam},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -17,7 +17,6 @@ pub struct TemplateArgument {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum TypeExpr {
-    Resolved(TyId),
     Template(usize),
     Associated(usize),
     Instantiation {
@@ -26,6 +25,7 @@ pub enum TypeExpr {
     },
     Ptr(TypeExprId),
     Tuple(Vec<TypeExprId>),
+    Primitive(PrimitiveTy),
 }
 
 #[derive(Debug, Clone)]
