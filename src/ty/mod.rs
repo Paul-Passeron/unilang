@@ -1,11 +1,9 @@
-use std::rc::Rc;
-
 use strum::{EnumIter, IntoEnumIterator};
 
 use crate::{
     nir::{
         context::GlobalContext,
-        interner::{ScopeId, Symbol, TypeExprId},
+        interner::{DefId, ScopeId, Symbol, TypeExprId},
     },
     ty::scope::{Definition, Scope, ScopeKind, TypeExpr},
 };
@@ -154,17 +152,17 @@ impl<'ctx> TyCtx<'ctx> {
         res
     }
 
-    pub fn get_symbol_def_in_scope(&self, id: ScopeId, symb: Symbol) -> Option<Rc<Definition>> {
+    pub fn get_symbol_def_in_scope(&self, id: ScopeId, symb: Symbol) -> Option<DefId> {
         self.get_scope(id)
             .get_definition_for_symbol(symb, self.ctx.interner.scope_interner())
     }
 
-    pub fn get_symbol_def(&self, symb: Symbol) -> Option<Rc<Definition>> {
+    pub fn get_symbol_def(&self, symb: Symbol) -> Option<DefId> {
         self.get_last_scope()
             .get_definition_for_symbol(symb, &self.ctx.interner.scope_interner())
     }
 
-    pub fn push_def(&mut self, symb: Symbol, def: Rc<Definition>) {
+    pub fn push_def(&mut self, symb: Symbol, def: DefId) {
         self.get_last_scope_mut().definitions.push((symb, def));
     }
 
@@ -175,13 +173,9 @@ impl<'ctx> TyCtx<'ctx> {
     fn declare_primitive_types(&mut self) {
         let create_alias = |this: &mut Self, ty: PrimitiveTy, name: &str| {
             let symb = this.ctx.interner.insert_symbol(&name.to_string());
-            let res = (
-                symb,
-                Rc::new(Definition::Type(
-                    this.ctx.interner.insert_type_expr(TypeExpr::Primitive(ty)),
-                )),
-            );
-            this.get_last_scope_mut().definitions.push(res);
+            let te = this.ctx.interner.insert_type_expr(TypeExpr::Primitive(ty));
+            let def = this.ctx.interner.insert_def(Definition::Type(te));
+            this.get_last_scope_mut().definitions.push((symb, def));
         };
 
         for prim in PrimitiveTy::iter() {

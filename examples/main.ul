@@ -132,11 +132,9 @@ let other5(): Vector<int> => { @todo; }
 let other6(): Vector<int> => { @todo; }
 let other7(): std::str::String =>  { @todo; }
 
+type Vector => std::vec::Vec;
+
 let main(): int => {
-    let x: int => 7;
-    let c: Vec<int>;
-    a::fn();
+    printf("Hello, World !\n");
     return 0;
 }
-
-type Vector => std::vec::Vec;

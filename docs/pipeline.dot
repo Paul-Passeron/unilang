@@ -1,0 +1,26 @@
+digraph CompilerPipeline {
+    node [shape=box];
+
+    Input -> Lexing -> "Parsing (AST)" -> "Include resolution" -> A;
+    "Include resolution" -> B;
+
+    A [label="Interned IR (NIR)"];
+    A -> C;
+
+    B [label="Lexing (include)"];
+    B -> "Parsing (include)";
+    "Parsing (include)" -> "Include Resolution (include)";
+    "Include Resolution (include)" -> B;
+    "Include Resolution (include)" -> D;
+
+    D [label="Interned IR for include (surface-level NIR)"];
+    D -> C;
+
+
+    C [label="NIR merging"];
+    C -> "Type / name resolution pass (surface level ≈ forward declarations)";
+    "Type / name resolution pass (surface level ≈ forward declarations)"
+        -> "Deep type / name resolution pass (TIR)";
+    "Deep type / name resolution pass (TIR)" -> Monomorphisation;
+    Monomorphisation -> "Low-level IR" -> "LLVM IR" -> "binary file";
+}

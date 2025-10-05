@@ -426,18 +426,19 @@ impl GlobalInterner {
     }
 
     pub fn debug_print(&self) {
-        println!("symbol_interner: {} items", self.symbol.len());
-        println!("string_interner: {} items", self.string.len());
-        println!("item_interner: {} items", self.item.len());
-        println!("expr_interner: {} items", self.expr.len());
-        println!("scope_interner: {} items", self.scope.len());
-        println!("fun_interner: {} items", self.fun.len());
-        println!("class_interner: {} items", self.class.len());
-        println!("module_interner: {} items", self.module.len());
-        println!("variable_interner: {} items", self.variable.len());
-        println!("trait_interner: {} items", self.tr.len());
-        println!("type_expr_interner: {} items", self.type_expr.len());
-        println!("impl_interner: {} items", self.imp.len());
+        println!("symbol: {} items", self.symbol.len());
+        println!("string: {} items", self.string.len());
+        println!("item: {} items", self.item.len());
+        println!("expr: {} items", self.expr.len());
+        println!("scope: {} items", self.scope.len());
+        println!("fun: {} items", self.fun.len());
+        println!("class: {} items", self.class.len());
+        println!("module: {} items", self.module.len());
+        println!("variable: {} items", self.variable.len());
+        println!("tr: {} items", self.tr.len());
+        println!("type_expr: {} items", self.type_expr.len());
+        println!("imp: {} items", self.imp.len());
+        println!("def: {} items", self.def.len());
     }
 
     pub fn get_symbol_for(&self, value: &String) -> Symbol {

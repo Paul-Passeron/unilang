@@ -1,10 +1,10 @@
-use std::{collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
 use crate::{
     common::source_location::Span,
     nir::interner::{
-        ClassId, ExprId, FunId, ImplBlockId, Interner, ItemId, ModuleId, ScopeId, ScopeInterner,
-        Symbol, TraitId, TyId, TypeExprId, UnresolvedId, VariableId,
+        ClassId, DefId, ExprId, FunId, ImplBlockId, Interner, ItemId, ModuleId, ScopeId,
+        ScopeInterner, Symbol, TraitId, TyId, TypeExprId, UnresolvedId, VariableId,
     },
     ty::{PrimitiveTy, TcFunProto, TcParam},
 };
@@ -12,7 +12,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TemplateArgument {
     pub name: Symbol,
-    pub constraints: Vec<Rc<Definition>>,
+    pub constraints: Vec<DefId>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -20,7 +20,7 @@ pub enum TypeExpr {
     Template(usize),
     Associated(usize),
     Instantiation {
-        template: Rc<Definition>,
+        template: DefId,
         args: Vec<TypeExprId>,
     },
     Ptr(TypeExprId),
@@ -96,7 +96,7 @@ pub struct VarDecl {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TraitType {
     pub name: Symbol,
-    pub constraints: Vec<Rc<Definition>>,
+    pub constraints: Vec<DefId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -122,7 +122,7 @@ pub struct Unresolved {
 #[derive(Debug, Clone)]
 pub enum ImplKind {
     WithTrait {
-        impl_trait: Rc<Definition>,
+        impl_trait: DefId,
         types: HashMap<Symbol, TypeExprId>,
     },
     NoTrait,
@@ -152,7 +152,7 @@ pub struct Scope {
     pub kind: ScopeKind,
     pub parent: Option<ScopeId>,
     pub children: Vec<ScopeId>,
-    pub definitions: Vec<(Symbol, Rc<Definition>)>,
+    pub definitions: Vec<(Symbol, DefId)>,
 }
 
 impl Scope {
@@ -160,7 +160,7 @@ impl Scope {
         &self,
         symb: Symbol,
         interner: &ScopeInterner,
-    ) -> Option<Rc<Definition>> {
+    ) -> Option<DefId> {
         for (s, def) in &self.definitions {
             if *s == symb {
                 return Some(def.clone());
