@@ -87,6 +87,10 @@ impl<'ctx> SurfaceResolution {
     }
 
     fn check_scopes(&self, ctx: &TyCtx<'ctx>) -> bool {
+        // Make sure we are at the topmost scope,
+        // meaning we handled entering / exiting
+        // scopes correctly
+        assert!(ctx.current_scope.0 == 0);
         let mut scope_id = ctx.current_scope;
         let mut scope = ctx.get_last_scope();
         while let Some(parent) = scope.parent {
@@ -108,12 +112,7 @@ impl<'ctx> SurfaceResolution {
             .collect();
 
         loop {
-            let to_backpatch: Vec<_> = self
-                .backpatching
-                .iter()
-                // .filter(|(d, _)| matches!(d., Definition::Unresolved(_)))
-                .cloned()
-                .collect();
+            let to_backpatch: Vec<_> = self.backpatching.iter().cloned().collect();
 
             self.backpatching.clear();
             let mut worked_once = false;
@@ -192,12 +191,7 @@ impl<'ctx> SurfaceResolution {
                     Definition::Function(_) => todo!(),
                     Definition::Module(module_id) => {
                         let module = ctx.ctx.interner.get_module(*module_id);
-                        Ok(ctx
-                            .ctx
-                            .interner
-                            .get_scope(module.scope)
-                            .get_definition_for_symbol(symbol, ctx.ctx.interner.scope_interner())
-                            .unwrap())
+                        Ok(ctx.get_symbol_def_in_scope(module.scope, symbol).unwrap())
                     }
                     Definition::Variable(_) => unreachable!(),
                     Definition::Trait(_) => todo!(),
@@ -297,7 +291,6 @@ impl<'ctx> SurfaceResolution {
     ) -> Result<ScopeId, TcError> {
         let name = input.name;
         let return_ty = self.visit_type(ctx, &input.return_ty)?;
-        // println!("return type: {}", self.tyexpr_to_string(ctx, return_ty));
         let params = input
             .args
             .iter()
@@ -316,9 +309,7 @@ impl<'ctx> SurfaceResolution {
 
         ctx.with_scope(ScopeKind::Function(fun_id, item_id), |ctx| {
             let insert_def = ctx.ctx.interner.insert_def(Definition::Function(fun_id));
-            ctx.get_last_scope_mut()
-                .definitions
-                .push((input.name, insert_def));
+            ctx.push_def(input.name, insert_def);
             Ok(ctx.current_scope)
         })
     }
@@ -335,11 +326,7 @@ impl<'ctx> SurfaceResolution {
             Definition::Function(_) => todo!(),
             Definition::Module(module_id) => {
                 let module = ctx.ctx.interner.get_module(*module_id);
-                let def_opt = ctx
-                    .ctx
-                    .interner
-                    .get_scope(module.scope)
-                    .get_definition_for_symbol(index, ctx.ctx.interner.scope_interner());
+                let def_opt = ctx.get_symbol_def_in_scope(module.scope, index);
                 if def_opt.is_some() {
                     return Ok(def_opt.unwrap());
                 }
@@ -386,18 +373,15 @@ impl<'ctx> SurfaceResolution {
                     field.span,
                 )
             }
-            NirExprKind::Named(symb) => Ok(ctx
-                .get_last_scope()
-                .get_definition_for_symbol(symb, ctx.ctx.interner.scope_interner())
-                .unwrap_or_else(|| {
-                    let id = self.unresolved_interner.insert(Unresolved {
-                        scope: ctx.current_scope,
-                        kind: UnresolvedKind::Symb(symb, expr.span),
-                    });
-                    let def = ctx.ctx.interner.insert_def(Definition::Unresolved(id));
-                    self.backpatching.insert(0, (def, id));
-                    def
-                })),
+            NirExprKind::Named(symb) => Ok(ctx.get_symbol_def(symb).unwrap_or_else(|| {
+                let id = self.unresolved_interner.insert(Unresolved {
+                    scope: ctx.current_scope,
+                    kind: UnresolvedKind::Symb(symb, expr.span),
+                });
+                let def = ctx.ctx.interner.insert_def(Definition::Unresolved(id));
+                self.backpatching.insert(0, (def, id));
+                def
+            })),
             _ => unreachable!(),
         }
     }
@@ -479,14 +463,13 @@ impl<'ctx> SurfaceResolution {
         item_id: ItemId,
     ) -> Result<ScopeId, TcError> {
         let name = input.name;
-        // println!("Visiting Module {}", ctx.ctx.interner.get_symbol(name));
 
         let module_id = ctx.ctx.interner.insert_module(Module {
             name,
             scope: ctx.current_scope,
         });
         let def = ctx.ctx.interner.insert_def(Definition::Module(module_id));
-        ctx.get_last_scope_mut().definitions.push((name, def));
+        ctx.push_def(name, def);
         ctx.with_scope(ScopeKind::Module(module_id, item_id), |ctx| {
             // Fixing the scope of the module
             ctx.ctx.interner.get_module_mut(module_id).scope = ctx.current_scope;
@@ -533,7 +516,7 @@ impl<'ctx> SurfaceResolution {
         let id = ctx.ctx.interner.insert_class(c);
 
         let def = ctx.ctx.interner.insert_def(Definition::Class(id));
-        ctx.get_last_scope_mut().definitions.push((input.name, def));
+        ctx.push_def(input.name, def);
 
         ctx.with_scope(ScopeKind::Class(id, item_id), |ctx| {
             let templates = self.get_templates(ctx, &input.generic_args)?;
@@ -560,8 +543,7 @@ impl<'ctx> SurfaceResolution {
         for (i, TemplateArgument { name, .. }) in templates.iter().enumerate() {
             let te = ctx.ctx.interner.insert_type_expr(TypeExpr::Template(i));
             let def = ctx.ctx.interner.insert_def(Definition::Type(te));
-            let current_scope = ctx.get_last_scope_mut();
-            current_scope.definitions.push((*name, def));
+            ctx.push_def(*name, def);
         }
     }
 
