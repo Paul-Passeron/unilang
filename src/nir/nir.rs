@@ -119,6 +119,7 @@ pub enum SelfKind {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct NirMethod {
+    pub visibility: Visibility,
     pub name: Symbol,
     pub self_kind: SelfKind,
     pub generic_args: Vec<NirGenericArg>,
@@ -147,6 +148,7 @@ pub struct NirVarDecl {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct NirMember {
+    pub visibility: Visibility,
     pub name: Symbol,
     pub ty: NirType,
     pub value: Option<ExprId>,
@@ -339,6 +341,12 @@ pub enum NirExprKind {
     Tuple(Vec<ExprId>),
     Range { start: ExprId, end: ExprId },
     TodoDir,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum Visibility {
+    Private,
+    Public,
 }
 
 pub struct NirProgram(pub Vec<ItemId>);
