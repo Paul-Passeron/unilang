@@ -1,5 +1,7 @@
 # Unilang Compiler
 
+## ⚠️ This compiler is not functionnal yet as it is undergoing a partial rewrite (middle-end & back-end)
+
 ## Quickstart
 ### building
 ```sh
