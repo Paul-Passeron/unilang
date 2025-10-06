@@ -9,23 +9,22 @@ mod std => {
 
             interface NonDroppable T => {}
         }
-    }
+        mod iter => {
+            interface Iterator T => {
+                type Output;
+                has_next(): bool;
+                next(): Output;
+            }
 
-    mod iter => {
-        interface Iterator T => {
-            type Output;
-            has_next(): bool;
-            next(): Output;
-        }
-
-        interface Iterable T => {
-            type Iter impl Iterator;
-            to_iter(): Iter;
+            interface Iterable T => {
+                type Iter impl Iterator;
+                to_iter(): Iter;
+            }
         }
     }
 
     mod opt => {
-        impl <T> iter::Iterable for Option<T> => {
+        impl <T> std::core::iter::Iterable for Option<T> => {
             type Iter => OptionIter<T>;
 
             public to_iter(): Iter => {
@@ -33,7 +32,7 @@ mod std => {
             }
         }
 
-        impl <T> iter::Iterator for OptionIter<T> => {
+        impl <T> std::core::iter::Iterator for OptionIter<T> => {
             type Output => T;
 
             public has_next(): bool => {
@@ -95,7 +94,7 @@ mod std => {
             }
         }
 
-        impl <T> iter::Iterable for Vec<T> => {
+        impl <T> std::core::iter::Iterable for Vec<T> => {
             type Iter => VecIter<T>;
 
             public to_iter(): Iter => {
@@ -103,7 +102,7 @@ mod std => {
             }
         }
 
-        impl <T> iter::Iterator for VecIter<T> => {
+        impl <T> std::core::iter::Iterator for VecIter<T> => {
             type Output => T;
 
             public has_next(): bool => {
@@ -160,9 +159,9 @@ let test_alias():  Vector<int> => { @todo; }
 
 use vec => std::vec;
 use Vector => vec::Vec;
-use std::str;
+use std::str::String;
 
-let x(): str::String => { @todo; }
+let x(): String => { @todo; }
 
 let main(): int => {
     let instance => @as MyClass(69, 420);

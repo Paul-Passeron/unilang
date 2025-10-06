@@ -187,7 +187,9 @@ impl<'ctx> SurfaceResolution {
                     Definition::Variable(_) => unreachable!(),
                     Definition::Trait(_) => todo!(),
                     Definition::Type(_) => todo!(),
-                    Definition::Unresolved(_) => panic!(),
+                    Definition::Unresolved(_) => {
+                        Ok(ctx.ctx.interner.insert_def(Definition::Unresolved(input)))
+                    }
                 }
             }
         })
