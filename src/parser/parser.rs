@@ -641,7 +641,7 @@ impl Parser {
         let mut templated = None;
         if self.match_tokenkind(TokenKind::Impl) {
             self.next();
-            let interface = self.parse_identifier_as_string();
+            let interface = self.parse_type_expr();
             if interface.is_err() {
                 return self.emit_error(ParseErrKind::ExpectedInterfaceName);
             }
@@ -892,7 +892,7 @@ impl Parser {
                 let name = self.parse_identifier_as_string()?;
                 let implements = if self.match_tokenkind(TokenKind::Impl) {
                     self.next();
-                    let interface_name = self.parse_identifier_as_string()?;
+                    let interface_name = self.parse_type_expr()?;
                     Some(interface_name)
                 } else {
                     None
@@ -1423,17 +1423,20 @@ impl Parser {
         }
 
         // Parse trait name
-        let trait_name = self.parse_type()?;
+        let mut trait_name = Some(self.parse_type()?);
 
         // Expect 'for' keyword
-        if !self.match_tokenkind(TokenKind::For) {
-            return self.emit_error(ParseErrKind::ExpectedIden); // Reuse or add ExpectedFor
-        }
+        let for_type = if self.match_tokenkind(TokenKind::For) {
+            self.next();
 
-        self.next();
-
-        // Parse type being implemented for
-        let for_type = self.parse_type()?;
+            // Parse type being implemented for
+            let for_type = self.parse_type()?;
+            for_type
+        } else {
+            let for_type = trait_name.unwrap();
+            trait_name = None;
+            for_type
+        };
 
         // Expect '=>'
         if !self.match_tokenkind(TokenKind::BigArrow) {

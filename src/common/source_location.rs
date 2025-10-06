@@ -56,6 +56,25 @@ impl Location {
     pub fn span_to(&self, end: &Location) -> Span {
         Span::from(self, end).unwrap()
     }
+
+    pub fn to_string(&self, file_manager: &FileManager) -> String {
+        let file = file_manager.files.get(&self.file).unwrap();
+        let name = file_manager.paths.get(self.file);
+        let name = name.strip_prefix(std::env::current_dir().unwrap()).unwrap();
+        let mut lines = 1;
+        let mut col = 1;
+        for (i, c) in file.content.chars().enumerate() {
+            if i == self.location as usize {
+                break;
+            }
+            col += 1;
+            if c == '\n' {
+                lines += 1;
+                col = 1;
+            }
+        }
+        format!("{}:{}:{}", name.display(), lines, col)
+    }
 }
 
 impl ConstructibleId for FileId {

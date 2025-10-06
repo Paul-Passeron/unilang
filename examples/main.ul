@@ -1,6 +1,16 @@
 @include std::io
 
 mod std => {
+    mod core => {
+        mod drop => {
+            interface Droppable T => {
+                drop(): void;
+            }
+
+            interface NonDroppable T => {}
+        }
+    }
+
     mod iter => {
         interface Iterator T => {
             type Output;
@@ -104,6 +114,29 @@ mod std => {
                 @todo;
             }
         }
+
+        impl <T impl drop::Droppable> Vec<T> => {
+            public drop(): void => {
+                for x in self => {
+                    x::drop();
+                }
+                free(self::data);
+                self::capacity => 0;
+                self::count => 0;
+            }
+        }
+
+        use std::core::drop;
+
+        impl <T impl drop::NonDroppable> Vec<T> => {
+            public drop(): void => {
+                free(self::data);
+                self::capacity => 0;
+                self::count => 0;
+            }
+        }
+
+        impl <T> drop::Droppable for Vec<T> => {}
     }
 
     mod str => {

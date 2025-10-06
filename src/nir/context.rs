@@ -54,7 +54,15 @@ impl GlobalContext {
             }
             ids.insert(id);
             println!("{id:?}");
-            let mut prgm = self.parse_file(id).unwrap();
+            let mut prgm = match self.parse_file(id) {
+                Ok(x) => x,
+                Err(err) => {
+                    panic!(
+                        "Parsing error ! {}",
+                        err.span.start().to_string(&self.file_manager)
+                    )
+                }
+            };
             p.append(&mut prgm.0);
         }
 

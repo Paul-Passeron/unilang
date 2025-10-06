@@ -122,7 +122,7 @@ pub struct LetDecl {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct TemplateDecl {
     pub ty_name: Ast<String>,
-    pub interface: Option<Ast<String>>,
+    pub interface: Option<Ast<TypeName>>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -151,7 +151,7 @@ pub struct Class {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct TySpec {
     pub name: Ast<String>,
-    pub implements: Option<Ast<String>>,
+    pub implements: Option<Ast<TypeName>>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -171,7 +171,7 @@ pub struct ConstrainedType {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Implementation {
     pub templates: Vec<Ast<TemplateDecl>>,
-    pub trait_name: Ast<Ty>,
+    pub trait_name: Option<Ast<Ty>>,
     pub for_type: Ast<Ty>,
     pub body: Vec<(Ast<AccessSpec>, Ast<TopLevel>)>,
     pub type_aliases: Vec<(Ast<String>, Ast<Ty>)>,
@@ -586,43 +586,43 @@ impl PrettyPrint for TopLevel {
             TopLevel::Use(ast, ast1) => todo!(),
             TopLevel::Implementation(ast) => {
                 let data = ast.as_ref();
-                write!(
-                    f,
-                    "{}impl {}{} for {} => {{",
-                    TAB_SPACE.repeat(indent_level),
-                    if data.templates.len() == 0 {
-                        String::new()
-                    } else {
-                        format!(
-                            "<{}> ",
-                            data.templates
-                                .iter()
-                                .map(|x| format!("{}", x))
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        )
-                    },
-                    data.trait_name,
-                    data.for_type
-                )?;
+                // write!(
+                //     f,
+                //     "{}impl {}{} {} => {{",
+                //     TAB_SPACE.repeat(indent_level),
+                //     if data.templates.len() == 0 {
+                //         String::new()
+                //     } else {
+                //         format!(
+                //             "<{}> ",
+                //             data.templates
+                //                 .iter()
+                //                 .map(|x| format!("{}", x))
+                //                 .collect::<Vec<_>>()
+                //                 .join(", ")
+                //         )
+                //     },
+                //     data.trait_name,
+                //     data.for_type
+                // )?;
+                // for (access, func) in &data.body {
+                //     write!(
+                //         f,
+                //         "\n{} {} ",
+                //         TAB_SPACE.repeat(indent_level + 1),
+                //         match access.as_ref() {
+                //             AccessSpec::Public => "public",
+                //             AccessSpec::Private => "private",
+                //         }
+                //     )?;
 
-                for (access, func) in &data.body {
-                    write!(
-                        f,
-                        "\n{} {} ",
-                        TAB_SPACE.repeat(indent_level + 1),
-                        match access.as_ref() {
-                            AccessSpec::Public => "public",
-                            AccessSpec::Private => "private",
-                        }
-                    )?;
-
-                    func.fmt_with_indent(f, indent_level + 1)?;
-                }
-                if !data.body.is_empty() {
-                    write!(f, "\n{}", TAB_SPACE.repeat(indent_level))?;
-                }
-                write!(f, "}}")
+                //     func.fmt_with_indent(f, indent_level + 1)?;
+                // }
+                // if !data.body.is_empty() {
+                //     write!(f, "\n{}", TAB_SPACE.repeat(indent_level))?;
+                // }
+                // write!(f, "}}")
+                todo!();
             }
         }
     }

@@ -355,8 +355,6 @@ impl<'ctx> TyCtx<'ctx> {
             Definition::Trait(_) => todo!(),
             Definition::Type(_) => todo!(),
             Definition::Unresolved(u_id) => {
-                println!("Here !\n");
-
                 let un = Unresolved {
                     scope: self.current_scope,
                     kind: UnresolvedKind::From(*u_id, index),

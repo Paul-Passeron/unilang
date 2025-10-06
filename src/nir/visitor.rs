@@ -80,7 +80,7 @@ impl<'ctx> NirVisitor<'ctx> {
             .interface
             .iter()
             .map(|x| NirTraitConstraint {
-                name: self.single_elem_path(x),
+                name: self.to_path(x),
                 span: *x.loc(),
             })
             .collect();
@@ -416,9 +416,7 @@ impl<'ctx> NirVisitor<'ctx> {
             .implements
             .iter()
             .map(|x| NirTraitConstraint {
-                name: NirPath {
-                    path: NonEmpty::new((self.as_symbol(x), *x.loc())),
-                },
+                name: self.to_path(x),
                 span: *x.loc(),
             })
             .collect::<Vec<_>>();
@@ -473,18 +471,28 @@ impl<'ctx> NirVisitor<'ctx> {
 
     fn visit_implementation(&mut self, implem: &Ast<Implementation>) -> Result<ItemId, NirError> {
         let idef = implem.as_ref();
-
-        let name = match self.visit_ty(&idef.trait_name)?.kind {
-            NirTypeKind::Named { name, generic_args } => {
-                assert!(generic_args.len() == 0);
-                name
+        let implements = match idef.trait_name.as_ref().map(|trait_name| {
+            self.visit_ty(trait_name).map(|x| {
+                let name = match x.kind {
+                    NirTypeKind::Named { name, generic_args } => {
+                        assert!(generic_args.len() == 0);
+                        name
+                    }
+                    _ => unreachable!(),
+                };
+                Some(NirTraitConstraint {
+                    name,
+                    span: *trait_name.loc(),
+                })
+            })
+        }) {
+            Some(Ok(x)) => Some(x),
+            Some(Err(x)) => {
+                return Err(x);
             }
-            _ => unreachable!(),
-        };
-        let implements = Some(NirTraitConstraint {
-            name,
-            span: *idef.trait_name.loc(),
-        });
+            None => None,
+        }
+        .flatten();
 
         let generic_args = idef
             .templates
