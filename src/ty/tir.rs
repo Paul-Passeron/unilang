@@ -1,7 +1,8 @@
 use crate::{
-    nir::interner::{DefId, SCId, Symbol, TyId},
+    nir::global_interner::{DefId, SCId, Symbol, TyId},
     ty::PrimitiveTy,
 };
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum TirExpr {}
 

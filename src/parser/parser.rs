@@ -7,7 +7,7 @@ use nonempty::NonEmpty;
 use rustc_literal_escaper::unescape_char;
 
 use super::ast::{
-    AccessSpec, Ast, BinOp, Class, Expr, Fundef, FundefProto, Interface, LetDecl, Literal,
+    AccessSpec, Ast, BinOp, ClassAst, Expr, Fundef, FundefProto, Interface, LetDecl, Literal,
     PrefixExprKind, Program, Stmt, TopLevel, Ty,
 };
 use crate::{
@@ -1262,7 +1262,7 @@ impl Parser {
         })
     }
 
-    fn parse_class(&mut self) -> Result<Ast<Class>, ParseError> {
+    fn parse_class(&mut self) -> Result<Ast<ClassAst>, ParseError> {
         if !self.match_tokenkind(TokenKind::Class) {
             return self.emit_error(ParseErrKind::BadStartToken);
         }
@@ -1337,7 +1337,7 @@ impl Parser {
 
         let end = self.next().unwrap().location.end();
         Ok(Ast::new(
-            Class {
+            ClassAst {
                 name,
                 template_decls,
                 methods,

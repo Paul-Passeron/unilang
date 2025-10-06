@@ -153,7 +153,7 @@ pub struct CMem {
     pub decl: Ast<LetDecl>,
 }
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Class {
+pub struct ClassAst {
     pub name: Ast<String>,
     pub template_decls: Vec<Ast<TemplateDecl>>,
     pub methods: Vec<CMeth>,
@@ -202,7 +202,7 @@ pub enum TopLevel {
     ExternDir(Ast<FundefProto>, Ast<bool>),
     Fundef(Ast<Fundef>),
     Interface(Ast<Interface>),
-    Class(Ast<Class>),
+    Class(Ast<ClassAst>),
     Module(Ast<String>, Vec<Ast<TopLevel>>),
     Use(Option<Ast<String>>, Ast<Ty>),
     Implementation(Ast<Implementation>),
@@ -672,7 +672,7 @@ impl PrettyPrint for Interface {
     }
 }
 
-impl PrettyPrint for Class {
+impl PrettyPrint for ClassAst {
     fn fmt_with_indent(&self, f: &mut fmt::Formatter<'_>, indent_level: usize) -> fmt::Result {
         write!(f, "class")?;
         if !self.template_decls.is_empty() {

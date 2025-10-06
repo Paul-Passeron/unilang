@@ -7,7 +7,9 @@ use crate::{
         source_location::{FileId, FileManager},
     },
     lexer::Lexer,
-    nir::{include_resolver::IncludeResolver, interner::GlobalInterner, visitor::NirVisitor},
+    nir::{
+        global_interner::GlobalInterner, include_resolver::IncludeResolver, visitor::NirVisitor,
+    },
     parser::{ast::Program, parser::Parser},
     ty::{TyCtx, pass::Pass, surface_resolution::SurfaceResolution},
 };

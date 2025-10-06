@@ -4,7 +4,8 @@ use crate::{
     common::{errors::ParseError, source_location::Span},
     nir::{
         context::GlobalContext,
-        interner::{ExprId, Interner, ItemId, Symbol},
+        global_interner::{ExprId, ItemId, Symbol},
+        interner::Interner,
         nir::{
             FieldAccess, FieldAccessKind, NirArgument, NirAssociatedType, NirBinOp, NirBinOpKind,
             NirCall, NirCalled, NirClassDef, NirExpr, NirExprKind, NirFunctionDef, NirGenericArg,
@@ -14,7 +15,7 @@ use crate::{
         },
     },
     parser::ast::{
-        AccessSpec, Ast, BinOp, CMem, CMeth, Class, Expr, Fundef, FundefProto, Implementation,
+        AccessSpec, Ast, BinOp, CMem, CMeth, ClassAst, Expr, Fundef, FundefProto, Implementation,
         LetDecl, Literal, PostfixExprKind, PrefixExprKind, Program, Stmt, TemplateDecl, TopLevel,
         Ty, TySpec, TypeName,
     },
@@ -140,7 +141,7 @@ impl<'ctx> NirVisitor<'ctx> {
         Ok(NirArgument { name, ty, span })
     }
 
-    fn visit_class(&mut self, class: &Ast<Class>) -> Result<ItemId, NirError> {
+    fn visit_class(&mut self, class: &Ast<ClassAst>) -> Result<ItemId, NirError> {
         let cdef = class.as_ref();
         let name = self.as_symbol(&cdef.name);
 

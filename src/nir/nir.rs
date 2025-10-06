@@ -4,7 +4,7 @@ use nonempty::NonEmpty;
 
 use crate::{
     common::source_location::Span,
-    nir::interner::{ExprId, ItemId, StringLiteral, Symbol},
+    nir::global_interner::{ExprId, ItemId, StringLiteral, Symbol},
 };
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

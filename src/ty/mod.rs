@@ -4,7 +4,7 @@ use crate::{
     common::source_location::Span,
     nir::{
         context::GlobalContext,
-        interner::{DefId, ScopeId, Symbol, TypeExprId, UnresolvedId},
+        global_interner::{DefId, ScopeId, Symbol, TypeExprId, UnresolvedId},
         nir::{NirPath, NirType, NirTypeKind},
     },
     ty::scope::{Definition, Scope, ScopeKind, TypeExpr, Unresolved, UnresolvedKind},
