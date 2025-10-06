@@ -3,7 +3,7 @@
 ## Quickstart
 ### building
 ```sh
-cargo install --git<PATH>
+cargo install --git https://github.com/Paul-Passeron/unilang
 ```
 ### usage
 ```sh
