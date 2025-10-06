@@ -17,7 +17,8 @@ use crate::{
     },
     lexer::{Token, TokenKind},
     parser::ast::{
-        ConstrainedType, Implementation, PostfixExprKind, TemplateDecl, TySpec, TypeName,
+        CMem, CMeth, ConstrainedType, Implementation, PostfixExprKind, TemplateDecl, TySpec,
+        TypeName,
     },
 };
 
@@ -911,6 +912,13 @@ impl Parser {
                 let span = start.span_to(&end);
                 ty_specs.push(Ast::new(ty_spec, span));
             } else {
+                let is_static = if self.match_tokenkind(TokenKind::Static) {
+                    self.next();
+                    true
+                } else {
+                    false
+                };
+
                 let proto = self.parse_fundef_proto()?;
                 if self.is_done() {
                     return self.emit_abort(ParseErrKind::UnexpectedEOF);
@@ -919,7 +927,7 @@ impl Parser {
                     return self.emit_abort(ParseErrKind::ExpectedSemicol);
                 }
                 self.next();
-                protos.push(proto);
+                protos.push((is_static, proto));
             }
         }
 
@@ -1152,7 +1160,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn parse_member(&mut self) -> Result<(Ast<AccessSpec>, Ast<LetDecl>), ParseError> {
+    fn parse_member(&mut self) -> Result<CMem, ParseError> {
         let access_spec = self.parse_identifier_as_string();
         if access_spec.is_err() {
             return self.emit_error(ParseErrKind::ExpectedAccessSpec);
@@ -1169,16 +1177,27 @@ impl Parser {
             acc_loc.clone(),
         );
 
+        let is_static = if self.match_tokenkind(TokenKind::Static) {
+            self.next();
+            true
+        } else {
+            false
+        };
+
         let decl = self.parse_letless_var(start.clone())?;
 
         if !self.match_tokenkind(TokenKind::Semicolon) {
             return self.emit_abort(ParseErrKind::ExpectedSemicol);
         }
         let end = self.next().unwrap().location.end();
-        Ok((actual_as, decl))
+        Ok(CMem {
+            access_spec: actual_as,
+            is_static,
+            decl,
+        })
     }
 
-    fn parse_method(&mut self) -> Result<(Ast<AccessSpec>, Ast<Fundef>), ParseError> {
+    fn parse_method(&mut self) -> Result<CMeth, ParseError> {
         let access_spec = self.parse_identifier_as_string();
         if access_spec.is_err() {
             return self.emit_error(ParseErrKind::ExpectedAccessSpec);
@@ -1193,6 +1212,13 @@ impl Parser {
             },
             acc_loc.clone(),
         );
+
+        let is_static = if self.match_tokenkind(TokenKind::Static) {
+            self.next();
+            true
+        } else {
+            false
+        };
 
         let position = self.position;
         let mut proto = self.parse_fundef_proto_gen(true);
@@ -1229,10 +1255,11 @@ impl Parser {
             return self.emit_error(ParseErrKind::UnclosedBra(bra.location.start()));
         }
         let end = self.next().unwrap().location.end();
-        Ok((
-            actual_as,
-            Ast::new(Fundef { proto, body }, start.span_to(&end)),
-        ))
+        Ok(CMeth {
+            access_spec: actual_as,
+            is_static,
+            fundef: Ast::new(Fundef { proto, body }, start.span_to(&end)),
+        })
     }
 
     fn parse_class(&mut self) -> Result<Ast<Class>, ParseError> {
@@ -1277,54 +1304,31 @@ impl Parser {
         let bra = self.next().unwrap();
         let mut methods = Vec::new();
         let mut members = Vec::new();
-        let mut type_aliases = Vec::new();
         while !self.match_tokenkind(TokenKind::CloseBra) {
             if self.is_done() {
                 break;
             }
             let position_before_method = self.position;
 
-            if self.match_tokenkind(TokenKind::Type) {
-                self.next();
-
-                let ty_name = self.parse_identifier_as_string()?;
-
-                if !self.match_tokenkind(TokenKind::BigArrow) {
-                    return self.emit_abort(ParseErrKind::ExpectedArrow);
-                }
-
-                self.next();
-
-                let ty = self.parse_type()?;
-
-                if !self.match_tokenkind(TokenKind::Semicolon) {
-                    return self.emit_abort(ParseErrKind::ExpectedSemicol);
-                }
-
-                self.next();
-
-                type_aliases.push((ty_name, ty));
-            } else {
-                let method = self.parse_method();
-                if method.is_err() {
-                    let pos = self.position;
-                    self.position = position_before_method;
-                    let x = method.clone().err().unwrap();
-                    let err = self.emit_abort_at(x.kind.0, x.span);
-                    let member = self.parse_member();
-                    if member.is_err() {
-                        if pos > self.position {
-                            return err;
-                        } else {
-                            member.clone()?;
-                        }
+            let method = self.parse_method();
+            if method.is_err() {
+                let pos = self.position;
+                self.position = position_before_method;
+                let x = method.clone().err().unwrap();
+                let err = self.emit_abort_at(x.kind.0, x.span);
+                let member = self.parse_member();
+                if member.is_err() {
+                    if pos > self.position {
+                        return err;
+                    } else {
+                        member.clone()?;
                     }
-                    let member = member.unwrap();
-                    members.push(member);
-                } else {
-                    let method = method.unwrap();
-                    methods.push(method);
                 }
+                let member = member.unwrap();
+                members.push(member);
+            } else {
+                let method = method.unwrap();
+                methods.push(method);
             }
         }
         if !self.match_tokenkind(TokenKind::CloseBra) {
@@ -1338,7 +1342,6 @@ impl Parser {
                 template_decls,
                 methods,
                 members,
-                type_aliases,
             },
             start.span_to(&end),
         ))
@@ -1488,13 +1491,7 @@ impl Parser {
                 let entry = (ty_name, ty);
                 type_aliases.push(entry);
             } else {
-                let method = self.parse_method()?;
-                let start = method.0.loc().start();
-                let end = method.1.loc().end();
-                body.push((
-                    method.0,
-                    Ast::new(TopLevel::Fundef(method.1), start.span_to(&end)),
-                ));
+                body.push(self.parse_method()?);
             }
         }
 

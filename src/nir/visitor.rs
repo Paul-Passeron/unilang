@@ -10,13 +10,13 @@ use crate::{
             NirCall, NirCalled, NirClassDef, NirExpr, NirExprKind, NirFunctionDef, NirGenericArg,
             NirImplBlock, NirItem, NirLiteral, NirMember, NirMethod, NirModuleDef, NirPath,
             NirPattern, NirPatternKind, NirProgram, NirStmtKind, NirTraitConstraint, NirTraitDef,
-            NirType, NirTypeBound, NirTypeKind, NirVarDecl, SelfKind, Visibility,
+            NirType, NirTypeBound, NirTypeKind, NirVarDecl, SelfKind, StrLit, Visibility,
         },
     },
     parser::ast::{
-        AccessSpec, Ast, BinOp, Class, Expr, Fundef, FundefProto, Implementation, LetDecl, Literal,
-        PostfixExprKind, PrefixExprKind, Program, Stmt, TemplateDecl, TopLevel, Ty, TySpec,
-        TypeName,
+        AccessSpec, Ast, BinOp, CMem, CMeth, Class, Expr, Fundef, FundefProto, Implementation,
+        LetDecl, Literal, PostfixExprKind, PrefixExprKind, Program, Stmt, TemplateDecl, TopLevel,
+        Ty, TySpec, TypeName,
     },
 };
 
@@ -153,29 +153,43 @@ impl<'ctx> NirVisitor<'ctx> {
         let methods = cdef
             .methods
             .iter()
-            .map(|(vis, x)| {
-                self.visit_method_decl(
-                    match vis.as_ref() {
-                        AccessSpec::Public => Visibility::Public,
-                        AccessSpec::Private => Visibility::Private,
-                    },
-                    x,
-                )
-            })
+            .map(
+                |CMeth {
+                     access_spec,
+                     is_static,
+                     fundef,
+                 }| {
+                    self.visit_method_decl(
+                        match access_spec.as_ref() {
+                            AccessSpec::Public => Visibility::Public,
+                            AccessSpec::Private => Visibility::Private,
+                        },
+                        *is_static,
+                        fundef,
+                    )
+                },
+            )
             .collect::<Result<Vec<_>, _>>()?;
 
         let members = cdef
             .members
             .iter()
-            .map(|(vis, x)| {
-                self.visit_member(
-                    match vis.as_ref() {
-                        AccessSpec::Public => Visibility::Public,
-                        AccessSpec::Private => Visibility::Private,
-                    },
-                    x,
-                )
-            })
+            .map(
+                |CMem {
+                     access_spec,
+                     is_static,
+                     decl,
+                 }| {
+                    self.visit_member(
+                        match access_spec.as_ref() {
+                            AccessSpec::Public => Visibility::Public,
+                            AccessSpec::Private => Visibility::Private,
+                        },
+                        *is_static,
+                        decl,
+                    )
+                },
+            )
             .collect::<Result<Vec<_>, _>>()?;
 
         let span = *class.loc();
@@ -195,6 +209,7 @@ impl<'ctx> NirVisitor<'ctx> {
     fn visit_method_decl(
         &mut self,
         visibility: Visibility,
+        is_static: bool,
         method: &Ast<Fundef>,
     ) -> Result<ItemId, NirError> {
         let mdef = method.as_ref();
@@ -240,6 +255,7 @@ impl<'ctx> NirVisitor<'ctx> {
 
         let def = NirMethod {
             visibility,
+            is_static,
             name,
             self_kind: SelfKind::ByPtr,
             generic_args,
@@ -257,6 +273,7 @@ impl<'ctx> NirVisitor<'ctx> {
     fn visit_member(
         &mut self,
         visibility: Visibility,
+        is_static: bool,
         member: &Ast<LetDecl>,
     ) -> Result<NirMember, NirError> {
         let mdef = member.as_ref();
@@ -296,6 +313,7 @@ impl<'ctx> NirVisitor<'ctx> {
 
         Ok(NirMember {
             visibility,
+            is_static,
             name,
             ty,
             value,
@@ -363,6 +381,7 @@ impl<'ctx> NirVisitor<'ctx> {
     fn visit_proto_as_method(
         &mut self,
         visibility: Visibility,
+        is_static: bool,
         fdef: &Ast<FundefProto>,
     ) -> Result<ItemId, NirError> {
         let name = self.as_symbol(&fdef.as_ref().name);
@@ -393,6 +412,7 @@ impl<'ctx> NirVisitor<'ctx> {
 
         let def = NirMethod {
             visibility,
+            is_static,
             name,
             self_kind: SelfKind::ByPtr,
             generic_args,
@@ -522,16 +542,22 @@ impl<'ctx> NirVisitor<'ctx> {
         let methods = idef
             .body
             .iter()
-            .map(|(vis, x)| match x.as_ref() {
-                TopLevel::Fundef(ast) => self.visit_proto_as_method(
-                    match vis.as_ref() {
-                        AccessSpec::Public => Visibility::Public,
-                        AccessSpec::Private => Visibility::Private,
-                    },
-                    &ast.as_ref().proto,
-                ),
-                _ => unreachable!(),
-            })
+            .map(
+                |CMeth {
+                     access_spec,
+                     is_static,
+                     fundef,
+                 }| {
+                    self.visit_proto_as_method(
+                        match access_spec.as_ref() {
+                            AccessSpec::Public => Visibility::Public,
+                            AccessSpec::Private => Visibility::Private,
+                        },
+                        *is_static,
+                        &fundef.as_ref().proto,
+                    )
+                },
+            )
             .collect::<Result<Vec<_>, _>>()?;
 
         let span = *implem.loc();
@@ -600,7 +626,9 @@ impl<'ctx> NirVisitor<'ctx> {
                 let methods = idef
                     .protos
                     .iter()
-                    .map(|x| self.visit_proto_as_method(Visibility::Public, x))
+                    .map(|(is_static, x)| {
+                        self.visit_proto_as_method(Visibility::Public, *is_static, x)
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
 
                 let types = idef
@@ -847,7 +875,10 @@ impl<'ctx> NirVisitor<'ctx> {
         Ok(match lit.as_ref() {
             Literal::Int(x) => NirLiteral::IntLiteral(*x as i128),
             Literal::Char(x) => NirLiteral::CharLiteral(*x),
-            Literal::String(x) => NirLiteral::StringLiteral(self.ctx.interner.insert_string(x)),
+            Literal::String(x) => {
+                // Should not clone here
+                NirLiteral::StringLiteral(self.ctx.interner.insert_string(&StrLit(x.clone())))
+            }
         })
     }
 

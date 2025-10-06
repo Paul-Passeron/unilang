@@ -13,6 +13,7 @@ use crate::{
 pub mod pass;
 pub mod scope;
 pub mod surface_resolution;
+pub mod tir;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructField {

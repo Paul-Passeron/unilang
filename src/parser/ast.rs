@@ -140,12 +140,24 @@ pub enum AccessSpec {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct CMeth {
+    pub access_spec: Ast<AccessSpec>,
+    pub is_static: bool,
+    pub fundef: Ast<Fundef>,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct CMem {
+    pub access_spec: Ast<AccessSpec>,
+    pub is_static: bool,
+    pub decl: Ast<LetDecl>,
+}
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Class {
     pub name: Ast<String>,
     pub template_decls: Vec<Ast<TemplateDecl>>,
-    pub methods: Vec<(Ast<AccessSpec>, Ast<Fundef>)>,
-    pub members: Vec<(Ast<AccessSpec>, Ast<LetDecl>)>,
-    pub type_aliases: Vec<(Ast<String>, Ast<Ty>)>,
+    pub methods: Vec<CMeth>,
+    pub members: Vec<CMem>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -158,7 +170,7 @@ pub struct TySpec {
 pub struct Interface {
     pub name: Ast<String>,
     pub constrained_ty: ConstrainedType,
-    pub protos: Vec<Ast<FundefProto>>,
+    pub protos: Vec<(bool, Ast<FundefProto>)>,
     pub ty_specs: Vec<Ast<TySpec>>,
 }
 
@@ -173,7 +185,7 @@ pub struct Implementation {
     pub templates: Vec<Ast<TemplateDecl>>,
     pub trait_name: Option<Ast<Ty>>,
     pub for_type: Ast<Ty>,
-    pub body: Vec<(Ast<AccessSpec>, Ast<TopLevel>)>,
+    pub body: Vec<CMeth>,
     pub type_aliases: Vec<(Ast<String>, Ast<Ty>)>,
 }
 
@@ -653,7 +665,7 @@ impl PrettyPrint for Interface {
         write!(f, "interface {} {} => {{", self.name, txt)?;
         for proto in &self.protos {
             write!(f, "{}", TAB_SPACE.repeat(indent_level + 1))?;
-            proto.fmt_with_indent(f, indent_level + 1)?;
+            proto.1.fmt_with_indent(f, indent_level + 1)?;
             write!(f, ";\n")?;
         }
         write!(f, "{}}}", TAB_SPACE.repeat(indent_level))
@@ -676,7 +688,12 @@ impl PrettyPrint for Class {
         }
         write!(f, " {} => {{\n", self.name)?;
 
-        for (access, member) in &self.members {
+        for CMem {
+            access_spec: access,
+            is_static,
+            decl,
+        } in &self.members
+        {
             write!(
                 f,
                 "{}{} ",
@@ -688,25 +705,30 @@ impl PrettyPrint for Class {
             )?;
             let mut s = String::new();
             let mut f2 = Formatter::new(&mut s, FormattingOptions::new());
-            member.fmt_with_indent(&mut f2, indent_level + 1)?;
+            decl.fmt_with_indent(&mut f2, indent_level + 1)?;
             s = s.trim().to_string();
             write!(f, "{}", s)?;
             write!(f, "\n")?;
         }
 
-        for (access, method) in &self.methods {
+        for CMeth {
+            access_spec,
+            is_static,
+            fundef,
+        } in &self.methods
+        {
             write!(
                 f,
                 "{}{} ",
                 TAB_SPACE.repeat(indent_level + 1),
-                match access.data().as_ref() {
+                match access_spec.data().as_ref() {
                     AccessSpec::Public => "public",
                     AccessSpec::Private => "private",
                 }
             )?;
             let mut s = String::new();
             let mut f2 = Formatter::new(&mut s, FormattingOptions::new());
-            method.fmt_with_indent(&mut f2, indent_level + 1)?;
+            fundef.fmt_with_indent(&mut f2, indent_level + 1)?;
             s = s.trim().to_string();
             write!(f, "{}", s)?;
             write!(f, "\n")?;

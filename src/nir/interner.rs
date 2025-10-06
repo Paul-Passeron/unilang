@@ -6,12 +6,13 @@ use std::{
 };
 
 use crate::{
-    nir::nir::{NirExpr, NirItem},
+    nir::nir::{NirExpr, NirItem, StrLit},
     ty::{
         TcFunProto,
         scope::{
             Class, Definition, ImplBlock, Module, Scope, Trait, TypeExpr, Unresolved, VarDecl,
         },
+        tir::{ConcreteType, SpecializedClass},
     },
 };
 
@@ -83,51 +84,6 @@ impl<'ctx, Id: ConstructibleId, Value: Hash + Eq + Clone> Interner<'ctx, Value>
         self.last_id = 0;
     }
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Symbol(u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct StringLiteral(u32);
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct ItemId(pub u32);
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct ExprId(pub u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TyId(pub u32);
-
-impl ConstructibleId for Symbol {
-    fn new(id: u32) -> Self {
-        Self(id)
-    }
-}
-
-impl ConstructibleId for StringLiteral {
-    fn new(id: u32) -> Self {
-        Self(id)
-    }
-}
-
-impl ConstructibleId for ItemId {
-    fn new(id: u32) -> Self {
-        Self(id)
-    }
-}
-
-impl ConstructibleId for ExprId {
-    fn new(id: u32) -> Self {
-        Self(id)
-    }
-}
-
-impl ConstructibleId for TyId {
-    fn new(id: u32) -> Self {
-        Self(id)
-    }
-}
-pub type SymbolInterner = HashInterner<Symbol, String>;
-pub type StringInterner = HashInterner<StringLiteral, String>;
-pub type ItemInterner = HashInterner<ItemId, NirItem>;
-pub type ExprInterner = HashInterner<ExprId, NirExpr>;
 
 #[derive(Debug, Clone)]
 pub struct OneShotInterner<T>(Vec<T>);
@@ -206,6 +162,18 @@ where
     }
 }
 
+pub type Symbol = OneShotId<String>;
+pub type SymbolInterner = HashInterner<Symbol, String>;
+
+pub type StringLiteral = OneShotId<StrLit>;
+pub type StringInterner = HashInterner<StringLiteral, StrLit>;
+
+pub type ItemId = OneShotId<NirItem>;
+pub type ItemInterner = HashInterner<ItemId, NirItem>;
+
+pub type ExprId = OneShotId<NirExpr>;
+pub type ExprInterner = HashInterner<ExprId, NirExpr>;
+
 pub type ScopeInterner = OneShotInterner<Scope>;
 pub type ScopeId = OneShotId<Scope>;
 
@@ -233,8 +201,14 @@ pub type ImplBlockId = OneShotId<ImplBlock>;
 pub type TypeExprId = OneShotId<TypeExpr>;
 pub type TypeExprInterner = HashInterner<TypeExprId, TypeExpr>;
 
-pub type DefInterner = OneShotInterner<Definition>;
+pub type DefInterner = HashInterner<DefId, Definition>;
 pub type DefId = OneShotId<Definition>;
+
+pub type ConcreteTypeInterner = HashInterner<TyId, ConcreteType>;
+pub type TyId = OneShotId<ConcreteType>;
+
+pub type SCInterner = HashInterner<SCId, SpecializedClass>;
+pub type SCId = OneShotId<SpecializedClass>;
 
 #[derive(Debug, Clone)]
 pub struct GlobalInterner {
@@ -281,7 +255,7 @@ impl GlobalInterner {
             self.symbol.insert(value.clone())
         }
     }
-    pub fn insert_string(&mut self, value: &String) -> StringLiteral {
+    pub fn insert_string(&mut self, value: &StrLit) -> StringLiteral {
         if let Some(res) = self.string.contains(value) {
             res
         } else {
@@ -329,7 +303,7 @@ impl GlobalInterner {
     pub fn get_symbol(&self, id: Symbol) -> &String {
         self.symbol.get(id)
     }
-    pub fn get_string(&self, id: StringLiteral) -> &String {
+    pub fn get_string(&self, id: StringLiteral) -> &StrLit {
         self.string.get(id)
     }
     pub fn get_item(&self, id: ItemId) -> &NirItem {
@@ -372,7 +346,7 @@ impl GlobalInterner {
     pub fn get_symbol_mut(&mut self, id: Symbol) -> &mut String {
         self.symbol.get_mut(id)
     }
-    pub fn get_string_mut(&mut self, id: StringLiteral) -> &mut String {
+    pub fn get_string_mut(&mut self, id: StringLiteral) -> &mut StrLit {
         self.string.get_mut(id)
     }
     pub fn get_item_mut(&mut self, id: ItemId) -> &mut NirItem {

@@ -174,6 +174,8 @@ class MyClass => {
     private x: int;
     private y: int;
 
+    private static count: int;
+
     public MyClass(x: int, y: int) => {
         self::x => x;
         self::y => y;

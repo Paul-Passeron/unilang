@@ -29,6 +29,7 @@ pub enum TokenKind {
     Type,
     Break,
     Use,
+    Static,
 
     // Operators
     Plus,
@@ -122,6 +123,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Type => write!(f, "type"),
             TokenKind::Break => write!(f, "break"),
             TokenKind::Use => write!(f, "use"),
+            TokenKind::Static => write!(f, "static"),
         }
     }
 }

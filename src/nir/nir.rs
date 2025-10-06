@@ -8,6 +8,9 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct StrLit(pub String);
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct NirPath {
     pub path: NonEmpty<(Symbol, Span)>,
 }
@@ -120,6 +123,7 @@ pub enum SelfKind {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct NirMethod {
     pub visibility: Visibility,
+    pub is_static: bool,
     pub name: Symbol,
     pub self_kind: SelfKind,
     pub generic_args: Vec<NirGenericArg>,
@@ -149,6 +153,7 @@ pub struct NirVarDecl {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct NirMember {
     pub visibility: Visibility,
+    pub is_static: bool,
     pub name: Symbol,
     pub ty: NirType,
     pub value: Option<ExprId>,
