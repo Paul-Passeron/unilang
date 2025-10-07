@@ -94,7 +94,15 @@ impl<T> Eq for OneShotId<T> {}
 
 impl<T> fmt::Debug for OneShotId<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}({})", std::any::type_name::<T>(), self.0)
+        let s = std::any::type_name::<T>();
+        let name = if let Some(pos) = s.rfind("::") {
+            // Take everything after the last ::
+            s[pos + 2..].to_string()
+        } else {
+            // No :: found, return as is
+            s.to_string()
+        };
+        write!(f, "{}Id({})", name, self.0)
     }
 }
 

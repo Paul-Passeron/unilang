@@ -7,13 +7,17 @@ use crate::{
         global_interner::{DefId, ScopeId, Symbol, TypeExprId, UnresolvedId},
         nir::{NirPath, NirType, NirTypeKind},
     },
-    ty::scope::{Definition, Scope, ScopeKind, TypeExpr, Unresolved, UnresolvedKind},
+    ty::{
+        scope::{Definition, Scope, ScopeKind, TypeExpr, Unresolved, UnresolvedKind},
+        tir::ConcreteType,
+    },
 };
 
 pub mod pass;
 pub mod scope;
 pub mod surface_resolution;
 pub mod tir;
+pub mod tir_pass;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructField {
@@ -61,6 +65,10 @@ pub enum TcError {
     Todo,
     NameNotFound(Symbol),
     Aggregate(Vec<TcError>),
+    BadReturnType(
+        crate::nir::interner::OneShotId<ConcreteType>,
+        crate::nir::interner::OneShotId<ConcreteType>,
+    ),
 }
 
 impl PrimitiveTy {
@@ -226,8 +234,27 @@ impl<'ctx> TyCtx<'ctx> {
         todo!()
     }
 
-    pub fn print_error(&mut self, _error: &TcError) {
-        todo!()
+    pub fn print_error(&mut self, error: &TcError) {
+        print!("[ERROR] ");
+        match error {
+            TcError::Todo => println!("TODO"),
+            TcError::NameNotFound(id) => println!(
+                "Name {} was not found in the current context",
+                self.ctx.interner.get_symbol(*id)
+            ),
+            TcError::Aggregate(tc_errors) => {
+                println!("Multiple errors:");
+                for error in tc_errors {
+                    self.print_error(error);
+                }
+            }
+            TcError::BadReturnType(got, expected) => {
+                println!(
+                    "Cannot return type {:?} (expected type {:?})",
+                    got, expected
+                );
+            }
+        }
     }
 
     fn get_last_scope_mut(&mut self) -> &mut Scope {
@@ -365,6 +392,17 @@ impl<'ctx> TyCtx<'ctx> {
                 self.backpatching.insert(0, (def, id));
                 Ok(def)
             }
+        }
+    }
+
+    pub fn get_return_ty(&mut self) -> Option<TypeExprId> {
+        match self.get_last_scope().kind.clone() {
+            ScopeKind::Function(fun_id, _) => Some(self.ctx.interner.get_fun(fun_id).return_ty),
+            ScopeKind::Loop | ScopeKind::Condition => {
+                let parent = self.get_last_scope().parent.unwrap();
+                self.with_scope_id(parent, |ctx| ctx.get_return_ty())
+            }
+            _ => None,
         }
     }
 }

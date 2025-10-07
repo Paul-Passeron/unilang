@@ -76,6 +76,8 @@ pub struct GlobalInterner {
     imp: ImplBlockInterner,
     def: DefInterner,
     unresolved: UnresolvedInterner,
+    conc_type: ConcreteTypeInterner,
+    sc: SCInterner,
 }
 
 impl GlobalInterner {
@@ -95,6 +97,8 @@ impl GlobalInterner {
             imp: ImplBlockInterner::new(),
             def: DefInterner::new(),
             unresolved: UnresolvedInterner::new(),
+            conc_type: ConcreteTypeInterner::new(),
+            sc: SCInterner::new(),
         }
     }
 
@@ -149,6 +153,17 @@ impl GlobalInterner {
     pub fn insert_unresolved(&mut self, value: Unresolved) -> UnresolvedId {
         self.unresolved.insert(value)
     }
+    pub fn insert_conc_type(&mut self, value: ConcreteType) -> TyId {
+        let res = self.conc_type.insert(value.clone());
+        {
+            println!("inserting {:?} as concrete type: {:?}", value, res);
+        }
+        res
+        // self.conc_type.insert(value)
+    }
+    pub fn insert_sc(&mut self, value: SpecializedClass) -> SCId {
+        self.sc.insert(value)
+    }
 
     pub fn get_symbol(&self, id: Symbol) -> &String {
         self.symbol.get(id)
@@ -191,6 +206,12 @@ impl GlobalInterner {
     }
     pub fn get_unresolved(&self, id: UnresolvedId) -> &Unresolved {
         self.unresolved.get(id)
+    }
+    pub fn get_conc_type(&self, id: TyId) -> &ConcreteType {
+        self.conc_type.get(id)
+    }
+    pub fn get_sc(&self, id: SCId) -> &SpecializedClass {
+        self.sc.get(id)
     }
 
     pub fn get_symbol_mut(&mut self, id: Symbol) -> &mut String {
@@ -235,6 +256,12 @@ impl GlobalInterner {
     pub fn get_unresolved_mut(&mut self, id: UnresolvedId) -> &mut Unresolved {
         self.unresolved.get_mut(id)
     }
+    pub fn get_conc_type_mut(&mut self, id: TyId) -> &ConcreteType {
+        self.conc_type.get_mut(id)
+    }
+    pub fn get_sc_mut(&mut self, id: SCId) -> &SpecializedClass {
+        self.sc.get_mut(id)
+    }
 
     pub fn contains_item(&self, value: &NirItem) -> Option<ItemId> {
         self.item.contains(value)
@@ -271,6 +298,12 @@ impl GlobalInterner {
     }
     pub fn contains_urnesolved(&self, value: &Unresolved) -> Option<UnresolvedId> {
         self.unresolved.contains(value)
+    }
+    pub fn contains_conc_type(&self, value: &ConcreteType) -> Option<TyId> {
+        self.conc_type.contains(value)
+    }
+    pub fn contains_sc(&self, value: &SpecializedClass) -> Option<SCId> {
+        self.sc.contains(value)
     }
 
     pub fn clear_symbol(&mut self) {
@@ -314,6 +347,12 @@ impl GlobalInterner {
     }
     pub fn clear_unresolved(&mut self) {
         self.unresolved.clear();
+    }
+    pub fn clear_conc_type(&mut self) {
+        self.conc_type.clear()
+    }
+    pub fn clear_sc(&mut self) {
+        self.sc.clear()
     }
 
     pub fn debug_print(&self) {

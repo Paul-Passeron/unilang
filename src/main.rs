@@ -14,8 +14,6 @@ mod ty;
 
 fn main() {
     let config = Config::parse();
-
     let ctx = GlobalContext::new(config);
-
     ctx.compile();
 }

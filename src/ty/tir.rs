@@ -1,13 +1,47 @@
+use std::collections::HashMap;
+
 use crate::{
-    nir::global_interner::{DefId, SCId, Symbol, TyId},
+    nir::{
+        global_interner::{DefId, SCId, Symbol, TyId},
+        nir::Visibility,
+    },
     ty::PrimitiveTy,
 };
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub enum TirExpr {}
+pub struct TirCtx {
+    pub methods: HashMap<TyId, Vec<TirMethod>>,
+}
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub enum TirInstr {}
+pub enum TypedIntLit {
+    Ptr(TyId, usize),
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    Bool(bool),
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum TirExpr {
+    TypedIntLit(TypedIntLit),
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum TirInstr {
+    Return(Option<TirExpr>),
+}
+
+pub enum TirItem {
+    Fundef {
+        sig: Signature,
+        body: Option<Vec<TirInstr>>,
+    },
+}
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum ConcreteType {
@@ -28,10 +62,13 @@ pub struct Signature {
     pub name: Symbol,
     pub params: Vec<SCField>,
     pub return_ty: TyId,
+    pub variadic: bool,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct SCMethod {
+pub struct TirMethod {
+    pub is_static: bool,
+    pub vis: Visibility,
     pub sig: Signature,
     pub body: Option<Vec<TirInstr>>,
 }
@@ -46,6 +83,5 @@ pub struct SpecializedClass {
     pub original: DefId,
     pub templates: TyId,
     pub fields: Vec<SCField>,
-    pub methods: Vec<SCMethod>,
     pub constructors: Vec<SCCons>,
 }
