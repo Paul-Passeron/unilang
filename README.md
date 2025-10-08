@@ -1,9 +1,11 @@
 # Unilang Compiler
 
+## ⚠️ This compiler is not functionnal yet as it is undergoing a partial rewrite (middle-end & back-end)
+
 ## Quickstart
 ### building
 ```sh
-cargo install --git<PATH>
+cargo install --git https://github.com/Paul-Passeron/unilang
 ```
 ### usage
 ```sh
