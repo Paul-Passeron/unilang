@@ -4,8 +4,8 @@ use crate::{
     nir::{
         global_interner::{ExprId, Symbol, TirExprId, TyId, TypeExprId},
         nir::{
-            FieldAccessKind, NirExprKind, NirFunctionDef, NirItem, NirLiteral, NirPattern,
-            NirPatternKind, NirStmt, NirStmtKind, NirVarDecl,
+            FieldAccessKind, NirBinOp, NirBinOpKind, NirExprKind, NirFunctionDef, NirItem,
+            NirLiteral, NirPattern, NirPatternKind, NirStmt, NirStmtKind, NirVarDecl,
         },
     },
     ty::{
@@ -69,6 +69,9 @@ impl<'ctx> TirCtx {
                 (_, PrimitiveTy::Void) => false,
                 _ => true,
             };
+        }
+        if let ConcreteType::Primitive(_) = t {
+            return false;
         }
         todo!()
     }
@@ -177,16 +180,41 @@ impl<'ctx> TirCtx {
                 );
                 Ok(ctx.ctx.interner.insert_conc_type(ty))
             }
+            TirExpr::BinOp { lhs, op, .. } => match op {
+                NirBinOpKind::Equ
+                | NirBinOpKind::Dif
+                | NirBinOpKind::Geq
+                | NirBinOpKind::Leq
+                | NirBinOpKind::Gt
+                | NirBinOpKind::Lt
+                | NirBinOpKind::LOr
+                | NirBinOpKind::LAnd => Ok(self.get_primitive_type(ctx, PrimitiveTy::Bool)),
+                _ => Ok(self.get_type_of_tir_expr(ctx, lhs)?),
+            },
         }
     }
 
     fn get_access_ty(
         &mut self,
-        _ctx: &mut TyCtx<'ctx>,
-        _ty: TyId,
-        _access: &FieldAccessKind,
+        ctx: &mut TyCtx<'ctx>,
+        ty: TyId,
+        access: &FieldAccessKind,
     ) -> Result<TyId, TcError> {
-        todo!()
+        let t = ctx.ctx.interner.get_conc_type(ty);
+
+        match access {
+            FieldAccessKind::Symbol(_) => todo!(),
+            FieldAccessKind::Index(i) => {
+                if let ConcreteType::Tuple(tys) = t {
+                    if tys.len() < *i as usize {
+                        return Err(TcError::Text("Tuple access out of range"));
+                    }
+                    Ok(tys[*i as usize])
+                } else {
+                    return Err(TcError::Text("No integer field in non-tuple type"));
+                }
+            }
+        }
     }
 
     fn get_type_of_expr(
@@ -194,7 +222,7 @@ impl<'ctx> TirCtx {
         ctx: &mut TyCtx<'ctx>,
         expr_id: ExprId,
     ) -> Result<TyId, TcError> {
-        let expr = ctx.ctx.interner.get_expr(expr_id);
+        let expr = ctx.ctx.interner.get_expr(expr_id).clone();
         match &expr.kind {
             NirExprKind::Literal(nir_literal) => match nir_literal {
                 NirLiteral::IntLiteral(_) => Ok(self.get_primitive_type(ctx, PrimitiveTy::I64)),
@@ -225,13 +253,70 @@ impl<'ctx> TirCtx {
                 );
                 Ok(ctx.ctx.interner.insert_conc_type(ty))
             }
+            NirExprKind::Access { from, field } => {
+                let t = self.get_type_of_expr(ctx, from.clone())?;
+                let ty = ctx.ctx.interner.get_conc_type(t);
+                match field.kind {
+                    FieldAccessKind::Symbol(_) => todo!(),
+                    FieldAccessKind::Index(i) => {
+                        if let ConcreteType::Tuple(tys) = ty {
+                            if tys.len() < i as usize {
+                                return Err(TcError::Text("Tuple access out of range"));
+                            }
+                            Ok(tys[i as usize])
+                        } else {
+                            return Err(TcError::Text("No integer field in non-tuple type"));
+                        }
+                    }
+                }
+            }
+            NirExprKind::BinOp(NirBinOp { op, left, right }) => {
+                let lt = self.get_type_of_expr(ctx, *left)?;
+                let rt = self.get_type_of_expr(ctx, *right)?;
+                if !self.is_type_integer(ctx, lt) || !self.is_type_integer(ctx, rt) {
+                    return Err(TcError::Text("Cannot use binop with non-integer types"));
+                }
+                let lt_size = self.get_type_size(ctx, lt);
+                let rt_size = self.get_type_size(ctx, rt);
+                let operands_ty = if lt_size > rt_size { lt } else { rt };
+                match op {
+                    NirBinOpKind::Equ
+                    | NirBinOpKind::Dif
+                    | NirBinOpKind::Geq
+                    | NirBinOpKind::Leq
+                    | NirBinOpKind::Gt
+                    | NirBinOpKind::Lt
+                    | NirBinOpKind::LOr
+                    | NirBinOpKind::LAnd => Ok(self.get_primitive_type(ctx, PrimitiveTy::Bool)),
+                    _ => Ok(operands_ty),
+                }
+            }
             _ => todo!(),
+        }
+    }
+
+    fn get_type_size(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> usize {
+        let t = ctx.ctx.interner.get_conc_type(ty);
+        let alignement = 4;
+        match t {
+            ConcreteType::SpecializedClass(_) => todo!(),
+            ConcreteType::Primitive(primitive_ty) => primitive_ty.size(),
+            ConcreteType::Ptr(_) => 4,
+            ConcreteType::Tuple(ids) => {
+                let mut size = 0;
+                for id in ids.clone() {
+                    size += self.get_type_size(ctx, id);
+                    size += alignement - size % alignement;
+                }
+                size
+            }
         }
     }
 
     fn is_type_integer(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> bool {
         let t = ctx.ctx.interner.get_conc_type(ty);
         match t {
+            ConcreteType::Ptr(_) => true,
             ConcreteType::Primitive(PrimitiveTy::Void) => false,
             ConcreteType::Primitive(_) => true,
             _ => false,
@@ -248,7 +333,7 @@ impl<'ctx> TirCtx {
         if !self.type_is_coercible(ctx, expr_ty, ty) {
             return Err(TcError::Text("Types are not coercible !"));
         }
-        let expr = ctx.ctx.interner.get_expr(expr);
+        let expr = ctx.ctx.interner.get_expr(expr).clone();
         let t = ctx.ctx.interner.get_conc_type(ty);
 
         match &expr.kind {
@@ -321,9 +406,66 @@ impl<'ctx> TirCtx {
                     return Err(TcError::Text("Coerce tuple into non tuple"));
                 }
             }
+            NirExprKind::Access { from, field } => {
+                let left = self.get_expr(ctx, *from)?;
+                self.get_access(ctx, left, field.kind)
+            }
+            NirExprKind::BinOp(NirBinOp { op, left, right }) => {
+                let lt = self.get_type_of_expr(ctx, *left)?;
+                let rt = self.get_type_of_expr(ctx, *right)?;
+                if !self.is_type_integer(ctx, lt) || !self.is_type_integer(ctx, rt) {
+                    return Err(TcError::Text("Cannot use binop with non-integer types"));
+                }
+                let lt_size = self.get_type_size(ctx, lt);
+                let rt_size = self.get_type_size(ctx, rt);
+                let operands_ty = if lt_size > rt_size { lt } else { rt };
 
+                if matches!(op, NirBinOpKind::LOr | NirBinOpKind::LAnd) {
+                    self.get_primitive_type(ctx, PrimitiveTy::Bool)
+                } else if lt_size > rt_size {
+                    lt
+                } else {
+                    rt
+                };
+
+                let lhs = self.get_expr_with_type(ctx, *left, operands_ty)?;
+                let rhs = self.get_expr_with_type(ctx, *right, operands_ty)?;
+
+                Ok(ctx
+                    .ctx
+                    .interner
+                    .insert_te(TirExpr::BinOp { lhs, rhs, op: *op }))
+            }
             x => todo!("{x:?}"),
         }
+    }
+
+    fn get_access(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        expr: TirExprId,
+        access: FieldAccessKind,
+    ) -> Result<TirExprId, TcError> {
+        match access {
+            FieldAccessKind::Symbol(_) => todo!(),
+            FieldAccessKind::Index(i) => {
+                let ty = self.get_type_of_tir_expr(ctx, expr)?;
+                let t = ctx.ctx.interner.get_conc_type(ty);
+                if let ConcreteType::Tuple(tys) = t {
+                    if tys.len() <= i as usize {
+                        return Err(TcError::Text("Tuple access out of range"));
+                    }
+                    Ok(ctx.ctx.interner.insert_te(TirExpr::Access(expr, access)))
+                } else {
+                    return Err(TcError::Text("No integer field in non-tuple type"));
+                }
+            }
+        }
+    }
+
+    fn get_expr(&mut self, ctx: &mut TyCtx<'ctx>, expr: ExprId) -> Result<TirExprId, TcError> {
+        let ty = self.get_type_of_expr(ctx, expr)?;
+        self.get_expr_with_type(ctx, expr, ty)
     }
 
     fn visit_pattern(
@@ -523,6 +665,14 @@ impl<'ctx> Pass<'ctx, SurfaceResolutionPassOutput<'ctx>> for TirCtx {
             })?;
             items.append(&mut tir_items);
         }
+        println!(
+            "Items: [\n{}\n]",
+            items
+                .iter()
+                .map(|x| format!("\n=> {:?}\n", x))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
         Ok(items)
     }
 }

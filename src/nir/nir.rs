@@ -244,7 +244,7 @@ pub enum NirLiteral {
     CharLiteral(char),
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum NirBinOpKind {
     Add,
     Sub,
@@ -279,7 +279,7 @@ pub struct FieldAccess {
     pub span: Span,
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum FieldAccessKind {
     Symbol(Symbol),
     Index(u32),

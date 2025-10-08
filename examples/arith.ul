@@ -1,0 +1,5 @@
+let foo(): void => {
+    let x: int => 2 + 3;
+    let y => 7 * x;
+    let z => 154 / y;
+}

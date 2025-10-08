@@ -755,7 +755,11 @@ impl<'ctx> NirVisitor<'ctx> {
         let span = *expr.loc();
         match expr.as_ref() {
             Expr::Identifier(ast) => Ok(NirPattern {
-                kind: NirPatternKind::Symbol(self.as_symbol(ast)),
+                kind: if ast.as_ref() == "_" {
+                    NirPatternKind::Wildcard
+                } else {
+                    NirPatternKind::Symbol(self.as_symbol(ast))
+                },
                 span,
             }),
             Expr::Tuple(asts) => Ok(NirPattern {

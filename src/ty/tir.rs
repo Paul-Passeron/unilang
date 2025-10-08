@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     nir::{
         global_interner::{DefId, SCId, Symbol, TirExprId, TyId, VariableId},
-        nir::{FieldAccessKind, Visibility},
+        nir::{FieldAccessKind, NirBinOpKind, Visibility},
     },
     ty::PrimitiveTy,
 };
@@ -33,6 +33,11 @@ pub enum TirExpr {
     VarExpr(VariableId),
     IntCast(TyId, TirExprId),
     Tuple(Vec<TirExprId>),
+    BinOp {
+        lhs: TirExprId,
+        rhs: TirExprId,
+        op: NirBinOpKind,
+    },
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -41,7 +46,7 @@ pub enum TirInstr {
     VarDecl(VariableId),
     Assign(VariableId, TirExprId),
 }
-
+#[derive(Debug)]
 pub enum TirItem {
     Fundef {
         sig: Signature,

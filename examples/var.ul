@@ -1,5 +1,4 @@
-
-let main(): int => {
-    let (x, y) => (0, 150, 5);
-    return y;
+let foo(): int => {
+    let x => 7;
+    return x;
 }
