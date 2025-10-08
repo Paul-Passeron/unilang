@@ -130,16 +130,16 @@ impl<'ctx> TyCtx<'ctx> {
         let parent_mut = self.ctx.interner.get_scope_mut(parent);
         parent_mut.children.push(id);
         self.current_scope = id;
-        println!("Entering scope {:?}", id);
+        // println!("Entering scope {:?}", id);
         id
     }
 
     pub fn exit_scope(&mut self) {
         if let Some(parent) = self.ctx.interner.get_scope(self.current_scope).parent {
-            println!(
-                "Exiting scope {:?} to scope {:?}",
-                self.current_scope, parent
-            );
+            // println!(
+            //     "Exiting scope {:?} to scope {:?}",
+            //     self.current_scope, parent
+            // );
             self.current_scope = parent;
         }
     }
@@ -176,6 +176,12 @@ impl<'ctx> TyCtx<'ctx> {
     }
 
     pub fn push_def(&mut self, symb: Symbol, def: DefId) {
+        println!(
+            "Pushing def {} => {:?}",
+            self.ctx.interner.get_symbol(symb),
+            def
+        );
+
         self.get_last_scope_mut().definitions.push((symb, def));
     }
 
@@ -188,7 +194,7 @@ impl<'ctx> TyCtx<'ctx> {
             let symb = this.ctx.interner.insert_symbol(&name.to_string());
             let te = this.ctx.interner.insert_type_expr(TypeExpr::Primitive(ty));
             let def = this.ctx.interner.insert_def(Definition::Type(te));
-            this.get_last_scope_mut().definitions.push((symb, def));
+            this.push_def(symb, def);
         };
 
         for prim in PrimitiveTy::iter() {

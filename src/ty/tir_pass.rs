@@ -4,7 +4,7 @@ use crate::{
     nir::{
         global_interner::{ExprId, Symbol, TirExprId, TyId, TypeExprId},
         nir::{
-            FieldAccessKind, NirBinOp, NirBinOpKind, NirExprKind, NirFunctionDef, NirItem,
+            FieldAccessKind, NirBinOp, NirBinOpKind, NirCall, NirExprKind, NirFunctionDef, NirItem,
             NirLiteral, NirPattern, NirPatternKind, NirStmt, NirStmtKind, NirVarDecl,
         },
     },
@@ -290,6 +290,20 @@ impl<'ctx> TirCtx {
                     | NirBinOpKind::LAnd => Ok(self.get_primitive_type(ctx, PrimitiveTy::Bool)),
                     _ => Ok(operands_ty),
                 }
+            }
+            NirExprKind::Call(NirCall {
+                called,
+                generic_args,
+                args: _,
+                span: _,
+            }) => {
+                assert!(generic_args.len() == 0);
+                assert!(called.receiver.is_none());
+                let function = ctx.get_symbol_def(called.called);
+                if function.is_none() {
+                    return Err(TcError::NameNotFound(called.called));
+                }
+                todo!()
             }
             _ => todo!(),
         }
@@ -592,6 +606,10 @@ impl<'ctx> TirCtx {
                 Ok(vec![TirInstr::Return(Some(expr))])
             }
             NirStmtKind::Let(decl) => self.visit_let(ctx, decl),
+            NirStmtKind::Expr(expr) => {
+                let e = self.get_expr(ctx, *expr)?;
+                Ok(vec![TirInstr::Expr(e)])
+            }
             _ => todo!(),
         }
     }

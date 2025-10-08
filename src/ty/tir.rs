@@ -45,6 +45,7 @@ pub enum TirInstr {
     Return(Option<TirExprId>),
     VarDecl(VariableId),
     Assign(VariableId, TirExprId),
+    Expr(TirExprId),
 }
 #[derive(Debug)]
 pub enum TirItem {
