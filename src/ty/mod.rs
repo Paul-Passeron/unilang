@@ -69,6 +69,7 @@ pub enum TcError {
         crate::nir::interner::OneShotId<ConcreteType>,
         crate::nir::interner::OneShotId<ConcreteType>,
     ),
+    Text(&'static str),
 }
 
 impl PrimitiveTy {
@@ -254,6 +255,7 @@ impl<'ctx> TyCtx<'ctx> {
                     got, expected
                 );
             }
+            TcError::Text(x) => println!("{}", x),
         }
     }
 
@@ -379,7 +381,7 @@ impl<'ctx> TyCtx<'ctx> {
                 self.backpatching.insert(0, (def, id));
                 Ok(def)
             }
-            Definition::Variable(_) => todo!(),
+            Definition::Var(_) => todo!(),
             Definition::Trait(_) => todo!(),
             Definition::Type(_) => todo!(),
             Definition::Unresolved(u_id) => {

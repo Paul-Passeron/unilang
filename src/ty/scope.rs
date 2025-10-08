@@ -4,8 +4,8 @@ use crate::{
     common::source_location::Span,
     nir::{
         global_interner::{
-            ClassId, DefId, ExprId, FunId, ImplBlockId, ItemId, ModuleId, ScopeId, ScopeInterner,
-            Symbol, TraitId, TyId, TypeExprId, UnresolvedId, VariableId,
+            ClassId, DefId, FunId, ImplBlockId, ItemId, ModuleId, ScopeId, ScopeInterner, Symbol,
+            TirExprId, TraitId, TyId, TypeExprId, UnresolvedId, VariableId,
         },
         interner::Interner,
     },
@@ -85,15 +85,14 @@ pub enum Pattern {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VarExpr {
-    Expr(Option<ExprId>),
+    Expr(Option<TirExprId>),
     Param(usize), // nth function parameter
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VarDecl {
-    pub name: Pattern,
+    pub name: Symbol,
     pub ty: TyId,
-    pub expr: VarExpr,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -144,10 +143,10 @@ pub enum Definition {
     Class(ClassId),
     Function(FunId),
     Module(ModuleId),
-    Variable(VariableId),
     Trait(TraitId),
     Type(TypeExprId),
     Unresolved(UnresolvedId),
+    Var(VariableId),
 }
 
 #[derive(Debug, Clone)]

@@ -8,7 +8,7 @@ use crate::{
         scope::{
             Class, Definition, ImplBlock, Module, Scope, Trait, TypeExpr, Unresolved, VarDecl,
         },
-        tir::{ConcreteType, SpecializedClass},
+        tir::{ConcreteType, SpecializedClass, TirExpr},
     },
 };
 
@@ -60,6 +60,9 @@ pub type TyId = OneShotId<ConcreteType>;
 pub type SCInterner = HashInterner<SCId, SpecializedClass>;
 pub type SCId = OneShotId<SpecializedClass>;
 
+pub type TirExprInterner = HashInterner<TirExprId, TirExpr>;
+pub type TirExprId = OneShotId<TirExpr>;
+
 #[derive(Debug, Clone)]
 pub struct GlobalInterner {
     symbol: SymbolInterner,
@@ -78,6 +81,7 @@ pub struct GlobalInterner {
     unresolved: UnresolvedInterner,
     conc_type: ConcreteTypeInterner,
     sc: SCInterner,
+    te: TirExprInterner,
 }
 
 impl GlobalInterner {
@@ -99,6 +103,7 @@ impl GlobalInterner {
             unresolved: UnresolvedInterner::new(),
             conc_type: ConcreteTypeInterner::new(),
             sc: SCInterner::new(),
+            te: TirExprInterner::new(),
         }
     }
 
@@ -116,7 +121,6 @@ impl GlobalInterner {
             self.string.insert(value.clone())
         }
     }
-
     pub fn insert_item(&mut self, value: NirItem) -> ItemId {
         self.item.insert(value)
     }
@@ -159,10 +163,12 @@ impl GlobalInterner {
             println!("inserting {:?} as concrete type: {:?}", value, res);
         }
         res
-        // self.conc_type.insert(value)
     }
     pub fn insert_sc(&mut self, value: SpecializedClass) -> SCId {
         self.sc.insert(value)
+    }
+    pub fn insert_te(&mut self, value: TirExpr) -> TirExprId {
+        self.te.insert(value)
     }
 
     pub fn get_symbol(&self, id: Symbol) -> &String {
@@ -212,6 +218,9 @@ impl GlobalInterner {
     }
     pub fn get_sc(&self, id: SCId) -> &SpecializedClass {
         self.sc.get(id)
+    }
+    pub fn get_te(&self, id: TirExprId) -> &TirExpr {
+        self.te.get(id)
     }
 
     pub fn get_symbol_mut(&mut self, id: Symbol) -> &mut String {
@@ -305,6 +314,9 @@ impl GlobalInterner {
     pub fn contains_sc(&self, value: &SpecializedClass) -> Option<SCId> {
         self.sc.contains(value)
     }
+    pub fn get_te_mut(&mut self, id: TirExprId) -> &mut TirExpr {
+        self.te.get_mut(id)
+    }
 
     pub fn clear_symbol(&mut self) {
         self.symbol.clear();
@@ -354,6 +366,9 @@ impl GlobalInterner {
     pub fn clear_sc(&mut self) {
         self.sc.clear()
     }
+    pub fn clear_te(&mut self) {
+        self.te.clear()
+    }
 
     pub fn debug_print(&self) {
         println!("symbol: {} items", self.symbol.len());
@@ -370,6 +385,7 @@ impl GlobalInterner {
         println!("imp: {} items", self.imp.len());
         println!("def: {} items", self.def.len());
         println!("unresolved: {} items", self.unresolved.len());
+        println!("te: {} items", self.te.len());
     }
 
     pub fn get_symbol_for(&self, value: &String) -> Symbol {

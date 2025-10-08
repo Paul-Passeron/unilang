@@ -184,7 +184,7 @@ impl<'ctx> SurfaceResolution {
                         let module = ctx.ctx.interner.get_module(*module_id);
                         Ok(ctx.get_symbol_def_in_scope(module.scope, symbol).unwrap())
                     }
-                    Definition::Variable(_) => unreachable!(),
+                    Definition::Var(_) => unreachable!(),
                     Definition::Trait(_) => todo!(),
                     Definition::Type(_) => todo!(),
                     Definition::Unresolved(_) => {

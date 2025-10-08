@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use crate::{
     nir::{
-        global_interner::{DefId, SCId, Symbol, TyId},
-        nir::Visibility,
+        global_interner::{DefId, SCId, Symbol, TirExprId, TyId, VariableId},
+        nir::{FieldAccessKind, Visibility},
     },
     ty::PrimitiveTy,
 };
@@ -29,11 +29,17 @@ pub enum TypedIntLit {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum TirExpr {
     TypedIntLit(TypedIntLit),
+    Access(TirExprId, FieldAccessKind),
+    VarExpr(VariableId),
+    IntCast(TyId, TirExprId),
+    Tuple(Vec<TirExprId>),
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum TirInstr {
-    Return(Option<TirExpr>),
+    Return(Option<TirExprId>),
+    VarDecl(VariableId),
+    Assign(VariableId, TirExprId),
 }
 
 pub enum TirItem {
