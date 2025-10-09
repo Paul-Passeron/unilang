@@ -2,23 +2,30 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     nir::{
-        global_interner::{ExprId, FunId, ItemId, ScopeId, Symbol, TirExprId, TyId, TypeExprId},
+        global_interner::{
+            ExprId, FunId, ItemId, ModuleId, ScopeId, Symbol, TirExprId, TyId, TypeExprId,
+        },
         interner::ConstructibleId,
         nir::{
-            FieldAccessKind, NirBinOp, NirBinOpKind, NirCall, NirExprKind, NirFunctionDef, NirItem,
-            NirLiteral, NirPattern, NirPatternKind, NirStmt, NirStmtKind, NirVarDecl,
+            FieldAccess, FieldAccessKind, NirBinOp, NirBinOpKind, NirCall, NirExprKind,
+            NirFunctionDef, NirItem, NirLiteral, NirModuleDef, NirPattern, NirPatternKind, NirStmt,
+            NirStmtKind, NirVarDecl,
         },
     },
     ty::{
-        PrimitiveTy, TcError,
+        PrimitiveTy, TcError, TyCtx,
         pass::Pass,
-        scope::{Definition, Pattern, ScopeKind, VarDecl},
+        scope::{Definition, Pattern, ScopeKind, TypeExpr, VarDecl},
         surface_resolution::SurfaceResolutionPassOutput,
         tir::{ConcreteType, SCField, Signature, TirCtx, TirExpr, TirInstr, TypedIntLit},
     },
 };
 
-use super::{TyCtx, scope::TypeExpr};
+#[derive(Debug)]
+pub enum Receiver {
+    Module(ModuleId),
+    Object(TirExprId),
+}
 
 impl TirCtx {
     pub fn new() -> Self {
@@ -76,7 +83,19 @@ impl<'ctx> TirCtx {
         if let ConcreteType::Primitive(_) = t {
             return false;
         }
-        todo!()
+
+        if let ConcreteType::Tuple(srcs) = s
+            && let ConcreteType::Tuple(trgts) = t
+            && srcs.len() == trgts.len()
+        {
+            return srcs
+                .clone()
+                .iter()
+                .zip(trgts.clone().iter())
+                .all(|(src, target)| self.type_is_coercible(ctx, *src, *target));
+        }
+
+        todo!("Coerce {:?} into {:?} ?", s, t)
     }
 
     fn create_expr(&mut self, ctx: &mut TyCtx<'ctx>, expr: TirExpr) -> TirExprId {
@@ -326,9 +345,32 @@ impl<'ctx> TirCtx {
                 span: _,
             }) => {
                 assert!(generic_args.len() == 0);
-                assert!(called.receiver.is_none());
 
-                let f_id = self.get_fun_id_from_symbol(ctx, called.called)?;
+                let (f_id, _self_arg): (FunId, Option<ExprId>) = if called.receiver.is_some() {
+                    let receiver = self.expr_as_receiver(ctx, called.receiver.unwrap())?;
+                    match receiver {
+                        Receiver::Module(id) => {
+                            let m = ctx.ctx.interner.get_module(id);
+                            let s = m.scope;
+                            let def_id = ctx.get_symbol_def_in_scope(s, called.called);
+                            if def_id.is_none() {
+                                return Err(TcError::Text("No such function in module"));
+                            }
+                            let def_id = def_id.unwrap();
+                            let def = ctx.ctx.interner.get_def(def_id);
+                            match &def {
+                                Definition::Function(fun_id) => (*fun_id, None),
+                                _ => {
+                                    return Err(TcError::Text("No such function in module"));
+                                }
+                            }
+                        }
+                        Receiver::Object(_) => todo!(),
+                    }
+                } else {
+                    (self.get_fun_id_from_symbol(ctx, called.called)?, None)
+                };
+
                 let sig = self.protos[&f_id].clone();
 
                 if Self::arg_len_mismatch(args.len(), sig.params.len(), sig.variadic) {
@@ -336,17 +378,69 @@ impl<'ctx> TirCtx {
                 }
 
                 Ok(sig.return_ty)
-
-                // let args = args
-                //     .iter()
-                //     .zip(sig.params.iter())
-                //     .map(|(expr, param)| self.get_expr_with_type(ctx, *expr, param.ty))
-                //     .try_collect::<Vec<_>>()?;
-
-                // Ok(self.create_expr(ctx, TirExpr::Funcall(f_id, args)))
             }
             _ => todo!(),
         }
+    }
+
+    fn expr_as_module(&mut self, ctx: &mut TyCtx<'ctx>, expr: ExprId) -> Result<ModuleId, TcError> {
+        let nir = ctx.ctx.interner.get_expr(expr).clone();
+        match &nir.kind {
+            NirExprKind::Access {
+                from,
+                field:
+                    FieldAccess {
+                        kind: FieldAccessKind::Symbol(field),
+                        ..
+                    },
+            } => {
+                let from_module = self.expr_as_module(ctx, *from)?;
+                let m = ctx.ctx.interner.get_module(from_module);
+                let scope = m.scope.clone();
+                let def_id = ctx.get_symbol_def_in_scope(scope, *field);
+
+                if def_id.is_none() {
+                    return Err(TcError::NameNotFound(*field));
+                }
+
+                let def_id = def_id.unwrap();
+
+                let def = ctx.ctx.interner.get_def(def_id);
+
+                match &def {
+                    Definition::Module(id) => Ok(*id),
+                    _ => Err(TcError::NotAModule(expr)),
+                }
+            }
+            NirExprKind::Named(name) => {
+                let def_id = ctx.get_symbol_def(*name);
+
+                if def_id.is_none() {
+                    return Err(TcError::NameNotFound(*name));
+                }
+
+                let def_id = def_id.unwrap();
+
+                let def = ctx.ctx.interner.get_def(def_id);
+
+                match &def {
+                    Definition::Module(id) => Ok(*id),
+                    _ => Err(TcError::NotAModule(expr)),
+                }
+            }
+            _ => Err(TcError::NotAModule(expr)),
+        }
+    }
+
+    fn expr_as_receiver(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        expr: ExprId,
+    ) -> Result<Receiver, TcError> {
+        if let Ok(id) = self.expr_as_module(ctx, expr) {
+            return Ok(Receiver::Module(id));
+        }
+        self.get_expr(ctx, expr).map(Receiver::Object)
     }
 
     fn arg_len_mismatch(src: usize, target: usize, variadic: bool) -> bool {
@@ -544,9 +638,32 @@ impl<'ctx> TirCtx {
                 ..
             }) => {
                 assert!(generic_args.len() == 0);
-                assert!(called.receiver.is_none());
 
-                let f_id = self.get_fun_id_from_symbol(ctx, called.called)?;
+                let (f_id, _self_arg): (FunId, Option<ExprId>) = if called.receiver.is_some() {
+                    let receiver = self.expr_as_receiver(ctx, called.receiver.unwrap())?;
+                    match receiver {
+                        Receiver::Module(id) => {
+                            let m = ctx.ctx.interner.get_module(id);
+                            let s = m.scope;
+                            let def_id = ctx.get_symbol_def_in_scope(s, called.called);
+                            if def_id.is_none() {
+                                return Err(TcError::Text("No such function in module"));
+                            }
+                            let def_id = def_id.unwrap();
+                            let def = ctx.ctx.interner.get_def(def_id);
+                            match &def {
+                                Definition::Function(fun_id) => (*fun_id, None),
+                                _ => {
+                                    return Err(TcError::Text("No such function in module"));
+                                }
+                            }
+                        }
+                        Receiver::Object(_) => todo!(),
+                    }
+                } else {
+                    (self.get_fun_id_from_symbol(ctx, called.called)?, None)
+                };
+
                 let sig = self.protos[&f_id].clone();
 
                 if Self::arg_len_mismatch(args.len(), sig.params.len(), sig.variadic) {
@@ -800,6 +917,19 @@ impl<'ctx> TirCtx {
             .try_for_each(|body| body.iter().try_for_each(|stmt| self.visit_stmt(ctx, stmt)))
     }
 
+    fn visit_module(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        module: &NirModuleDef,
+    ) -> Result<(), TcError> {
+        let children = ctx.get_last_scope().children.clone();
+        module
+            .items
+            .iter()
+            .zip(children.iter())
+            .try_for_each(|(item, scope)| self.visit_item(ctx, *scope, *item))
+    }
+
     fn visit_item(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
@@ -811,6 +941,7 @@ impl<'ctx> TirCtx {
             match nir {
                 NirItem::Function(fdef) => self.visit_fundef(ctx, &fdef),
                 NirItem::Alias(_, _) => Ok(()),
+                NirItem::Module(def) => self.visit_module(ctx, &def),
                 _ => todo!(),
             }
         })

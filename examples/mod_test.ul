@@ -1,10 +1,16 @@
 mod X => {
-    let foo(): int => {
-        return 6;
+    mod Y => {
+        let bar(): (int, (int, int)) => {
+            return (6, (7, 8));
+        }
+    }
+    let foo(): (int, int) => {
+        return (6, 7);
     }
 }
 
 
 let main(): int => {
-    return X::foo();
+    let y: int => X::Y::bar()::1::0;
+    return y + X::foo()::0;
 }

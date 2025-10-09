@@ -4,7 +4,7 @@ use crate::{
     common::source_location::Span,
     nir::{
         context::GlobalContext,
-        global_interner::{DefId, FunId, ScopeId, Symbol, TypeExprId, UnresolvedId},
+        global_interner::{DefId, ExprId, FunId, ScopeId, Symbol, TypeExprId, UnresolvedId},
         nir::{NirPath, NirType, NirTypeKind},
     },
     ty::{
@@ -70,6 +70,7 @@ pub enum TcError {
         crate::nir::interner::OneShotId<ConcreteType>,
     ),
     Text(&'static str),
+    NotAModule(ExprId),
 }
 
 impl PrimitiveTy {
@@ -262,6 +263,7 @@ impl<'ctx> TyCtx<'ctx> {
                 );
             }
             TcError::Text(x) => println!("{}", x),
+            TcError::NotAModule(_) => println!("Not a module"),
         }
     }
 
