@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
 use crate::{
+    common::global_interner::{
+        ClassId, DefId, ExprId, ImplBlockId, ItemId, ScopeId, TraitId, TypeExprId, UnresolvedId,
+    },
     nir::{
-        global_interner::{
-            ClassId, DefId, ExprId, ImplBlockId, ItemId, ScopeId, TraitId, TypeExprId, UnresolvedId,
-        },
         interner::ConstructibleId,
         nir::{
             FieldAccessKind, NirArgument, NirClassDef, NirExpr, NirExprKind, NirFunctionDef,

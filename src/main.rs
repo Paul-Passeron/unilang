@@ -5,7 +5,7 @@
 
 use clap::Parser;
 
-use crate::{common::config::Config, nir::context::GlobalContext};
+use crate::common::{config::Config, context::GlobalContext};
 
 mod common;
 mod lexer;
@@ -14,7 +14,5 @@ mod parser;
 mod ty;
 
 fn main() {
-    let config = Config::parse();
-    let ctx = GlobalContext::new(config);
-    ctx.compile();
+    GlobalContext::new(Config::parse()).compile();
 }

@@ -2,9 +2,9 @@ use std::hash::Hash;
 
 use nonempty::NonEmpty;
 
-use crate::{
-    common::source_location::Span,
-    nir::global_interner::{ExprId, ItemId, StringLiteral, Symbol},
+use crate::common::{
+    global_interner::{ExprId, ItemId, StringLiteral, Symbol},
+    source_location::Span,
 };
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

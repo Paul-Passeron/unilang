@@ -1,10 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    nir::{
-        global_interner::{DefId, FunId, SCId, StringLiteral, Symbol, TirExprId, TyId, VariableId},
-        nir::{FieldAccessKind, NirBinOpKind, Visibility},
+    common::global_interner::{
+        DefId, FunId, SCId, StringLiteral, Symbol, TirExprId, TyId, VariableId,
     },
+    nir::nir::{FieldAccessKind, NirBinOpKind, Visibility},
     ty::PrimitiveTy,
 };
 

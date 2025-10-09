@@ -1,10 +1,13 @@
 use nonempty::NonEmpty;
 
 use crate::{
-    common::{errors::ParseError, source_location::Span},
-    nir::{
+    common::{
         context::GlobalContext,
+        errors::ParseError,
         global_interner::{ExprId, ItemId, Symbol},
+        source_location::Span,
+    },
+    nir::{
         interner::Interner,
         nir::{
             FieldAccess, FieldAccessKind, NirArgument, NirAssociatedType, NirBinOp, NirBinOpKind,

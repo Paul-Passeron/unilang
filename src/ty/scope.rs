@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
 use crate::{
-    common::source_location::Span,
-    nir::{
+    common::{
         global_interner::{
             ClassId, DefId, FunId, ImplBlockId, ItemId, ModuleId, ScopeId, ScopeInterner, Symbol,
             TirExprId, TraitId, TyId, TypeExprId, UnresolvedId, VariableId,
         },
-        interner::Interner,
+        source_location::Span,
     },
+    nir::interner::Interner,
     ty::{PrimitiveTy, TcFunProto, TcParam, tir::TirInstr},
 };
 

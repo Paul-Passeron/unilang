@@ -4,12 +4,11 @@ use crate::{
     common::{
         config::Config,
         errors::ParseError,
+        global_interner::GlobalInterner,
         source_location::{FileId, FileManager},
     },
     lexer::Lexer,
-    nir::{
-        global_interner::GlobalInterner, include_resolver::IncludeResolver, visitor::NirVisitor,
-    },
+    nir::{include_resolver::IncludeResolver, visitor::NirVisitor},
     parser::{ast::Program, parser::Parser},
     ty::{TyCtx, pass::Pass, surface_resolution::SurfaceResolution, tir::TirCtx},
 };

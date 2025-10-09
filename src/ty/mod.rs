@@ -1,12 +1,12 @@
 use strum::{EnumIter, IntoEnumIterator};
 
 use crate::{
-    common::source_location::Span,
-    nir::{
+    common::{
         context::GlobalContext,
         global_interner::{DefId, ExprId, FunId, ScopeId, Symbol, TypeExprId, UnresolvedId},
-        nir::{NirPath, NirType, NirTypeKind},
+        source_location::Span,
     },
+    nir::nir::{NirPath, NirType, NirTypeKind},
     ty::{
         scope::{Definition, Scope, ScopeKind, TypeExpr, Unresolved, UnresolvedKind},
         tir::ConcreteType,
