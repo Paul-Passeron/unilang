@@ -81,7 +81,7 @@ impl GlobalContext {
             Err(err) => return Err(CompilerError::TcError(err)),
         };
 
-        // self.interner.debug_print();
+        self.interner.debug_print();
         Ok(())
     }
 }
