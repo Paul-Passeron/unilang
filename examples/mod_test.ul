@@ -1,0 +1,10 @@
+mod X => {
+    let foo(): int => {
+        return 6;
+    }
+}
+
+
+let main(): int => {
+    return X::foo();
+}
