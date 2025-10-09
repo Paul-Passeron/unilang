@@ -8,7 +8,6 @@ use crate::{
     ty::scope::{Definition, Scope, ScopeKind, TypeExpr, Unresolved, UnresolvedKind},
 };
 
-pub mod pass;
 pub mod scope;
 pub mod surface_resolution;
 pub mod tir;
@@ -398,10 +397,21 @@ impl<'ctx> TyCtx<'ctx> {
         }
     }
 
+    pub fn get_current_fun_scope(&mut self) -> Option<ScopeId> {
+        match self.get_last_scope().kind.clone() {
+            ScopeKind::Function(_, _, _) => Some(self.current_scope),
+            ScopeKind::Loop | ScopeKind::Condition | ScopeKind::Block => {
+                let parent = self.get_last_scope().parent.unwrap();
+                self.with_scope_id(parent, |ctx| ctx.get_current_fun_scope())
+            }
+            _ => None,
+        }
+    }
+
     pub fn get_current_fun(&mut self) -> Option<FunId> {
         match self.get_last_scope().kind.clone() {
             ScopeKind::Function(fun_id, _, _) => Some(fun_id),
-            ScopeKind::Loop(_) | ScopeKind::Condition(_) | ScopeKind::Block(_) => {
+            ScopeKind::Loop | ScopeKind::Condition | ScopeKind::Block => {
                 let parent = self.get_last_scope().parent.unwrap();
                 self.with_scope_id(parent, |ctx| ctx.get_current_fun())
             }

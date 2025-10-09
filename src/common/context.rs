@@ -5,12 +5,13 @@ use crate::{
         config::Config,
         errors::{CompilerError, ParseError},
         global_interner::GlobalInterner,
+        pass::Pass,
         source_location::{FileId, FileManager},
     },
     lexer::Lexer,
     nir::{include_resolver::IncludeResolver, visitor::NirVisitor},
     parser::{ast::Program, parser::Parser},
-    ty::{TyCtx, pass::Pass, surface_resolution::SurfaceResolution, tir::TirCtx},
+    ty::{TyCtx, surface_resolution::SurfaceResolution, tir::TirCtx},
 };
 #[derive(Debug, Clone)]
 pub struct GlobalContext {
@@ -81,7 +82,7 @@ impl GlobalContext {
             Err(err) => return Err(CompilerError::TcError(err)),
         };
 
-        self.interner.debug_print();
+        // self.interner.debug_print();
         Ok(())
     }
 }

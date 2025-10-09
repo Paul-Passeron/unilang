@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 
 use crate::{
-    common::global_interner::{
-        ClassId, DefId, ExprId, ImplBlockId, ItemId, ScopeId, TraitId, TypeExprId, UnresolvedId,
+    common::{
+        global_interner::{
+            ClassId, DefId, ExprId, ImplBlockId, ItemId, ScopeId, TraitId, TypeExprId, UnresolvedId,
+        },
+        pass::Pass,
     },
     nir::{
         interner::ConstructibleId,
@@ -14,7 +17,6 @@ use crate::{
     },
     ty::{
         TcError, TcFunProto, TcParam,
-        pass::Pass,
         scope::{
             Class, ClassMember, Definition, ImplBlock, ImplKind, Method, MethodKind, Module,
             ScopeKind, TemplateArgument, Trait, TypeExpr, Unresolved, UnresolvedKind,

@@ -7,6 +7,7 @@ use clap::Parser;
 
 use crate::common::{config::Config, context::GlobalContext};
 
+mod clir;
 mod common;
 mod lexer;
 mod nir;
@@ -16,6 +17,7 @@ mod ty;
 fn main() {
     match GlobalContext::new(Config::parse()).compile() {
         Err(error) => panic!("{:?}", error),
-        _ => println!("Compilation successful"),
+        _ => (),
     }
+    clir::test();
 }

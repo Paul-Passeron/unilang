@@ -71,9 +71,9 @@ pub enum ScopeKind {
     Class(ClassId, ItemId),
     Function(FunId, ItemId, Vec<TirInstr>),
     Trait(TraitId, ItemId),
-    Loop(Vec<TirInstr>),
-    Condition(Vec<TirInstr>),
-    Block(Vec<TirInstr>),
+    Loop,
+    Condition,
+    Block,
     Impl(ImplBlockId, ItemId),
 }
 

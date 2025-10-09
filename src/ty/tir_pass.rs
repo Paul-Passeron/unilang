@@ -1,8 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    common::global_interner::{
-        ExprId, FunId, ItemId, ModuleId, ScopeId, Symbol, TirExprId, TyId, TypeExprId,
+    common::{
+        global_interner::{
+            ExprId, FunId, ItemId, ModuleId, ScopeId, Symbol, TirExprId, TyId, TypeExprId,
+        },
+        pass::Pass,
     },
     nir::{
         interner::ConstructibleId,
@@ -14,7 +17,6 @@ use crate::{
     },
     ty::{
         PrimitiveTy, TcError, TyCtx,
-        pass::Pass,
         scope::{Definition, Pattern, ScopeKind, TypeExpr, VarDecl},
         surface_resolution::SurfaceResolutionPassOutput,
         tir::{ConcreteType, SCField, Signature, TirCtx, TirExpr, TirInstr, TypedIntLit},
@@ -435,6 +437,25 @@ impl<'ctx> TirCtx {
         }
     }
 
+    fn debug_instrs(ctx: &mut TyCtx<'ctx>) {
+        fn aux<'ctx>(ctx: &mut TyCtx<'ctx>, id: ScopeId) {
+            ctx.with_scope_id(id, |ctx| {
+                let instrs = match &ctx.get_last_scope().kind {
+                    ScopeKind::Function(_, _, tir_instrs) => tir_instrs,
+                    _ => &vec![],
+                };
+
+                for instr in instrs.clone() {
+                    dbg!(instr);
+                }
+                if let Some(parent) = ctx.get_last_scope().parent {
+                    aux(ctx, parent);
+                }
+            })
+        }
+        aux(ctx, ScopeId::new(0));
+    }
+
     fn debug_defs(ctx: &mut TyCtx<'ctx>) {
         fn aux<'ctx>(ctx: &mut TyCtx<'ctx>, id: ScopeId) {
             ctx.with_scope_id(id, |ctx| {
@@ -687,10 +708,7 @@ impl<'ctx> TirCtx {
         };
         let scope = ctx.get_last_scope_mut();
         match &mut scope.kind {
-            ScopeKind::Function(_, _, tir_instrs)
-            | ScopeKind::Loop(tir_instrs)
-            | ScopeKind::Condition(tir_instrs)
-            | ScopeKind::Block(tir_instrs) => tir_instrs.push(instr),
+            ScopeKind::Function(_, _, tir_instrs) => tir_instrs.push(instr),
             _ => unreachable!(),
         }
     }
@@ -882,7 +900,19 @@ impl<'ctx> TirCtx {
             .body
             .as_ref()
             .iter()
-            .try_for_each(|body| body.iter().try_for_each(|stmt| self.visit_stmt(ctx, stmt)))
+            .try_for_each(|body| body.iter().try_for_each(|stmt| self.visit_stmt(ctx, stmt)))?;
+
+        let scope = ctx.get_current_fun_scope().unwrap();
+        println!("\n\nFundef {}", ctx.ctx.interner.get_symbol(input.name));
+
+        for instr in match &ctx.ctx.interner.get_scope(scope).kind {
+            ScopeKind::Function(_, _, instrs) => instrs.clone(),
+            _ => vec![],
+        } {
+            println!("    {:?}", instr);
+        }
+        println!("\n");
+        Ok(())
     }
 
     fn visit_module(
