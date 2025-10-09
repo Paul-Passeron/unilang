@@ -1,8 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     nir::{
-        global_interner::{ExprId, Symbol, TirExprId, TyId, TypeExprId},
+        global_interner::{ExprId, FunId, ItemId, ScopeId, Symbol, TirExprId, TyId, TypeExprId},
+        interner::ConstructibleId,
         nir::{
             FieldAccessKind, NirBinOp, NirBinOpKind, NirCall, NirExprKind, NirFunctionDef, NirItem,
             NirLiteral, NirPattern, NirPatternKind, NirStmt, NirStmtKind, NirVarDecl,
@@ -13,7 +14,7 @@ use crate::{
         pass::Pass,
         scope::{Definition, Pattern, ScopeKind, VarDecl},
         surface_resolution::SurfaceResolutionPassOutput,
-        tir::{ConcreteType, SCField, Signature, TirCtx, TirExpr, TirInstr, TirItem, TypedIntLit},
+        tir::{ConcreteType, SCField, Signature, TirCtx, TirExpr, TirInstr, TypedIntLit},
     },
 };
 
@@ -23,6 +24,8 @@ impl TirCtx {
     pub fn new() -> Self {
         Self {
             methods: HashMap::new(),
+            protos: HashMap::new(),
+            calculated: HashSet::new(),
         }
     }
 }
@@ -76,6 +79,12 @@ impl<'ctx> TirCtx {
         todo!()
     }
 
+    fn create_expr(&mut self, ctx: &mut TyCtx<'ctx>, expr: TirExpr) -> TirExprId {
+        let e = ctx.ctx.interner.insert_te(expr);
+        self.push_instr(ctx, TirInstr::Calculate(e));
+        e
+    }
+
     fn extract_var_from_pattern(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
@@ -95,7 +104,7 @@ impl<'ctx> TirCtx {
             Pattern::Tuple(ps) => {
                 for (i, p) in ps.iter().enumerate() {
                     let e = TirExpr::Access(expr, FieldAccessKind::Index(i as u32));
-                    let e_id = ctx.ctx.interner.insert_te(e);
+                    let e_id = self.create_expr(ctx, e);
                     match self.extract_var_from_pattern(ctx, p, name, e_id) {
                         Ok(expr) => {
                             return Ok(expr);
@@ -191,6 +200,17 @@ impl<'ctx> TirCtx {
                 | NirBinOpKind::LAnd => Ok(self.get_primitive_type(ctx, PrimitiveTy::Bool)),
                 _ => Ok(self.get_type_of_tir_expr(ctx, lhs)?),
             },
+            TirExpr::Arg(i) => {
+                let fun_id = ctx.get_current_fun().unwrap();
+                let proto = &self.protos[&fun_id];
+                Ok(proto.params[i].ty)
+            }
+            TirExpr::Funcall(fun_id, _) => Ok(self.protos[&fun_id].return_ty),
+            TirExpr::PtrCast(id, _) => Ok(self.get_ptr_to(ctx, id)),
+            TirExpr::StringLiteral(_) => {
+                let ty = self.get_primitive_type(ctx, PrimitiveTy::U8);
+                Ok(self.get_ptr_to(ctx, ty))
+            }
         }
     }
 
@@ -217,6 +237,10 @@ impl<'ctx> TirCtx {
         }
     }
 
+    fn get_ptr_to(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> TyId {
+        ctx.ctx.interner.insert_conc_type(ConcreteType::Ptr(ty))
+    }
+
     fn get_type_of_expr(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
@@ -226,6 +250,10 @@ impl<'ctx> TirCtx {
         match &expr.kind {
             NirExprKind::Literal(nir_literal) => match nir_literal {
                 NirLiteral::IntLiteral(_) => Ok(self.get_primitive_type(ctx, PrimitiveTy::I64)),
+                NirLiteral::StringLiteral(_) => {
+                    let ty = self.get_primitive_type(ctx, PrimitiveTy::U8);
+                    Ok(self.get_ptr_to(ctx, ty))
+                }
                 _ => todo!(),
             },
             NirExprKind::Named(name) => {
@@ -294,19 +322,69 @@ impl<'ctx> TirCtx {
             NirExprKind::Call(NirCall {
                 called,
                 generic_args,
-                args: _,
+                args,
                 span: _,
             }) => {
                 assert!(generic_args.len() == 0);
                 assert!(called.receiver.is_none());
-                let function = ctx.get_symbol_def(called.called);
-                if function.is_none() {
-                    return Err(TcError::NameNotFound(called.called));
+
+                let f_id = self.get_fun_id_from_symbol(ctx, called.called)?;
+                let sig = self.protos[&f_id].clone();
+
+                if Self::arg_len_mismatch(args.len(), sig.params.len(), sig.variadic) {
+                    return Err(TcError::Text("Arg len mismatch in function call"));
                 }
-                todo!()
+
+                Ok(sig.return_ty)
+
+                // let args = args
+                //     .iter()
+                //     .zip(sig.params.iter())
+                //     .map(|(expr, param)| self.get_expr_with_type(ctx, *expr, param.ty))
+                //     .try_collect::<Vec<_>>()?;
+
+                // Ok(self.create_expr(ctx, TirExpr::Funcall(f_id, args)))
             }
             _ => todo!(),
         }
+    }
+
+    fn arg_len_mismatch(src: usize, target: usize, variadic: bool) -> bool {
+        if variadic {
+            src < target
+        } else {
+            src != target
+        }
+    }
+
+    fn get_fun_id_from_symbol(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        s: Symbol,
+    ) -> Result<FunId, TcError> {
+        let function = ctx.get_symbol_def(s);
+        if function.is_none() {
+            return Err(TcError::NameNotFound(s));
+        }
+        let def = ctx.ctx.interner.get_def(function.unwrap());
+        match def {
+            Definition::Function(id) => Ok(*id),
+            _ => Err(TcError::NameNotFound(s)),
+        }
+    }
+
+    fn debug_defs(ctx: &mut TyCtx<'ctx>) {
+        fn aux<'ctx>(ctx: &mut TyCtx<'ctx>, id: ScopeId) {
+            ctx.with_scope_id(id, |ctx| {
+                for (def, _) in ctx.get_last_scope().definitions.clone() {
+                    println!("[DEFINED] {}", ctx.ctx.interner.get_symbol(def))
+                }
+                if let Some(parent) = ctx.get_last_scope().parent {
+                    aux(ctx, parent);
+                }
+            })
+        }
+        aux(ctx, ctx.current_scope);
     }
 
     fn get_type_size(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> usize {
@@ -369,10 +447,22 @@ impl<'ctx> TirCtx {
                         ConcreteType::Ptr(ptr) => TypedIntLit::Ptr(*ptr, *x as usize),
                         _ => todo!(),
                     });
-                    Ok(ctx.ctx.interner.insert_te(e))
+                    Ok(self.create_expr(ctx, e))
                 }
                 NirLiteral::FloatLiteral(_) => todo!(),
-                NirLiteral::StringLiteral(_) => todo!(),
+                NirLiteral::StringLiteral(x) => {
+                    if let ConcreteType::Ptr(inner) = t {
+                        let inner = inner.clone();
+                        if inner == self.get_primitive_type(ctx, PrimitiveTy::U8) {
+                            Ok(self.create_expr(ctx, TirExpr::StringLiteral(*x)))
+                        } else {
+                            let e = self.create_expr(ctx, TirExpr::StringLiteral(*x));
+                            Ok(self.create_expr(ctx, TirExpr::PtrCast(inner, e)))
+                        }
+                    } else {
+                        todo!()
+                    }
+                }
                 NirLiteral::CharLiteral(_) => todo!(),
             },
             NirExprKind::Named(name) => {
@@ -390,14 +480,14 @@ impl<'ctx> TirCtx {
                 };
                 let var = ctx.ctx.interner.get_variable(var_id).clone();
                 if var.ty == ty {
-                    return Ok(ctx.ctx.interner.insert_te(TirExpr::VarExpr(var_id)));
+                    return Ok(self.create_expr(ctx, TirExpr::VarExpr(var_id)));
                 }
                 if !self.type_is_coercible(ctx, var.ty, ty) {
                     return Err(TcError::Text("Types are not coercible !"));
                 }
                 if self.is_type_integer(ctx, var.ty) && self.is_type_integer(ctx, ty) {
-                    let var_expr = ctx.ctx.interner.insert_te(TirExpr::VarExpr(var_id));
-                    return Ok(ctx.ctx.interner.insert_te(TirExpr::IntCast(ty, var_expr)));
+                    let var_expr = self.create_expr(ctx, TirExpr::VarExpr(var_id));
+                    return Ok(self.create_expr(ctx, TirExpr::IntCast(ty, var_expr)));
                 }
                 return Err(TcError::Text("Coerce non integer types !"));
             }
@@ -415,7 +505,7 @@ impl<'ctx> TirCtx {
                             .map(|(e, t)| self.get_expr_with_type(ctx, *e, *t))
                             .collect::<Result<Vec<_>, _>>()?,
                     );
-                    Ok(ctx.ctx.interner.insert_te(tuple))
+                    Ok(self.create_expr(ctx, tuple))
                 } else {
                     return Err(TcError::Text("Coerce tuple into non tuple"));
                 }
@@ -445,10 +535,31 @@ impl<'ctx> TirCtx {
                 let lhs = self.get_expr_with_type(ctx, *left, operands_ty)?;
                 let rhs = self.get_expr_with_type(ctx, *right, operands_ty)?;
 
-                Ok(ctx
-                    .ctx
-                    .interner
-                    .insert_te(TirExpr::BinOp { lhs, rhs, op: *op }))
+                Ok(self.create_expr(ctx, TirExpr::BinOp { lhs, rhs, op: *op }))
+            }
+            NirExprKind::Call(NirCall {
+                called,
+                generic_args,
+                args,
+                ..
+            }) => {
+                assert!(generic_args.len() == 0);
+                assert!(called.receiver.is_none());
+
+                let f_id = self.get_fun_id_from_symbol(ctx, called.called)?;
+                let sig = self.protos[&f_id].clone();
+
+                if Self::arg_len_mismatch(args.len(), sig.params.len(), sig.variadic) {
+                    return Err(TcError::Text("Arg len mismatch in function call"));
+                }
+
+                let args = args
+                    .iter()
+                    .zip(sig.params.iter())
+                    .map(|(expr, param)| self.get_expr_with_type(ctx, *expr, param.ty))
+                    .try_collect::<Vec<_>>()?;
+
+                Ok(self.create_expr(ctx, TirExpr::Funcall(f_id, args)))
             }
             x => todo!("{x:?}"),
         }
@@ -469,7 +580,7 @@ impl<'ctx> TirCtx {
                     if tys.len() <= i as usize {
                         return Err(TcError::Text("Tuple access out of range"));
                     }
-                    Ok(ctx.ctx.interner.insert_te(TirExpr::Access(expr, access)))
+                    Ok(self.create_expr(ctx, TirExpr::Access(expr, access)))
                 } else {
                     return Err(TcError::Text("No integer field in non-tuple type"));
                 }
@@ -480,6 +591,23 @@ impl<'ctx> TirCtx {
     fn get_expr(&mut self, ctx: &mut TyCtx<'ctx>, expr: ExprId) -> Result<TirExprId, TcError> {
         let ty = self.get_type_of_expr(ctx, expr)?;
         self.get_expr_with_type(ctx, expr, ty)
+    }
+
+    fn push_instr(&mut self, ctx: &mut TyCtx<'ctx>, instr: TirInstr) {
+        match &instr {
+            TirInstr::Calculate(id) => {
+                self.calculated.insert(*id);
+            }
+            _ => (),
+        };
+        let scope = ctx.get_last_scope_mut();
+        match &mut scope.kind {
+            ScopeKind::Function(_, _, tir_instrs)
+            | ScopeKind::Loop(tir_instrs)
+            | ScopeKind::Condition(tir_instrs)
+            | ScopeKind::Block(tir_instrs) => tir_instrs.push(instr),
+            _ => unreachable!(),
+        }
     }
 
     fn visit_pattern(
@@ -504,9 +632,9 @@ impl<'ctx> TirCtx {
         input: &NirPattern,
         ty: TyId,
         expr: Option<TirExprId>,
-    ) -> Result<Vec<TirInstr>, TcError> {
+    ) -> Result<(), TcError> {
         match &input.kind {
-            NirPatternKind::Wildcard => Ok(vec![]),
+            NirPatternKind::Wildcard => Ok(()),
             NirPatternKind::Symbol(symb) => {
                 let id = ctx
                     .ctx
@@ -514,7 +642,9 @@ impl<'ctx> TirCtx {
                     .insert_variable(VarDecl { name: *symb, ty });
                 let d = ctx.ctx.interner.insert_def(Definition::Var(id));
                 ctx.push_def(*symb, d);
-                Ok(expr.iter().map(|x| TirInstr::Assign(id, *x)).collect())
+                expr.iter()
+                    .for_each(|x| self.push_instr(ctx, TirInstr::Assign(id, *x)));
+                Ok(())
             }
             NirPatternKind::Tuple(nirs) => {
                 let t = ctx.ctx.interner.get_conc_type(ty);
@@ -533,31 +663,23 @@ impl<'ctx> TirCtx {
                     return Err(TcError::Text("Coerce tuple to tuple of != size"));
                 }
 
-                Ok(nirs
-                    .iter()
+                nirs.iter()
                     .zip(tys.iter())
                     .enumerate()
-                    .map(|(i, (x, ty))| {
+                    .try_for_each(|(i, (x, ty))| {
                         let expr = expr.map(|e| {
-                            ctx.ctx
-                                .interner
-                                .insert_te(TirExpr::Access(e, FieldAccessKind::Index(i as u32)))
+                            self.create_expr(
+                                ctx,
+                                TirExpr::Access(e, FieldAccessKind::Index(i as u32)),
+                            )
                         });
                         self.declare_pattern(ctx, x, *ty, expr)
                     })
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into_iter()
-                    .flatten()
-                    .collect())
             }
         }
     }
 
-    fn visit_let(
-        &mut self,
-        ctx: &mut TyCtx<'ctx>,
-        input: &NirVarDecl,
-    ) -> Result<Vec<TirInstr>, TcError> {
+    fn visit_let(&mut self, ctx: &mut TyCtx<'ctx>, input: &NirVarDecl) -> Result<(), TcError> {
         if input.ty.is_none() && input.value.is_none() {
             return Err(TcError::Text(
                 "Type inference for variable is not availaible yet",
@@ -579,11 +701,7 @@ impl<'ctx> TirCtx {
         self.declare_pattern(ctx, &input.pattern, ty, expr)
     }
 
-    fn visit_stmt(
-        &mut self,
-        ctx: &mut TyCtx<'ctx>,
-        input: &NirStmt,
-    ) -> Result<Vec<TirInstr>, TcError> {
+    fn visit_stmt(&mut self, ctx: &mut TyCtx<'ctx>, input: &NirStmt) -> Result<(), TcError> {
         match &input.kind {
             NirStmtKind::Return { value } => {
                 let void_ty = self.get_primitive_type(ctx, PrimitiveTy::Void);
@@ -594,7 +712,8 @@ impl<'ctx> TirCtx {
                     if ret_id != void_ty {
                         return Err(TcError::BadReturnType(void_ty, ret_id));
                     }
-                    return Ok(vec![TirInstr::Return(None)]);
+                    self.push_instr(ctx, TirInstr::Return(None));
+                    return Ok(());
                 }
                 let value = value.unwrap();
                 let expr_ty = self.get_type_of_expr(ctx, value)?;
@@ -603,30 +722,25 @@ impl<'ctx> TirCtx {
                     return Err(TcError::BadReturnType(expr_ty, ret_id));
                 }
                 let expr = self.get_expr_with_type(ctx, value, ret_id)?;
-                Ok(vec![TirInstr::Return(Some(expr))])
+                self.push_instr(ctx, TirInstr::Return(Some(expr)));
+                Ok(())
             }
             NirStmtKind::Let(decl) => self.visit_let(ctx, decl),
             NirStmtKind::Expr(expr) => {
                 let e = self.get_expr(ctx, *expr)?;
-                Ok(vec![TirInstr::Expr(e)])
+                self.push_instr(ctx, TirInstr::Calculate(e));
+                Ok(())
             }
             _ => todo!(),
         }
     }
 
-    fn visit_fundef(
+    fn concretize_fun_proto(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
+        id: FunId,
         input: &NirFunctionDef,
-    ) -> Result<Vec<TirItem>, TcError> {
-        assert!(input.generic_args.len() == 0);
-
-        let scope = ctx.get_last_scope();
-        let id = match scope.kind {
-            ScopeKind::Function(fun_id, _) => fun_id,
-            _ => unreachable!(),
-        };
-
+    ) -> Result<(), TcError> {
         let fun = ctx.ctx.interner.get_fun(id).clone();
 
         let params = fun
@@ -649,48 +763,92 @@ impl<'ctx> TirCtx {
             variadic: fun.variadic,
         };
 
-        let body = match input.body.as_ref().map(|body| {
-            body.iter()
-                .map(|stmt| self.visit_stmt(ctx, stmt))
-                .collect::<Result<Vec<_>, _>>()
-        }) {
-            Some(Ok(x)) => Ok(Some(x.into_iter().flatten().collect())),
-            Some(Err(y)) => Err(y),
-            None => Ok(None),
-        }?;
+        self.protos.insert(id, sig);
 
-        Ok(vec![TirItem::Fundef { sig, body }])
+        Ok(())
+    }
+
+    fn visit_fundef(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        input: &NirFunctionDef,
+    ) -> Result<(), TcError> {
+        assert!(input.generic_args.len() == 0);
+
+        let f_id = ctx.get_current_fun().unwrap();
+        let proto = &self.protos[&f_id];
+        proto
+            .params
+            .clone()
+            .iter()
+            .enumerate()
+            .for_each(|(i, param)| {
+                let var_id = ctx.ctx.interner.insert_variable(VarDecl {
+                    name: param.name,
+                    ty: param.ty,
+                });
+                let e = ctx.ctx.interner.insert_te(TirExpr::Arg(i));
+                self.push_instr(ctx, TirInstr::Assign(var_id, e));
+                let def = ctx.ctx.interner.insert_def(Definition::Var(var_id));
+                ctx.push_def(param.name, def);
+            });
+
+        input
+            .body
+            .as_ref()
+            .iter()
+            .try_for_each(|body| body.iter().try_for_each(|stmt| self.visit_stmt(ctx, stmt)))
+    }
+
+    fn visit_item(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        scope: ScopeId,
+        item: ItemId,
+    ) -> Result<(), TcError> {
+        ctx.with_scope_id(scope, |ctx| {
+            let nir = ctx.ctx.interner.get_item(item).clone();
+            match nir {
+                NirItem::Function(fdef) => self.visit_fundef(ctx, &fdef),
+                NirItem::Alias(_, _) => Ok(()),
+                _ => todo!(),
+            }
+        })
     }
 }
 
 impl<'ctx> Pass<'ctx, SurfaceResolutionPassOutput<'ctx>> for TirCtx {
-    type Output = Vec<TirItem>;
+    type Output = ();
 
     fn run(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         input: SurfaceResolutionPassOutput<'ctx>,
     ) -> Result<Self::Output, TcError> {
-        let mut items = vec![];
-        for (scope, item) in input {
-            let mut tir_items = ctx.with_scope_id(scope, |ctx| {
-                let nir = ctx.ctx.interner.get_item(item).clone();
-                match nir {
-                    NirItem::Function(fdef) => self.visit_fundef(ctx, &fdef),
-                    NirItem::Alias(_, _) => Ok(vec![]),
-                    _ => todo!(),
-                }
-            })?;
-            items.append(&mut tir_items);
+        fn visit_all_fundefs<'ctx>(
+            this: &mut TirCtx,
+            ctx: &mut TyCtx<'ctx>,
+            scope: ScopeId,
+        ) -> Result<(), TcError> {
+            let s = ctx.get_scope(scope).clone();
+            if let ScopeKind::Function(fun_id, item, _) = s.kind {
+                let nir_fdef = match ctx.ctx.interner.get_item(item).clone() {
+                    NirItem::Function(x) => x,
+                    _ => unreachable!(),
+                };
+                this.concretize_fun_proto(ctx, fun_id, &nir_fdef)
+            } else {
+                s.children
+                    .iter()
+                    .try_for_each(|x| visit_all_fundefs(this, ctx, *x))
+            }
         }
-        println!(
-            "Items: [\n{}\n]",
-            items
-                .iter()
-                .map(|x| format!("\n=> {:?}\n", x))
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
-        Ok(items)
+
+        visit_all_fundefs(self, ctx, ScopeId::new(0))?;
+
+        for (scope, item) in input {
+            self.visit_item(ctx, scope, item)?;
+        }
+        Ok(())
     }
 }

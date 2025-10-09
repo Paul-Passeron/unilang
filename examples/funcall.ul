@@ -1,0 +1,17 @@
+let foo(): int => {
+    return 4;
+}
+
+let bar(): int => {
+    return 1 + foo();
+}
+
+let test(x: u64): int => {
+    return x * x + 5;
+}
+
+let baz(): int => {
+    return 1 - test(foo() * bar());
+}
+
+

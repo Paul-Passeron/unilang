@@ -1,6 +1,7 @@
 #![feature(formatting_options)]
 #![allow(dead_code)]
 #![feature(let_chains)]
+#![feature(iterator_try_collect)]
 
 use clap::Parser;
 

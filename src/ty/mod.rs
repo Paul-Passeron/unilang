@@ -4,7 +4,7 @@ use crate::{
     common::source_location::Span,
     nir::{
         context::GlobalContext,
-        global_interner::{DefId, ScopeId, Symbol, TypeExprId, UnresolvedId},
+        global_interner::{DefId, FunId, ScopeId, Symbol, TypeExprId, UnresolvedId},
         nir::{NirPath, NirType, NirTypeKind},
     },
     ty::{
@@ -130,16 +130,16 @@ impl<'ctx> TyCtx<'ctx> {
         let parent_mut = self.ctx.interner.get_scope_mut(parent);
         parent_mut.children.push(id);
         self.current_scope = id;
-        // println!("Entering scope {:?}", id);
+        println!("Entering scope {:?}", id);
         id
     }
 
     pub fn exit_scope(&mut self) {
         if let Some(parent) = self.ctx.interner.get_scope(self.current_scope).parent {
-            // println!(
-            //     "Exiting scope {:?} to scope {:?}",
-            //     self.current_scope, parent
-            // );
+            println!(
+                "Exiting scope {:?} to scope {:?}",
+                self.current_scope, parent
+            );
             self.current_scope = parent;
         }
     }
@@ -403,14 +403,19 @@ impl<'ctx> TyCtx<'ctx> {
         }
     }
 
-    pub fn get_return_ty(&mut self) -> Option<TypeExprId> {
+    pub fn get_current_fun(&mut self) -> Option<FunId> {
         match self.get_last_scope().kind.clone() {
-            ScopeKind::Function(fun_id, _) => Some(self.ctx.interner.get_fun(fun_id).return_ty),
-            ScopeKind::Loop | ScopeKind::Condition => {
+            ScopeKind::Function(fun_id, _, _) => Some(fun_id),
+            ScopeKind::Loop(_) | ScopeKind::Condition(_) | ScopeKind::Block(_) => {
                 let parent = self.get_last_scope().parent.unwrap();
-                self.with_scope_id(parent, |ctx| ctx.get_return_ty())
+                self.with_scope_id(parent, |ctx| ctx.get_current_fun())
             }
             _ => None,
         }
+    }
+
+    pub fn get_return_ty(&mut self) -> Option<TypeExprId> {
+        self.get_current_fun()
+            .map(|id| self.ctx.interner.get_fun(id).return_ty)
     }
 }

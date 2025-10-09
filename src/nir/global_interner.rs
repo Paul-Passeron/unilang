@@ -60,7 +60,7 @@ pub type TyId = OneShotId<ConcreteType>;
 pub type SCInterner = HashInterner<SCId, SpecializedClass>;
 pub type SCId = OneShotId<SpecializedClass>;
 
-pub type TirExprInterner = HashInterner<TirExprId, TirExpr>;
+pub type TirExprInterner = OneShotInterner<TirExpr>;
 pub type TirExprId = OneShotId<TirExpr>;
 
 #[derive(Debug, Clone)]

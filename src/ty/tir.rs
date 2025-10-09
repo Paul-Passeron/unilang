@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     nir::{
-        global_interner::{DefId, SCId, Symbol, TirExprId, TyId, VariableId},
+        global_interner::{DefId, FunId, SCId, StringLiteral, Symbol, TirExprId, TyId, VariableId},
         nir::{FieldAccessKind, NirBinOpKind, Visibility},
     },
     ty::PrimitiveTy,
@@ -10,6 +10,8 @@ use crate::{
 
 pub struct TirCtx {
     pub methods: HashMap<TyId, Vec<TirMethod>>,
+    pub protos: HashMap<FunId, Signature>,
+    pub calculated: HashSet<TirExprId>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -28,16 +30,20 @@ pub enum TypedIntLit {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum TirExpr {
+    Arg(usize),
     TypedIntLit(TypedIntLit),
     Access(TirExprId, FieldAccessKind),
     VarExpr(VariableId),
     IntCast(TyId, TirExprId),
+    PtrCast(TyId, TirExprId),
     Tuple(Vec<TirExprId>),
     BinOp {
         lhs: TirExprId,
         rhs: TirExprId,
         op: NirBinOpKind,
     },
+    Funcall(FunId, Vec<TirExprId>),
+    StringLiteral(StringLiteral),
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -45,7 +51,7 @@ pub enum TirInstr {
     Return(Option<TirExprId>),
     VarDecl(VariableId),
     Assign(VariableId, TirExprId),
-    Expr(TirExprId),
+    Calculate(TirExprId),
 }
 #[derive(Debug)]
 pub enum TirItem {

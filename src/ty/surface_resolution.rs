@@ -233,9 +233,9 @@ impl<'ctx> SurfaceResolution {
             variadic: input.is_variadic,
         });
 
-        ctx.with_scope(ScopeKind::Function(fun_id, item_id), |ctx| {
-            let insert_def = ctx.ctx.interner.insert_def(Definition::Function(fun_id));
-            ctx.push_def(input.name, insert_def);
+        let insert_def = ctx.ctx.interner.insert_def(Definition::Function(fun_id));
+        ctx.push_def(input.name, insert_def);
+        ctx.with_scope(ScopeKind::Function(fun_id, item_id, vec![]), |ctx| {
             Ok(ctx.current_scope)
         })
     }

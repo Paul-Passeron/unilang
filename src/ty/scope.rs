@@ -9,7 +9,7 @@ use crate::{
         },
         interner::Interner,
     },
-    ty::{PrimitiveTy, TcFunProto, TcParam},
+    ty::{PrimitiveTy, TcFunProto, TcParam, tir::TirInstr},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -69,10 +69,11 @@ pub enum ScopeKind {
     Global,
     Module(ModuleId, ItemId),
     Class(ClassId, ItemId),
-    Function(FunId, ItemId),
+    Function(FunId, ItemId, Vec<TirInstr>),
     Trait(TraitId, ItemId),
-    Loop,
-    Condition,
+    Loop(Vec<TirInstr>),
+    Condition(Vec<TirInstr>),
+    Block(Vec<TirInstr>),
     Impl(ImplBlockId, ItemId),
 }
 
@@ -163,7 +164,8 @@ impl Scope {
         symb: Symbol,
         interner: &ScopeInterner,
     ) -> Option<DefId> {
-        for (s, def) in &self.definitions {
+        // We want the last def first
+        for (s, def) in self.definitions.iter().rev() {
             if *s == symb {
                 return Some(def.clone());
             }
