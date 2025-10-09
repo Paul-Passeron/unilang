@@ -3,14 +3,11 @@ use strum::{EnumIter, IntoEnumIterator};
 use crate::{
     common::{
         context::GlobalContext,
-        global_interner::{DefId, ExprId, FunId, ScopeId, Symbol, TypeExprId, UnresolvedId},
+        global_interner::{DefId, ExprId, FunId, ScopeId, Symbol, TyId, TypeExprId, UnresolvedId},
         source_location::Span,
     },
     nir::nir::{NirPath, NirType, NirTypeKind},
-    ty::{
-        scope::{Definition, Scope, ScopeKind, TypeExpr, Unresolved, UnresolvedKind},
-        tir::ConcreteType,
-    },
+    ty::scope::{Definition, Scope, ScopeKind, TypeExpr, Unresolved, UnresolvedKind},
 };
 
 pub mod pass;
@@ -60,15 +57,12 @@ pub struct TyCtx<'ctx> {
     pub backpatching: Vec<(DefId, UnresolvedId)>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum TcError {
     Todo,
     NameNotFound(Symbol),
     Aggregate(Vec<TcError>),
-    BadReturnType(
-        crate::nir::interner::OneShotId<ConcreteType>,
-        crate::nir::interner::OneShotId<ConcreteType>,
-    ),
+    BadReturnType(TyId, TyId),
     Text(&'static str),
     NotAModule(ExprId),
 }
@@ -89,17 +83,17 @@ impl PrimitiveTy {
         }
     }
 
-    const INTEGERS: &[PrimitiveTy] = &[
-        PrimitiveTy::I8,
-        PrimitiveTy::I16,
-        PrimitiveTy::I32,
-        PrimitiveTy::I64,
-        PrimitiveTy::U8,
-        PrimitiveTy::U16,
-        PrimitiveTy::U32,
-        PrimitiveTy::U64,
-        PrimitiveTy::Bool,
-    ];
+    // const INTEGERS: &[PrimitiveTy] = &[
+    //     PrimitiveTy::I8,
+    //     PrimitiveTy::I16,
+    //     PrimitiveTy::I32,
+    //     PrimitiveTy::I64,
+    //     PrimitiveTy::U8,
+    //     PrimitiveTy::U16,
+    //     PrimitiveTy::U32,
+    //     PrimitiveTy::U64,
+    //     PrimitiveTy::Bool,
+    // ];
 
     fn size(&self) -> usize {
         match &self {
@@ -209,14 +203,6 @@ impl<'ctx> TyCtx<'ctx> {
 
     pub fn add_builtins(&mut self) {
         self.declare_primitive_types();
-    }
-
-    fn symb(&mut self, name: &str) -> Symbol {
-        self.ctx.interner.insert_symbol(&name.to_string())
-    }
-
-    fn get_symb(&self, s: &str) -> Symbol {
-        self.ctx.interner.get_symbol_for(&s.to_string())
     }
 
     pub fn new(ctx: &'ctx mut GlobalContext) -> Self {

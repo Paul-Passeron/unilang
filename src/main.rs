@@ -14,5 +14,8 @@ mod parser;
 mod ty;
 
 fn main() {
-    GlobalContext::new(Config::parse()).compile();
+    match GlobalContext::new(Config::parse()).compile() {
+        Err(error) => panic!("{:?}", error),
+        _ => println!("Compilation successful"),
+    }
 }

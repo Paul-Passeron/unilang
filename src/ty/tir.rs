@@ -9,7 +9,7 @@ use crate::{
 };
 
 pub struct TirCtx {
-    pub methods: HashMap<TyId, Vec<TirMethod>>,
+    // pub methods: HashMap<TyId, Vec<TirMethod>>,
     pub protos: HashMap<FunId, Signature>,
     pub calculated: HashSet<TirExprId>,
 }

@@ -30,7 +30,7 @@ pub enum Receiver {
 impl TirCtx {
     pub fn new() -> Self {
         Self {
-            methods: HashMap::new(),
+            // methods: HashMap::new(),
             protos: HashMap::new(),
             calculated: HashSet::new(),
         }
@@ -102,38 +102,6 @@ impl<'ctx> TirCtx {
         let e = ctx.ctx.interner.insert_te(expr);
         self.push_instr(ctx, TirInstr::Calculate(e));
         e
-    }
-
-    fn extract_var_from_pattern(
-        &mut self,
-        ctx: &mut TyCtx<'ctx>,
-        pattern: &Pattern,
-        name: Symbol,
-        expr: TirExprId,
-    ) -> Result<TirExprId, TcError> {
-        match pattern {
-            Pattern::Wildcard => Err(TcError::NameNotFound(name)),
-            Pattern::Symbol(x) => {
-                if *x == name {
-                    Ok(expr)
-                } else {
-                    Err(TcError::NameNotFound(name))
-                }
-            }
-            Pattern::Tuple(ps) => {
-                for (i, p) in ps.iter().enumerate() {
-                    let e = TirExpr::Access(expr, FieldAccessKind::Index(i as u32));
-                    let e_id = self.create_expr(ctx, e);
-                    match self.extract_var_from_pattern(ctx, p, name, e_id) {
-                        Ok(expr) => {
-                            return Ok(expr);
-                        }
-                        _ => (),
-                    }
-                }
-                Err(TcError::NameNotFound(name))
-            }
-        }
     }
 
     fn get_primitive_type(&mut self, ctx: &mut TyCtx<'ctx>, prim: PrimitiveTy) -> TyId {

@@ -1,9 +1,9 @@
-use std::{collections::HashSet, process::exit, rc::Rc};
+use std::{collections::HashSet, rc::Rc};
 
 use crate::{
     common::{
         config::Config,
-        errors::ParseError,
+        errors::{CompilerError, ParseError},
         global_interner::GlobalInterner,
         source_location::{FileId, FileManager},
     },
@@ -41,7 +41,7 @@ impl GlobalContext {
         .parse_program()
     }
 
-    pub fn compile(mut self) {
+    pub fn compile(mut self) -> Result<(), CompilerError> {
         let mut p = vec![];
         let mut ids = HashSet::new();
 
@@ -54,10 +54,7 @@ impl GlobalContext {
             let mut prgm = match self.parse_file(id) {
                 Ok(x) => x,
                 Err(err) => {
-                    panic!(
-                        "Parsing error ! {}",
-                        err.span.start().to_string(&self.file_manager)
-                    )
+                    return Err(CompilerError::ParseError(err));
                 }
             };
             p.append(&mut prgm.0);
@@ -69,31 +66,22 @@ impl GlobalContext {
 
         let nir = match nir {
             Ok(nir) => nir,
-            Err(x) => {
-                println!("Err: {:#?}", x);
-                exit(1)
-            }
+            Err(x) => return Err(CompilerError::NirError(x)),
         };
 
         let mut tc = TyCtx::new(&mut self);
 
         let resolved = match SurfaceResolution::new().run(&mut tc, &nir) {
             Ok(resolved) => resolved,
-            Err(err) => {
-                tc.print_error(&err);
-                panic!()
-            }
+            Err(x) => return Err(CompilerError::TcError(x)),
         };
 
         let _tir = match TirCtx::new().run(&mut tc, resolved) {
             Ok(tir) => tir,
-            Err(err) => {
-                tc.print_error(&err);
-                panic!()
-            }
+            Err(err) => return Err(CompilerError::TcError(err)),
         };
 
-        self.interner.debug_print();
-        // println!("Successfully surface resolved!")
+        // self.interner.debug_print();
+        Ok(())
     }
 }
