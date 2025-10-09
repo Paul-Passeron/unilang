@@ -11,7 +11,6 @@ escape_string = "0.1.2"
 nonempty = "0.12.0"
 regex = "1.11.2"
 rustc-literal-escaper = "0.0.4"
-strum = { version = "0.27.2", features = ["derive"] }
 
 [profile.release]
 strip=true

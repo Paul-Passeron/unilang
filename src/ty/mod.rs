@@ -1,5 +1,3 @@
-use strum::{EnumIter, IntoEnumIterator};
-
 use crate::{
     common::{
         context::GlobalContext,
@@ -22,7 +20,7 @@ pub struct StructField {
     pub ty: TypeExpr,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PrimitiveTy {
     Void,
     I8,
@@ -192,9 +190,18 @@ impl<'ctx> TyCtx<'ctx> {
             this.push_def(symb, def);
         };
 
-        for prim in PrimitiveTy::iter() {
-            create_alias(self, prim, prim.get_name());
-        }
+        let mut alias = |prim| create_alias(self, prim, prim.get_name());
+
+        alias(PrimitiveTy::Void);
+        alias(PrimitiveTy::I8);
+        alias(PrimitiveTy::I16);
+        alias(PrimitiveTy::I32);
+        alias(PrimitiveTy::I64);
+        alias(PrimitiveTy::U8);
+        alias(PrimitiveTy::U16);
+        alias(PrimitiveTy::U32);
+        alias(PrimitiveTy::U64);
+        alias(PrimitiveTy::Bool);
 
         create_alias(self, PrimitiveTy::I32, "int");
         create_alias(self, PrimitiveTy::U32, "usize");
