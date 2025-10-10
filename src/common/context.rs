@@ -77,10 +77,14 @@ impl GlobalContext {
             Err(x) => return Err(CompilerError::TcError(x)),
         };
 
-        let _tir = match TirCtx::new().run(&mut tc, resolved) {
-            Ok(tir) => tir,
-            Err(err) => return Err(CompilerError::TcError(err)),
-        };
+        if let Err(err) = TirCtx::new().run(&mut tc, resolved) {
+            return Err(CompilerError::TcError(err));
+        }
+
+        // let mut clir = ClirPass::new();
+        // if let Err(err) = clir.run(&mut tc, ()) {
+        //     return Err(CompilerError::TcError(err));
+        // }
 
         // self.interner.debug_print();
         Ok(())

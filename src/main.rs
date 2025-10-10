@@ -7,9 +7,9 @@ use clap::Parser;
 
 use crate::common::{config::Config, context::GlobalContext};
 
-mod clir;
 mod common;
 mod lexer;
+mod mono_ir;
 mod nir;
 mod parser;
 mod ty;
@@ -19,5 +19,5 @@ fn main() {
         Err(error) => panic!("{:?}", error),
         _ => (),
     }
-    clir::test();
+    // clir::test();
 }
