@@ -1,6 +1,6 @@
 # Unilang Compiler
 
-## ⚠️ This compiler is not functionnal yet as it is undergoing a partial rewrite (middle-end & back-end)
+## ⚠️ This compiler is a work in progress.
 
 ## Quickstart
 ### building
