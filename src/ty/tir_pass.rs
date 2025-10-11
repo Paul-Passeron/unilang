@@ -890,7 +890,7 @@ impl<'ctx> TirCtx {
                     name: param.name,
                     ty: param.ty,
                 });
-                let e = ctx.ctx.interner.insert_te(TirExpr::Arg(i));
+                let e = self.create_expr(ctx, TirExpr::Arg(i));
                 self.push_instr(ctx, TirInstr::Assign(var_id, e));
                 let def = ctx.ctx.interner.insert_def(Definition::Var(var_id));
                 ctx.push_def(param.name, def);

@@ -19,5 +19,4 @@ fn main() {
         Err(error) => panic!("{:?}", error),
         _ => (),
     }
-    // clir::test();
 }

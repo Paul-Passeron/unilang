@@ -9,6 +9,7 @@ use crate::{
         source_location::{FileId, FileManager},
     },
     lexer::Lexer,
+    mono_ir::mono_ir_pass::MonoIRPass,
     nir::{include_resolver::IncludeResolver, visitor::NirVisitor},
     parser::{ast::Program, parser::Parser},
     ty::{TyCtx, surface_resolution::SurfaceResolution, tir::TirCtx},
@@ -76,15 +77,17 @@ impl GlobalContext {
             Ok(resolved) => resolved,
             Err(x) => return Err(CompilerError::TcError(x)),
         };
-
-        if let Err(err) = TirCtx::new().run(&mut tc, resolved) {
+        let mut tir_ctx = TirCtx::new();
+        if let Err(err) = tir_ctx.run(&mut tc, resolved) {
             return Err(CompilerError::TcError(err));
         }
 
-        // let mut clir = ClirPass::new();
-        // if let Err(err) = clir.run(&mut tc, ()) {
-        //     return Err(CompilerError::TcError(err));
-        // }
+        let ctx = inkwell::context::Context::create();
+
+        let mut mono = MonoIRPass::new("main", &ctx, &mut tir_ctx);
+        if let Err(err) = mono.run(&mut tc, ()) {
+            return Err(CompilerError::TcError(err));
+        }
 
         // self.interner.debug_print();
         Ok(())
