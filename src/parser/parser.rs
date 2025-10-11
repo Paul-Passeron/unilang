@@ -1126,7 +1126,6 @@ impl Parser {
                     }
                     self.next();
                 }
-
                 if !self.match_tokenkind(TokenKind::ClosePar) {
                     return self.emit_error(ParseErrKind::UnclosedParen(peek_tok.location.start()));
                 }
@@ -1134,7 +1133,7 @@ impl Parser {
                 expr = Ast::new(
                     Expr::Postfix {
                         expr,
-                        op: PostfixExprKind::Call(args),
+                        op: PostfixExprKind::Call(dbg!(args)),
                     },
                     start.span_to(&end),
                 );

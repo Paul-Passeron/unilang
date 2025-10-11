@@ -634,6 +634,7 @@ impl<'ctx> TirCtx {
                 ..
             }) => {
                 assert!(generic_args.len() == 0);
+                dbg!(&args);
 
                 let (f_id, _self_arg): (FunId, Option<ExprId>) = if called.receiver.is_some() {
                     let receiver = self.expr_as_receiver(ctx, called.receiver.unwrap())?;
@@ -666,13 +667,28 @@ impl<'ctx> TirCtx {
                     return Err(TcError::Text("Arg len mismatch in function call"));
                 }
 
+                let mut params = sig
+                    .params
+                    .iter()
+                    .map(|x| Some(x.clone()))
+                    .collect::<Vec<_>>();
+                for _ in params.len()..args.len() {
+                    params.push(None)
+                }
+
                 let args = args
                     .iter()
-                    .zip(sig.params.iter())
-                    .map(|(expr, param)| self.get_expr_with_type(ctx, *expr, param.ty))
+                    .zip(params.into_iter())
+                    .map(|(expr, param)| {
+                        if param.is_some() {
+                            self.get_expr_with_type(ctx, *expr, param.unwrap().ty)
+                        } else {
+                            self.get_expr(ctx, *expr)
+                        }
+                    })
                     .try_collect::<Vec<_>>()?;
 
-                Ok(self.create_expr(ctx, TirExpr::Funcall(f_id, args)))
+                Ok(self.create_expr(ctx, TirExpr::Funcall(f_id, dbg!(args))))
             }
             x => todo!("{x:?}"),
         }
@@ -838,8 +854,7 @@ impl<'ctx> TirCtx {
             }
             NirStmtKind::Let(decl) => self.visit_let(ctx, decl),
             NirStmtKind::Expr(expr) => {
-                let e = self.get_expr(ctx, *expr)?;
-                self.push_instr(ctx, TirInstr::Calculate(e));
+                self.get_expr(ctx, *expr)?;
                 Ok(())
             }
             _ => todo!(),
@@ -888,21 +903,24 @@ impl<'ctx> TirCtx {
 
         let f_id = ctx.get_current_fun().unwrap();
         let proto = &self.protos[&f_id];
-        proto
-            .params
-            .clone()
-            .iter()
-            .enumerate()
-            .for_each(|(i, param)| {
-                let var_id = ctx.ctx.interner.insert_variable(VarDecl {
-                    name: param.name,
-                    ty: param.ty,
+        if input.body.is_some() {
+            proto
+                .params
+                .clone()
+                .iter()
+                .enumerate()
+                .for_each(|(i, param)| {
+                    let var_id = ctx.ctx.interner.insert_variable(VarDecl {
+                        name: param.name,
+                        ty: param.ty,
+                    });
+                    self.push_instr(ctx, TirInstr::VarDecl(var_id));
+                    let e = self.create_expr(ctx, TirExpr::Arg(i));
+                    self.push_instr(ctx, TirInstr::Assign(var_id, e));
+                    let def = ctx.ctx.interner.insert_def(Definition::Var(var_id));
+                    ctx.push_def(param.name, def);
                 });
-                let e = self.create_expr(ctx, TirExpr::Arg(i));
-                self.push_instr(ctx, TirInstr::Assign(var_id, e));
-                let def = ctx.ctx.interner.insert_def(Definition::Var(var_id));
-                ctx.push_def(param.name, def);
-            });
+        }
 
         input
             .body

@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
+use core::fmt;
+
 use regex::Regex;
 
 use crate::{
@@ -25,11 +27,18 @@ pub struct Lexer<'a, T> {
     skip_patterns: Vec<Regex>,
 }
 
-impl<'a, T> Iterator for Lexer<'a, T> {
+impl<'a, T: fmt::Debug> Iterator for Lexer<'a, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.next_token().ok()
+        let res = self.next_token().ok();
+        // match &res {
+        //     Some(x) => {
+        //         dbg!(x);
+        //     }
+        //     None => (),
+        // }
+        res
     }
 }
 

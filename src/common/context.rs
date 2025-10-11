@@ -1,4 +1,9 @@
-use std::{collections::HashSet, rc::Rc};
+use std::{collections::HashSet, path::Path, rc::Rc};
+
+use inkwell::{
+    OptimizationLevel,
+    targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target},
+};
 
 use crate::{
     common::{
@@ -82,12 +87,38 @@ impl GlobalContext {
             return Err(CompilerError::TcError(err));
         }
 
+        Target::initialize_native(&InitializationConfig::default()).unwrap();
+
         let ctx = inkwell::context::Context::create();
 
         let mut mono = MonoIRPass::new("main", &ctx, &mut tir_ctx);
         if let Err(err) = mono.run(&mut tc, ()) {
             return Err(CompilerError::TcError(err));
         }
+
+        let target = Target::from_triple(&mono.triple).unwrap();
+
+        let target_machine = target
+            .create_target_machine(
+                &mono.triple,
+                "generic", // CPU
+                "",        // Features
+                OptimizationLevel::Default,
+                RelocMode::Default,
+                CodeModel::Default,
+            )
+            .expect("Failed to create target machine");
+
+        // Write to object file
+        target_machine
+            .write_to_file(
+                &mono.module,
+                FileType::Object,
+                Path::new(format!("{}.o", self.config.output.display()).as_str()),
+            )
+            .unwrap();
+
+        // mono.ictx
 
         // self.interner.debug_print();
         Ok(())

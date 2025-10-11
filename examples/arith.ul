@@ -1,5 +1,10 @@
-let foo(): void => {
+let foo(): int => {
     let x: int => 2 + 3;
     let y => 7 * x;
     let z => 154 / y;
+    return x + y + z;
+}
+
+let main(): int => {
+    return foo();
 }

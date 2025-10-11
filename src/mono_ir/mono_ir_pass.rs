@@ -4,12 +4,12 @@ use inkwell::{
     AddressSpace,
     builder::Builder,
     context::Context,
-    module::Module,
+    module::{Linkage, Module},
     targets::{TargetMachine, TargetTriple},
     types::{AnyType, AnyTypeEnum, AsTypeRef, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType},
     values::{
-        AnyValue, AnyValueEnum, AsValueRef, BasicValue, BasicValueEnum, FunctionValue,
-        InstructionOpcode, PointerValue,
+        AnyValue, AnyValueEnum, AsValueRef, BasicMetadataValueEnum, BasicValue, BasicValueEnum,
+        FunctionValue, InstructionOpcode, PointerValue,
     },
 };
 
@@ -27,15 +27,15 @@ use crate::{
 };
 
 pub struct MonoIRPass<'a> {
-    triple: TargetTriple,
-    ictx: &'a Context,
-    tir_ctx: &'a TirCtx,
-    module: Module<'a>,
-    builder: Builder<'a>,
-
-    expressions: HashMap<TirExprId, AnyValueEnum<'a>>,
-    vars: HashMap<VariableId, (BasicTypeEnum<'a>, PointerValue<'a>)>,
-    tys: HashMap<TyId, AnyTypeEnum<'a>>,
+    pub triple: TargetTriple,
+    pub ictx: &'a Context,
+    pub tir_ctx: &'a TirCtx,
+    pub module: Module<'a>,
+    pub builder: Builder<'a>,
+    pub expressions: HashMap<TirExprId, AnyValueEnum<'a>>,
+    pub vars: HashMap<VariableId, (BasicTypeEnum<'a>, PointerValue<'a>)>,
+    pub tys: HashMap<TyId, AnyTypeEnum<'a>>,
+    pub funs: HashMap<FunId, (FunctionValue<'a>, ScopeId)>,
 }
 
 impl<'ctx, 'a> Pass<'ctx, ()> for MonoIRPass<'a> {
@@ -63,13 +63,14 @@ impl<'ctx, 'a> MonoIRPass<'a> {
             expressions: HashMap::new(),
             vars: HashMap::new(),
             tys: HashMap::new(),
+            funs: HashMap::new(),
         }
     }
 
     pub fn visit_all_scopes(&mut self, ctx: &mut TyCtx<'ctx>) {
         fn aux<'ctx>(this: &mut MonoIRPass, ctx: &mut TyCtx<'ctx>) {
             if matches!(&ctx.get_last_scope().kind, ScopeKind::Function(_, _, _)) {
-                this.visit_fundef(ctx);
+                this.declare_fundef(ctx);
             }
 
             for child in &ctx.get_last_scope().children.clone() {
@@ -78,28 +79,52 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                 })
             }
         }
+
         ctx.with_scope_id(ScopeId::new(0), |ctx| {
             aux(self, ctx);
         });
+
+        let keys = self.funs.keys().cloned().collect::<Vec<_>>();
+
+        for fun_id in keys {
+            self.visit_fundef(ctx, fun_id)
+        }
     }
 
-    fn visit_fundef(&mut self, ctx: &mut TyCtx<'ctx>) {
+    fn visit_fundef(&mut self, ctx: &mut TyCtx<'ctx>, id: FunId) {
+        let (fn_val, scope_id) = self.funs[&id].clone();
+        ctx.with_scope_id(scope_id, |ctx| {
+            let (_, instrs) = match &ctx.ctx.interner.get_scope(ctx.current_scope).kind {
+                ScopeKind::Function(fun_id, _, instrs) => (*fun_id, instrs.clone()),
+                _ => unreachable!(),
+            };
+
+            if !instrs.is_empty() {
+                let entry_basic_block = self.ictx.append_basic_block(fn_val, "entry");
+                self.builder.position_at_end(entry_basic_block);
+            }
+            instrs.iter().for_each(|instr| self.translate(ctx, instr));
+            fn_val
+                .get_last_basic_block()
+                .inspect(|bb| match bb.get_terminator() {
+                    None => {
+                        self.builder.build_return(None).unwrap();
+                    }
+                    _ => (),
+                });
+        });
+    }
+
+    fn declare_fundef(&mut self, ctx: &mut TyCtx<'ctx>) {
         let fun_scope = ctx.get_current_fun_scope().unwrap();
         let (fun_id, instrs) = match &ctx.ctx.interner.get_scope(fun_scope).kind {
             ScopeKind::Function(fun_id, _, instrs) => (*fun_id, instrs.clone()),
             _ => unreachable!(),
         };
 
-        let fn_val = self.setup_function(ctx, fun_id);
-        instrs.iter().for_each(|instr| self.translate(ctx, instr));
-        fn_val
-            .get_last_basic_block()
-            .inspect(|bb| match bb.get_terminator() {
-                None => {
-                    self.builder.build_return(None).unwrap();
-                }
-                _ => (),
-            });
+        let fn_val = self.setup_function(ctx, fun_id, instrs.is_empty());
+
+        self.funs.insert(fun_id, (fn_val, ctx.current_scope));
     }
 
     fn get_iw_for_primitive(&self, p: PrimitiveTy) -> AnyTypeEnum<'a> {
@@ -114,7 +139,7 @@ impl<'ctx, 'a> MonoIRPass<'a> {
     }
 
     /// This returns a vec because it destructures tuples and structs
-    fn get_mono_ty(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> AnyTypeEnum<'a> {
+    fn get_mono_ty(&mut self, ctx: &TyCtx<'ctx>, ty: TyId) -> AnyTypeEnum<'a> {
         if self.tys.contains_key(&ty) {
             return self.tys[&ty];
         }
@@ -138,7 +163,7 @@ impl<'ctx, 'a> MonoIRPass<'a> {
         res
     }
 
-    fn get_fun_type(&mut self, ctx: &mut TyCtx<'ctx>, id: FunId) -> FunctionType<'a> {
+    fn get_fun_type(&mut self, ctx: &TyCtx<'ctx>, id: FunId) -> FunctionType<'a> {
         let proto = self.tir_ctx.protos[&id].clone();
         let args = proto
             .params
@@ -159,34 +184,44 @@ impl<'ctx, 'a> MonoIRPass<'a> {
         }
     }
 
-    fn get_fun_name(&self, ctx: &mut TyCtx<'ctx>, id: FunId) -> String {
+    fn get_fun_name(&self, ctx: &TyCtx<'ctx>, id: FunId) -> String {
         let proto = self.tir_ctx.protos[&id].clone();
         ctx.ctx.interner.get_symbol(proto.name).clone()
     }
 
-    fn setup_function(&mut self, ctx: &mut TyCtx<'ctx>, id: FunId) -> FunctionValue<'a> {
-        let proto = self.tir_ctx.protos[&id].clone();
+    fn setup_function(
+        &mut self,
+        ctx: &TyCtx<'ctx>,
+        id: FunId,
+        is_empty: bool,
+    ) -> FunctionValue<'a> {
         let fun_type = self.get_fun_type(ctx, id);
         let fun_name = self.get_fun_name(ctx, id);
-        let fn_val = self.module.add_function(fun_name.as_ref(), fun_type, None);
-
-        let entry_basic_block = self.ictx.append_basic_block(fn_val, "entry");
-        self.builder.position_at_end(entry_basic_block);
-        assert!(proto.params.len() == 0);
-        println!(
-            "Function type for {}: {}",
-            ctx.ctx.interner.get_symbol(proto.name),
-            fun_type
+        let fn_val = self.module.add_function(
+            fun_name.as_ref(),
+            fun_type,
+            if is_empty {
+                Some(Linkage::External)
+            } else {
+                None
+            },
         );
+
         fn_val
     }
 
-    fn calculate(&mut self, ctx: &mut TyCtx<'ctx>, expr: TirExprId) -> AnyValueEnum {
+    fn calculate(&mut self, ctx: &mut TyCtx<'ctx>, expr: TirExprId) -> AnyValueEnum<'a> {
         let e = ctx.ctx.interner.get_te(expr).clone();
         let res = match e {
-            TirExpr::Arg(_) => todo!(),
+            TirExpr::Arg(i) => {
+                let fun_id = ctx.get_current_fun().unwrap();
+                let (fn_val, _) = self.funs[&fun_id].clone();
+                fn_val.get_nth_param(i as u32).unwrap().as_any_value_enum()
+
+                // self.builder.
+            }
             TirExpr::TypedIntLit(typed_int_lit) => match typed_int_lit {
-                TypedIntLit::Ptr(one_shot_id, x) => {
+                TypedIntLit::Ptr(_, x) => {
                     let intlit_ptr = self.ictx.i64_type().const_int(x as u64, false);
                     self.builder
                         .build_int_to_ptr(intlit_ptr, self.ictx.ptr_type(AddressSpace::from(0)), "")
@@ -239,10 +274,9 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     .const_int(x as u64, false)
                     .as_any_value_enum(),
             },
-            TirExpr::Access(one_shot_id, field_access_kind) => todo!(),
+            TirExpr::Access(_, _) => todo!(),
             TirExpr::VarExpr(var_id) => {
                 let (var_ty, var_ptr) = self.vars[&var_id];
-                let var_decl = ctx.ctx.interner.get_variable(var_id);
                 let value = self.builder.build_load(var_ty, var_ptr, "").unwrap();
                 value.as_any_value_enum()
             }
@@ -258,8 +292,8 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     .unwrap()
                     .as_any_value_enum()
             }
-            TirExpr::PtrCast(one_shot_id, one_shot_id1) => todo!(),
-            TirExpr::Tuple(one_shot_ids) => todo!(),
+            TirExpr::PtrCast(_, _) => todo!(),
+            TirExpr::Tuple(_) => todo!(),
             TirExpr::BinOp { lhs, rhs, op } => {
                 let lhs_val = unsafe { BasicValueEnum::new(self.expressions[&lhs].as_value_ref()) };
                 let rhs_val = unsafe { BasicValueEnum::new(self.expressions[&rhs].as_value_ref()) };
@@ -295,8 +329,27 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     .unwrap()
                     .as_any_value_enum()
             }
-            TirExpr::Funcall(one_shot_id, one_shot_ids) => todo!(),
-            TirExpr::StringLiteral(one_shot_id) => todo!(),
+            TirExpr::Funcall(fun_id, args) => {
+                let (val, _) = self.funs[&fun_id].clone();
+                let args_expr = args
+                    .clone()
+                    .iter()
+                    .map(|x| BasicMetadataValueEnum::try_from(self.calculate(ctx, *x)).unwrap())
+                    .collect::<Vec<_>>();
+
+                self.builder
+                    .build_call(val, &args_expr[..], "")
+                    .unwrap()
+                    .as_any_value_enum()
+            }
+            TirExpr::StringLiteral(x) => {
+                let escaped = &ctx.ctx.interner.get_string(x).0;
+                let unescaped = unescape::unescape(escaped.as_str()).unwrap();
+                self.builder
+                    .build_global_string_ptr(unescaped.as_str(), "")
+                    .unwrap()
+                    .as_any_value_enum()
+            }
         };
         self.expressions.insert(expr, res.clone());
         res
