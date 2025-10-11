@@ -607,7 +607,7 @@ impl<'ctx> TirCtx {
                 let rt_size = self.get_type_size(ctx, rt);
                 let operands_ty = if lt_size > rt_size { lt } else { rt };
 
-                if matches!(op, NirBinOpKind::LOr | NirBinOpKind::LAnd) {
+                let value_type = if matches!(op, NirBinOpKind::LOr | NirBinOpKind::LAnd) {
                     self.get_primitive_type(ctx, PrimitiveTy::Bool)
                 } else if lt_size > rt_size {
                     lt
@@ -617,8 +617,15 @@ impl<'ctx> TirCtx {
 
                 let lhs = self.get_expr_with_type(ctx, *left, operands_ty)?;
                 let rhs = self.get_expr_with_type(ctx, *right, operands_ty)?;
+                let e = self.create_expr(ctx, TirExpr::BinOp { lhs, rhs, op: *op });
 
-                Ok(self.create_expr(ctx, TirExpr::BinOp { lhs, rhs, op: *op }))
+                Ok({
+                    if value_type != ty {
+                        self.create_expr(ctx, TirExpr::IntCast(ty, e))
+                    } else {
+                        e
+                    }
+                })
             }
             NirExprKind::Call(NirCall {
                 called,
@@ -744,6 +751,7 @@ impl<'ctx> TirCtx {
                     .interner
                     .insert_variable(VarDecl { name: *symb, ty });
                 let d = ctx.ctx.interner.insert_def(Definition::Var(id));
+                self.push_instr(ctx, TirInstr::VarDecl(id));
                 ctx.push_def(*symb, d);
                 expr.iter()
                     .for_each(|x| self.push_instr(ctx, TirInstr::Assign(id, *x)));
