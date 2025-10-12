@@ -1,4 +1,4 @@
-use std::{collections::HashSet, path::Path, rc::Rc};
+use std::{collections::HashSet, path::Path, process::Command, rc::Rc};
 
 use inkwell::{
     OptimizationLevel,
@@ -109,18 +109,22 @@ impl GlobalContext {
             )
             .expect("Failed to create target machine");
 
+        let obj_file = format!("{}.o", self.config.output.display());
+
         // Write to object file
         target_machine
-            .write_to_file(
-                &mono.module,
-                FileType::Object,
-                Path::new(format!("{}.o", self.config.output.display()).as_str()),
-            )
+            .write_to_file(&mono.module, FileType::Object, Path::new(obj_file.as_str()))
             .unwrap();
 
-        // mono.ictx
+        Command::new("gcc")
+            .arg(obj_file.clone())
+            .arg("-o")
+            .arg(format!("{}", self.config.output.display()))
+            .output()
+            .unwrap();
 
-        // self.interner.debug_print();
+        let _ = std::fs::remove_file(Path::new(obj_file.as_str()));
+
         Ok(())
     }
 }
