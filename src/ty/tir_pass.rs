@@ -446,7 +446,7 @@ impl<'ctx> TirCtx {
                 };
 
                 for instr in instrs.clone() {
-                    dbg!(instr);
+                    println!("{:?}", instr);
                 }
                 if let Some(parent) = ctx.get_last_scope().parent {
                     aux(ctx, parent);
@@ -634,7 +634,6 @@ impl<'ctx> TirCtx {
                 ..
             }) => {
                 assert!(generic_args.len() == 0);
-                dbg!(&args);
 
                 let (f_id, _self_arg): (FunId, Option<ExprId>) = if called.receiver.is_some() {
                     let receiver = self.expr_as_receiver(ctx, called.receiver.unwrap())?;
@@ -688,7 +687,7 @@ impl<'ctx> TirCtx {
                     })
                     .try_collect::<Vec<_>>()?;
 
-                Ok(self.create_expr(ctx, TirExpr::Funcall(f_id, dbg!(args))))
+                Ok(self.create_expr(ctx, TirExpr::Funcall(f_id, args)))
             }
             x => todo!("{x:?}"),
         }
