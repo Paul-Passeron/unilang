@@ -1,0 +1,8 @@
+@include std::io
+
+let main(): int => {
+    let str => "Hello, World !";
+    let str2: char * => str + 6;
+    printf("%s -> %s -> %p\n", str, str2, str + 1);
+    return 0;
+}

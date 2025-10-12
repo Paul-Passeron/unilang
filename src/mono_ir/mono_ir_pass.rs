@@ -6,7 +6,10 @@ use inkwell::{
     context::Context,
     module::{Linkage, Module},
     targets::{TargetMachine, TargetTriple},
-    types::{AnyType, AnyTypeEnum, AsTypeRef, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType},
+    types::{
+        AnyType, AnyTypeEnum, AsTypeRef, BasicMetadataTypeEnum, BasicType, BasicTypeEnum,
+        FunctionType,
+    },
     values::{
         AnyValue, AnyValueEnum, AsValueRef, BasicMetadataValueEnum, BasicValue, BasicValueEnum,
         FunctionValue, InstructionOpcode, PointerValue,
@@ -29,7 +32,7 @@ use crate::{
 pub struct MonoIRPass<'a> {
     pub triple: TargetTriple,
     pub ictx: &'a Context,
-    pub tir_ctx: &'a TirCtx,
+    pub tir_ctx: &'a mut TirCtx,
     pub module: Module<'a>,
     pub builder: Builder<'a>,
     pub expressions: HashMap<TirExprId, AnyValueEnum<'a>>,
@@ -50,7 +53,7 @@ impl<'ctx, 'a> Pass<'ctx, ()> for MonoIRPass<'a> {
 }
 
 impl<'ctx, 'a> MonoIRPass<'a> {
-    pub fn new(name: &str, ictx: &'a Context, tir_ctx: &'a TirCtx) -> Self {
+    pub fn new(name: &str, ictx: &'a Context, tir_ctx: &'a mut TirCtx) -> Self {
         let triple = TargetMachine::get_default_triple();
         let module = ictx.create_module(name);
         let builder = ictx.create_builder();
@@ -211,6 +214,9 @@ impl<'ctx, 'a> MonoIRPass<'a> {
     }
 
     fn calculate(&mut self, ctx: &mut TyCtx<'ctx>, expr: TirExprId) -> AnyValueEnum<'a> {
+        if self.expressions.contains_key(&expr) {
+            return self.expressions[&expr].clone();
+        }
         let e = ctx.ctx.interner.get_te(expr).clone();
         let res = match e {
             TirExpr::Arg(i) => {
@@ -282,6 +288,7 @@ impl<'ctx, 'a> MonoIRPass<'a> {
             }
             TirExpr::IntCast(int_ty, expr_id) => {
                 let ty = self.get_mono_ty(ctx, int_ty);
+
                 let int_ty = unsafe { BasicTypeEnum::new(ty.as_type_ref()) }.into_int_type();
 
                 let expr = &self.expressions[&expr_id];
@@ -298,43 +305,80 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                 let lhs_val = unsafe { BasicValueEnum::new(self.expressions[&lhs].as_value_ref()) };
                 let rhs_val = unsafe { BasicValueEnum::new(self.expressions[&rhs].as_value_ref()) };
                 assert!(
-                    (!lhs_val.get_type().is_pointer_type())
+                    (lhs_val.get_type().is_pointer_type())
                         || lhs_val.get_type() == rhs_val.get_type(),
+                    "\nLHS: {}\nRHS: {}",
+                    lhs_val.get_type(),
+                    rhs_val.get_type()
                 );
 
-                // TODO: determine unsigned / signed
-                let opcode = match op {
-                    NirBinOpKind::Add => InstructionOpcode::Add,
-                    NirBinOpKind::Sub => InstructionOpcode::Sub,
-                    NirBinOpKind::Mul => InstructionOpcode::Mul,
-                    NirBinOpKind::Div => InstructionOpcode::SDiv,
-                    NirBinOpKind::Mod => InstructionOpcode::SRem,
-                    NirBinOpKind::Equ => todo!(),
-                    NirBinOpKind::Dif => todo!(),
-                    NirBinOpKind::LOr => todo!(),
-                    NirBinOpKind::LAnd => todo!(),
-                    NirBinOpKind::BOr => todo!(),
-                    NirBinOpKind::BAnd => todo!(),
-                    NirBinOpKind::BXor => todo!(),
-                    NirBinOpKind::Geq => todo!(),
-                    NirBinOpKind::Leq => todo!(),
-                    NirBinOpKind::Gt => todo!(),
-                    NirBinOpKind::Lt => {
-                        todo!()
-                    }
-                };
+                if lhs_val.get_type().is_pointer_type() {
+                    match op {
+                        NirBinOpKind::Add => {
+                            let ptr_ty = self.tir_ctx.get_type_of_tir_expr(ctx, lhs).unwrap();
+                            let inner = match ctx.ctx.interner.get_conc_type(ptr_ty) {
+                                ConcreteType::Ptr(ty) => *ty,
+                                _ => unreachable!(),
+                            };
+                            let inner = BasicTypeEnum::try_from(self.get_mono_ty(ctx, inner))
+                                .unwrap_or(self.ictx.i8_type().as_basic_type_enum());
 
-                self.builder
-                    .build_binop(opcode, lhs_val, rhs_val, "")
-                    .unwrap()
-                    .as_any_value_enum()
+                            unsafe {
+                                self.builder
+                                    .build_gep(
+                                        inner,
+                                        lhs_val.into_pointer_value(),
+                                        &[rhs_val.into_int_value()],
+                                        "",
+                                    )
+                                    .unwrap()
+                                    .as_any_value_enum()
+                            }
+                        }
+                        NirBinOpKind::Sub => todo!(),
+                        _ => unreachable!(),
+                    }
+                } else if lhs_val.get_type().is_pointer_type() {
+                    match op {
+                        NirBinOpKind::Add => todo!(),
+                        NirBinOpKind::Sub => todo!(),
+                        _ => unreachable!(),
+                    }
+                } else {
+                    // TODO: determine unsigned / signed
+                    let opcode = match op {
+                        NirBinOpKind::Add => InstructionOpcode::Add,
+                        NirBinOpKind::Sub => InstructionOpcode::Sub,
+                        NirBinOpKind::Mul => InstructionOpcode::Mul,
+                        NirBinOpKind::Div => InstructionOpcode::SDiv,
+                        NirBinOpKind::Mod => InstructionOpcode::SRem,
+                        NirBinOpKind::Equ => todo!(),
+                        NirBinOpKind::Dif => todo!(),
+                        NirBinOpKind::LOr => todo!(),
+                        NirBinOpKind::LAnd => todo!(),
+                        NirBinOpKind::BOr => todo!(),
+                        NirBinOpKind::BAnd => todo!(),
+                        NirBinOpKind::BXor => todo!(),
+                        NirBinOpKind::Geq => todo!(),
+                        NirBinOpKind::Leq => todo!(),
+                        NirBinOpKind::Gt => todo!(),
+                        NirBinOpKind::Lt => {
+                            todo!()
+                        }
+                    };
+
+                    self.builder
+                        .build_binop(opcode, lhs_val, rhs_val, "")
+                        .unwrap()
+                        .as_any_value_enum()
+                }
             }
             TirExpr::Funcall(fun_id, args) => {
                 let (val, _) = self.funs[&fun_id].clone();
                 let args_expr = args
                     .clone()
                     .iter()
-                    .map(|x| BasicMetadataValueEnum::try_from(self.calculate(ctx, *x)).unwrap())
+                    .map(|x| BasicMetadataValueEnum::try_from(self.expressions[x]).unwrap())
                     .collect::<Vec<_>>();
 
                 self.builder
@@ -351,6 +395,7 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     .as_any_value_enum()
             }
         };
+        println!("Inserting {:?}", expr);
         self.expressions.insert(expr, res.clone());
         res
     }

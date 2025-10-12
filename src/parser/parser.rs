@@ -376,7 +376,7 @@ impl Parser {
                 let iden = self.parse_identifier_as_string()?;
                 iden
             } else {
-                panic!()
+                panic!("{:?}", self.peek())
             }
         });
         while self.match_tokenkind(TokenKind::Access) {
@@ -1133,7 +1133,7 @@ impl Parser {
                 expr = Ast::new(
                     Expr::Postfix {
                         expr,
-                        op: PostfixExprKind::Call(dbg!(args)),
+                        op: PostfixExprKind::Call(args),
                     },
                     start.span_to(&end),
                 );

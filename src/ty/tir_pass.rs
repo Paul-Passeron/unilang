@@ -40,7 +40,7 @@ impl TirCtx {
 }
 
 impl<'ctx> TirCtx {
-    fn visit_type(&mut self, ctx: &mut TyCtx<'ctx>, ty: TypeExprId) -> Result<TyId, TcError> {
+    pub fn visit_type(&mut self, ctx: &mut TyCtx<'ctx>, ty: TypeExprId) -> Result<TyId, TcError> {
         let te = ctx.ctx.interner.get_type_expr(ty);
         match te {
             TypeExpr::Template(_) => todo!(),
@@ -66,7 +66,7 @@ impl<'ctx> TirCtx {
         }
     }
 
-    fn type_is_coercible(&mut self, ctx: &mut TyCtx<'ctx>, src: TyId, target: TyId) -> bool {
+    pub fn type_is_coercible(&mut self, ctx: &mut TyCtx<'ctx>, src: TyId, target: TyId) -> bool {
         if src == target {
             return true;
         }
@@ -100,19 +100,19 @@ impl<'ctx> TirCtx {
         todo!("Coerce {:?} into {:?} ?", s, t)
     }
 
-    fn create_expr(&mut self, ctx: &mut TyCtx<'ctx>, expr: TirExpr) -> TirExprId {
+    pub fn create_expr(&mut self, ctx: &mut TyCtx<'ctx>, expr: TirExpr) -> TirExprId {
         let e = ctx.ctx.interner.insert_te(expr);
         self.push_instr(ctx, TirInstr::Calculate(e));
         e
     }
 
-    fn get_primitive_type(&mut self, ctx: &mut TyCtx<'ctx>, prim: PrimitiveTy) -> TyId {
+    pub fn get_primitive_type(&mut self, ctx: &mut TyCtx<'ctx>, prim: PrimitiveTy) -> TyId {
         ctx.ctx
             .interner
             .insert_conc_type(ConcreteType::Primitive(prim))
     }
 
-    fn get_type_of_tir_expr(
+    pub fn get_type_of_tir_expr(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         expr_id: TirExprId,
@@ -178,7 +178,7 @@ impl<'ctx> TirCtx {
                 );
                 Ok(ctx.ctx.interner.insert_conc_type(ty))
             }
-            TirExpr::BinOp { lhs, op, .. } => match op {
+            TirExpr::BinOp { lhs, op, rhs } => match op {
                 NirBinOpKind::Equ
                 | NirBinOpKind::Dif
                 | NirBinOpKind::Geq
@@ -187,7 +187,18 @@ impl<'ctx> TirCtx {
                 | NirBinOpKind::Lt
                 | NirBinOpKind::LOr
                 | NirBinOpKind::LAnd => Ok(self.get_primitive_type(ctx, PrimitiveTy::Bool)),
-                _ => Ok(self.get_type_of_tir_expr(ctx, lhs)?),
+
+                _ => {
+                    let lt = self.get_type_of_tir_expr(ctx, lhs)?;
+                    let rt = self.get_type_of_tir_expr(ctx, rhs)?;
+                    if self.is_type_ptr(ctx, lt) {
+                        Ok(lt)
+                    } else if self.is_type_ptr(ctx, rt) {
+                        Ok(rt)
+                    } else {
+                        Ok(self.get_type_of_tir_expr(ctx, lhs)?)
+                    }
+                }
             },
             TirExpr::Arg(i) => {
                 let fun_id = ctx.get_current_fun().unwrap();
@@ -203,7 +214,7 @@ impl<'ctx> TirCtx {
         }
     }
 
-    fn get_access_ty(
+    pub fn get_access_ty(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         ty: TyId,
@@ -226,11 +237,11 @@ impl<'ctx> TirCtx {
         }
     }
 
-    fn get_ptr_to(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> TyId {
+    pub fn get_ptr_to(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> TyId {
         ctx.ctx.interner.insert_conc_type(ConcreteType::Ptr(ty))
     }
 
-    fn get_type_of_expr(
+    pub fn get_type_of_expr(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         expr_id: ExprId,
@@ -290,22 +301,30 @@ impl<'ctx> TirCtx {
             NirExprKind::BinOp(NirBinOp { op, left, right }) => {
                 let lt = self.get_type_of_expr(ctx, *left)?;
                 let rt = self.get_type_of_expr(ctx, *right)?;
+
                 if !self.is_type_integer(ctx, lt) || !self.is_type_integer(ctx, rt) {
                     return Err(TcError::Text("Cannot use binop with non-integer types"));
                 }
-                let lt_size = self.get_type_size(ctx, lt);
-                let rt_size = self.get_type_size(ctx, rt);
-                let operands_ty = if lt_size > rt_size { lt } else { rt };
-                match op {
-                    NirBinOpKind::Equ
-                    | NirBinOpKind::Dif
-                    | NirBinOpKind::Geq
-                    | NirBinOpKind::Leq
-                    | NirBinOpKind::Gt
-                    | NirBinOpKind::Lt
-                    | NirBinOpKind::LOr
-                    | NirBinOpKind::LAnd => Ok(self.get_primitive_type(ctx, PrimitiveTy::Bool)),
-                    _ => Ok(operands_ty),
+
+                if self.is_type_ptr(ctx, lt) {
+                    Ok(lt)
+                } else if self.is_type_ptr(ctx, rt) {
+                    Ok(rt)
+                } else {
+                    let lt_size = self.get_type_size(ctx, lt);
+                    let rt_size = self.get_type_size(ctx, rt);
+                    let operands_ty = if lt_size > rt_size { lt } else { rt };
+                    match op {
+                        NirBinOpKind::Equ
+                        | NirBinOpKind::Dif
+                        | NirBinOpKind::Geq
+                        | NirBinOpKind::Leq
+                        | NirBinOpKind::Gt
+                        | NirBinOpKind::Lt
+                        | NirBinOpKind::LOr
+                        | NirBinOpKind::LAnd => Ok(self.get_primitive_type(ctx, PrimitiveTy::Bool)),
+                        _ => Ok(operands_ty),
+                    }
                 }
             }
             NirExprKind::Call(NirCall {
@@ -353,7 +372,11 @@ impl<'ctx> TirCtx {
         }
     }
 
-    fn expr_as_module(&mut self, ctx: &mut TyCtx<'ctx>, expr: ExprId) -> Result<ModuleId, TcError> {
+    pub fn expr_as_module(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        expr: ExprId,
+    ) -> Result<ModuleId, TcError> {
         let nir = ctx.ctx.interner.get_expr(expr).clone();
         match &nir.kind {
             NirExprKind::Access {
@@ -402,7 +425,7 @@ impl<'ctx> TirCtx {
         }
     }
 
-    fn expr_as_receiver(
+    pub fn expr_as_receiver(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         expr: ExprId,
@@ -413,7 +436,7 @@ impl<'ctx> TirCtx {
         self.get_expr(ctx, expr).map(Receiver::Object)
     }
 
-    fn arg_len_mismatch(src: usize, target: usize, variadic: bool) -> bool {
+    pub fn arg_len_mismatch(src: usize, target: usize, variadic: bool) -> bool {
         if variadic {
             src < target
         } else {
@@ -421,7 +444,7 @@ impl<'ctx> TirCtx {
         }
     }
 
-    fn get_fun_id_from_symbol(
+    pub fn get_fun_id_from_symbol(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         s: Symbol,
@@ -437,8 +460,8 @@ impl<'ctx> TirCtx {
         }
     }
 
-    fn debug_instrs(ctx: &mut TyCtx<'ctx>) {
-        fn aux<'ctx>(ctx: &mut TyCtx<'ctx>, id: ScopeId) {
+    pub fn debug_instrs(ctx: &mut TyCtx<'ctx>) {
+        pub fn aux<'ctx>(ctx: &mut TyCtx<'ctx>, id: ScopeId) {
             ctx.with_scope_id(id, |ctx| {
                 let instrs = match &ctx.get_last_scope().kind {
                     ScopeKind::Function(_, _, tir_instrs) => tir_instrs,
@@ -456,8 +479,8 @@ impl<'ctx> TirCtx {
         aux(ctx, ScopeId::new(0));
     }
 
-    fn debug_defs(ctx: &mut TyCtx<'ctx>) {
-        fn aux<'ctx>(ctx: &mut TyCtx<'ctx>, id: ScopeId) {
+    pub fn debug_defs(ctx: &mut TyCtx<'ctx>) {
+        pub fn aux<'ctx>(ctx: &mut TyCtx<'ctx>, id: ScopeId) {
             ctx.with_scope_id(id, |ctx| {
                 for (def, _) in ctx.get_last_scope().definitions.clone() {
                     println!("[DEFINED] {}", ctx.ctx.interner.get_symbol(def))
@@ -470,7 +493,7 @@ impl<'ctx> TirCtx {
         aux(ctx, ctx.current_scope);
     }
 
-    fn get_type_size(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> usize {
+    pub fn get_type_size(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> usize {
         let t = ctx.ctx.interner.get_conc_type(ty);
         let alignement = 4;
         match t {
@@ -488,7 +511,7 @@ impl<'ctx> TirCtx {
         }
     }
 
-    fn is_type_integer(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> bool {
+    pub fn is_type_integer(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> bool {
         let t = ctx.ctx.interner.get_conc_type(ty);
         match t {
             ConcreteType::Ptr(_) => true,
@@ -498,7 +521,15 @@ impl<'ctx> TirCtx {
         }
     }
 
-    fn get_expr_with_type(
+    pub fn is_type_ptr(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> bool {
+        let t = ctx.ctx.interner.get_conc_type(ty);
+        match t {
+            ConcreteType::Ptr(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn get_expr_with_type(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         expr: ExprId,
@@ -605,18 +636,29 @@ impl<'ctx> TirCtx {
                 }
                 let lt_size = self.get_type_size(ctx, lt);
                 let rt_size = self.get_type_size(ctx, rt);
-                let operands_ty = if lt_size > rt_size { lt } else { rt };
+
+                let (lt, rt) = if self.is_type_ptr(ctx, lt) {
+                    (lt, self.get_primitive_type(ctx, PrimitiveTy::I64))
+                } else if self.is_type_ptr(ctx, rt) {
+                    (self.get_primitive_type(ctx, PrimitiveTy::I64), rt)
+                } else {
+                    (lt, rt)
+                };
 
                 let value_type = if matches!(op, NirBinOpKind::LOr | NirBinOpKind::LAnd) {
                     self.get_primitive_type(ctx, PrimitiveTy::Bool)
+                } else if self.is_type_ptr(ctx, lt) {
+                    lt
+                } else if self.is_type_ptr(ctx, rt) {
+                    rt
                 } else if lt_size > rt_size {
                     lt
                 } else {
                     rt
                 };
 
-                let lhs = self.get_expr_with_type(ctx, *left, operands_ty)?;
-                let rhs = self.get_expr_with_type(ctx, *right, operands_ty)?;
+                let lhs = self.get_expr_with_type(ctx, *left, lt)?;
+                let rhs = self.get_expr_with_type(ctx, *right, rt)?;
                 let e = self.create_expr(ctx, TirExpr::BinOp { lhs, rhs, op: *op });
 
                 Ok({
@@ -693,7 +735,7 @@ impl<'ctx> TirCtx {
         }
     }
 
-    fn get_access(
+    pub fn get_access(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         expr: TirExprId,
@@ -716,12 +758,12 @@ impl<'ctx> TirCtx {
         }
     }
 
-    fn get_expr(&mut self, ctx: &mut TyCtx<'ctx>, expr: ExprId) -> Result<TirExprId, TcError> {
+    pub fn get_expr(&mut self, ctx: &mut TyCtx<'ctx>, expr: ExprId) -> Result<TirExprId, TcError> {
         let ty = self.get_type_of_expr(ctx, expr)?;
         self.get_expr_with_type(ctx, expr, ty)
     }
 
-    fn push_instr(&mut self, ctx: &mut TyCtx<'ctx>, instr: TirInstr) {
+    pub fn push_instr(&mut self, ctx: &mut TyCtx<'ctx>, instr: TirInstr) {
         match &instr {
             TirInstr::Calculate(id) => {
                 self.calculated.insert(*id);
@@ -735,7 +777,7 @@ impl<'ctx> TirCtx {
         }
     }
 
-    fn visit_pattern(
+    pub fn visit_pattern(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         input: &NirPattern,
@@ -751,7 +793,7 @@ impl<'ctx> TirCtx {
         }
     }
 
-    fn declare_pattern(
+    pub fn declare_pattern(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         input: &NirPattern,
@@ -805,7 +847,7 @@ impl<'ctx> TirCtx {
         }
     }
 
-    fn visit_let(&mut self, ctx: &mut TyCtx<'ctx>, input: &NirVarDecl) -> Result<(), TcError> {
+    pub fn visit_let(&mut self, ctx: &mut TyCtx<'ctx>, input: &NirVarDecl) -> Result<(), TcError> {
         if input.ty.is_none() && input.value.is_none() {
             return Err(TcError::Text(
                 "Type inference for variable is not availaible yet",
@@ -827,7 +869,7 @@ impl<'ctx> TirCtx {
         self.declare_pattern(ctx, &input.pattern, ty, expr)
     }
 
-    fn visit_stmt(&mut self, ctx: &mut TyCtx<'ctx>, input: &NirStmt) -> Result<(), TcError> {
+    pub fn visit_stmt(&mut self, ctx: &mut TyCtx<'ctx>, input: &NirStmt) -> Result<(), TcError> {
         match &input.kind {
             NirStmtKind::Return { value } => {
                 let void_ty = self.get_primitive_type(ctx, PrimitiveTy::Void);
@@ -860,7 +902,7 @@ impl<'ctx> TirCtx {
         }
     }
 
-    fn concretize_fun_proto(
+    pub fn concretize_fun_proto(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         id: FunId,
@@ -893,7 +935,7 @@ impl<'ctx> TirCtx {
         Ok(())
     }
 
-    fn visit_fundef(
+    pub fn visit_fundef(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         input: &NirFunctionDef,
@@ -940,7 +982,7 @@ impl<'ctx> TirCtx {
         Ok(())
     }
 
-    fn visit_module(
+    pub fn visit_module(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         module: &NirModuleDef,
@@ -953,7 +995,7 @@ impl<'ctx> TirCtx {
             .try_for_each(|(item, scope)| self.visit_item(ctx, *scope, *item))
     }
 
-    fn visit_item(
+    pub fn visit_item(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         scope: ScopeId,
@@ -979,7 +1021,7 @@ impl<'ctx> Pass<'ctx, SurfaceResolutionPassOutput<'ctx>> for TirCtx {
         ctx: &mut TyCtx<'ctx>,
         input: SurfaceResolutionPassOutput<'ctx>,
     ) -> Result<Self::Output, TcError> {
-        fn visit_all_fundefs<'ctx>(
+        pub fn visit_all_fundefs<'ctx>(
             this: &mut TirCtx,
             ctx: &mut TyCtx<'ctx>,
             scope: ScopeId,

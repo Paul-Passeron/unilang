@@ -31,14 +31,7 @@ impl<'a, T: fmt::Debug> Iterator for Lexer<'a, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let res = self.next_token().ok();
-        // match &res {
-        //     Some(x) => {
-        //         dbg!(x);
-        //     }
-        //     None => (),
-        // }
-        res
+        self.next_token().ok()
     }
 }
 
