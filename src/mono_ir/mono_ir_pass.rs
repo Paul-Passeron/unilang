@@ -12,13 +12,13 @@ use inkwell::{
     },
     values::{
         AnyValue, AnyValueEnum, AsValueRef, BasicMetadataValueEnum, BasicValue, BasicValueEnum,
-        FunctionValue, InstructionOpcode, PointerValue,
+        FunctionValue, GlobalValue, InstructionOpcode, PointerValue,
     },
 };
 
 use crate::{
     common::{
-        global_interner::{FunId, ScopeId, TirExprId, TyId, VariableId},
+        global_interner::{FunId, ScopeId, StringLiteral, TirExprId, TyId, VariableId},
         pass::Pass,
     },
     nir::{interner::ConstructibleId, nir::NirBinOpKind},
@@ -39,6 +39,7 @@ pub struct MonoIRPass<'a> {
     pub vars: HashMap<VariableId, (BasicTypeEnum<'a>, PointerValue<'a>)>,
     pub tys: HashMap<TyId, AnyTypeEnum<'a>>,
     pub funs: HashMap<FunId, (FunctionValue<'a>, ScopeId)>,
+    pub strlits: HashMap<StringLiteral, GlobalValue<'a>>,
 }
 
 impl<'ctx, 'a> Pass<'ctx, ()> for MonoIRPass<'a> {
@@ -67,6 +68,7 @@ impl<'ctx, 'a> MonoIRPass<'a> {
             vars: HashMap::new(),
             tys: HashMap::new(),
             funs: HashMap::new(),
+            strlits: HashMap::new(),
         }
     }
 
@@ -387,13 +389,25 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     .as_any_value_enum()
             }
             TirExpr::StringLiteral(x) => {
-                let escaped = &ctx.ctx.interner.get_string(x).0;
-                let unescaped = unescape::unescape(escaped.as_str()).unwrap();
-                self.builder
-                    .build_global_string_ptr(unescaped.as_str(), "")
-                    .unwrap()
-                    .as_any_value_enum()
+                if let Some(strlit) = self.strlits.get(&x) {
+                    strlit.as_any_value_enum()
+                } else {
+                    let escaped = &ctx.ctx.interner.get_string(x).0;
+                    let unescaped = unescape::unescape(escaped.as_str()).unwrap();
+                    let res = self
+                        .builder
+                        .build_global_string_ptr(unescaped.as_str(), "")
+                        .unwrap();
+                    self.strlits.insert(x, res);
+                    res.as_any_value_enum()
+                }
             }
+            TirExpr::True => self
+                .ictx
+                .bool_type()
+                .const_int(1, false)
+                .as_any_value_enum(),
+            TirExpr::False => self.ictx.bool_type().const_zero().as_any_value_enum(),
         };
         println!("Inserting {:?}", expr);
         self.expressions.insert(expr, res.clone());
@@ -433,6 +447,59 @@ impl<'ctx, 'a> MonoIRPass<'a> {
             }
             TirInstr::Calculate(expr) => {
                 self.calculate(ctx, *expr);
+            }
+            TirInstr::If(scope_id) => {
+                let scope = ctx.ctx.interner.get_scope(*scope_id);
+                let cond = match &scope.kind {
+                    ScopeKind::If { cond } => cond,
+                    x => unreachable!("{:?}", x),
+                };
+                let then_instrs = match &ctx.ctx.interner.get_scope(scope.children[0]).kind {
+                    ScopeKind::Then(instrs) => instrs.clone(),
+                    _ => unreachable!(),
+                };
+                let else_instrs = scope
+                    .children
+                    .get(1)
+                    .map(|s| match &ctx.ctx.interner.get_scope(*s).kind {
+                        ScopeKind::Else(instrs) => instrs.clone(),
+                        _ => unreachable!(),
+                    })
+                    .unwrap_or(vec![]);
+
+                let cond_val = self.expressions[&cond];
+                let fn_id = ctx.get_current_fun().unwrap();
+                let (fn_val, _) = self.funs[&fn_id];
+                let then_bb = self.ictx.append_basic_block(fn_val, "then");
+                let else_bb = self.ictx.append_basic_block(fn_val, "else");
+                let merge_bb = self.ictx.append_basic_block(fn_val, "merge");
+
+                self.builder
+                    .build_conditional_branch(cond_val.into_int_value(), then_bb, else_bb)
+                    .unwrap();
+
+                self.builder.position_at_end(then_bb);
+                for instr in &then_instrs {
+                    self.translate(ctx, instr);
+                }
+                self.builder.build_unconditional_branch(merge_bb).unwrap();
+
+                self.builder.position_at_end(else_bb);
+                for instr in &else_instrs {
+                    self.translate(ctx, instr);
+                }
+                self.builder.build_unconditional_branch(merge_bb).unwrap();
+                self.builder.position_at_end(merge_bb);
+            }
+            TirInstr::Block(id) => {
+                let scope = ctx.ctx.interner.get_scope(*id).clone();
+                let instrs = match &scope.kind {
+                    ScopeKind::Block(instr) => instr,
+                    x => unreachable!("{:?}", x),
+                };
+                for instr in instrs {
+                    self.translate(ctx, instr);
+                }
             }
         }
     }

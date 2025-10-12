@@ -400,7 +400,10 @@ impl<'ctx> TyCtx<'ctx> {
     pub fn get_current_fun_scope(&mut self) -> Option<ScopeId> {
         match self.get_last_scope().kind.clone() {
             ScopeKind::Function(_, _, _) => Some(self.current_scope),
-            ScopeKind::Loop | ScopeKind::Condition | ScopeKind::Block => {
+            ScopeKind::Else(_)
+            | ScopeKind::Then(_)
+            | ScopeKind::If { .. }
+            | ScopeKind::Block(_) => {
                 let parent = self.get_last_scope().parent.unwrap();
                 self.with_scope_id(parent, |ctx| ctx.get_current_fun_scope())
             }
@@ -411,7 +414,10 @@ impl<'ctx> TyCtx<'ctx> {
     pub fn get_current_fun(&mut self) -> Option<FunId> {
         match self.get_last_scope().kind.clone() {
             ScopeKind::Function(fun_id, _, _) => Some(fun_id),
-            ScopeKind::Loop | ScopeKind::Condition | ScopeKind::Block => {
+            ScopeKind::Else(_)
+            | ScopeKind::Then(_)
+            | ScopeKind::If { .. }
+            | ScopeKind::Block(_) => {
                 let parent = self.get_last_scope().parent.unwrap();
                 self.with_scope_id(parent, |ctx| ctx.get_current_fun())
             }

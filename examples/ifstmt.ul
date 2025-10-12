@@ -1,0 +1,18 @@
+@include std::io
+
+let print_bool(b: bool): void => {
+    if b =>
+        printf("true");
+    else
+        printf("false");
+}
+
+let main(): int => {
+    print_bool(true);
+    printf("\n");
+    print_bool(false);
+    printf("\n");
+    print_bool(false);
+    printf("\n");
+    return 0;
+}

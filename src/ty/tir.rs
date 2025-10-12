@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     common::global_interner::{
-        DefId, FunId, SCId, StringLiteral, Symbol, TirExprId, TyId, VariableId,
+        DefId, FunId, SCId, ScopeId, StringLiteral, Symbol, TirExprId, TyId, VariableId,
     },
     nir::nir::{FieldAccessKind, NirBinOpKind, Visibility},
     ty::PrimitiveTy,
@@ -44,6 +44,8 @@ pub enum TirExpr {
     },
     Funcall(FunId, Vec<TirExprId>),
     StringLiteral(StringLiteral),
+    True,
+    False,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -52,6 +54,8 @@ pub enum TirInstr {
     VarDecl(VariableId),
     Assign(VariableId, TirExprId),
     Calculate(TirExprId),
+    If(ScopeId),
+    Block(ScopeId),
 }
 #[derive(Debug)]
 pub enum TirItem {

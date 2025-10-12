@@ -211,6 +211,7 @@ impl<'ctx> TirCtx {
                 let ty = self.get_primitive_type(ctx, PrimitiveTy::U8);
                 Ok(self.get_ptr_to(ctx, ty))
             }
+            TirExpr::True | TirExpr::False => Ok(self.get_primitive_type(ctx, PrimitiveTy::Bool)),
         }
     }
 
@@ -257,6 +258,11 @@ impl<'ctx> TirCtx {
                 _ => todo!(),
             },
             NirExprKind::Named(name) => {
+                if *name == ctx.ctx.interner.insert_symbol(&"true".to_string())
+                    || *name == ctx.ctx.interner.insert_symbol(&"false".to_string())
+                {
+                    return Ok(self.get_primitive_type(ctx, PrimitiveTy::Bool));
+                }
                 let name = name.clone();
                 let def = ctx.get_symbol_def(name);
                 if def.is_none() {
@@ -580,28 +586,47 @@ impl<'ctx> TirCtx {
                 NirLiteral::CharLiteral(_) => todo!(),
             },
             NirExprKind::Named(name) => {
-                let def_id = ctx.get_symbol_def(*name);
-                if def_id.is_none() {
-                    return Err(TcError::NameNotFound(*name));
-                }
+                if *name == ctx.ctx.interner.insert_symbol(&"true".to_string())
+                    || *name == ctx.ctx.interner.insert_symbol(&"false".to_string())
+                {
+                    let expr = if *name == ctx.ctx.interner.insert_symbol(&"true".to_string()) {
+                        TirExpr::True
+                    } else {
+                        TirExpr::False
+                    };
+                    let e = self.create_expr(ctx, expr);
+                    let bool_ty = self.get_primitive_type(ctx, PrimitiveTy::Bool);
+                    if ty == bool_ty {
+                        return Ok(e);
+                    } else if self.is_type_integer(ctx, ty) {
+                        return Ok(self.create_expr(ctx, TirExpr::IntCast(ty, e)));
+                    } else {
+                        todo!()
+                    }
+                } else {
+                    let def_id = ctx.get_symbol_def(*name);
+                    if def_id.is_none() {
+                        return Err(TcError::NameNotFound(*name));
+                    }
 
-                let def_id = def_id.unwrap();
-                let def = ctx.ctx.interner.get_def(def_id);
+                    let def_id = def_id.unwrap();
+                    let def = ctx.ctx.interner.get_def(def_id);
 
-                let var_id = match def {
-                    Definition::Var(var_id) => *var_id,
-                    _ => unreachable!(),
-                };
-                let var = ctx.ctx.interner.get_variable(var_id).clone();
-                if var.ty == ty {
-                    return Ok(self.create_expr(ctx, TirExpr::VarExpr(var_id)));
-                }
-                if !self.type_is_coercible(ctx, var.ty, ty) {
-                    return Err(TcError::Text("Types are not coercible !"));
-                }
-                if self.is_type_integer(ctx, var.ty) && self.is_type_integer(ctx, ty) {
-                    let var_expr = self.create_expr(ctx, TirExpr::VarExpr(var_id));
-                    return Ok(self.create_expr(ctx, TirExpr::IntCast(ty, var_expr)));
+                    let var_id = match def {
+                        Definition::Var(var_id) => *var_id,
+                        _ => unreachable!(),
+                    };
+                    let var = ctx.ctx.interner.get_variable(var_id).clone();
+                    if var.ty == ty {
+                        return Ok(self.create_expr(ctx, TirExpr::VarExpr(var_id)));
+                    }
+                    if !self.type_is_coercible(ctx, var.ty, ty) {
+                        return Err(TcError::Text("Types are not coercible !"));
+                    }
+                    if self.is_type_integer(ctx, var.ty) && self.is_type_integer(ctx, ty) {
+                        let var_expr = self.create_expr(ctx, TirExpr::VarExpr(var_id));
+                        return Ok(self.create_expr(ctx, TirExpr::IntCast(ty, var_expr)));
+                    }
                 }
                 return Err(TcError::Text("Coerce non integer types !"));
             }
@@ -772,7 +797,10 @@ impl<'ctx> TirCtx {
         };
         let scope = ctx.get_last_scope_mut();
         match &mut scope.kind {
-            ScopeKind::Function(_, _, tir_instrs) => tir_instrs.push(instr),
+            ScopeKind::Else(tir_instrs)
+            | ScopeKind::Then(tir_instrs)
+            | ScopeKind::Block(tir_instrs)
+            | ScopeKind::Function(_, _, tir_instrs) => tir_instrs.push(instr),
             _ => unreachable!(),
         }
     }
@@ -898,7 +926,47 @@ impl<'ctx> TirCtx {
                 self.get_expr(ctx, *expr)?;
                 Ok(())
             }
-            _ => todo!(),
+            NirStmtKind::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
+                let bool_ty = self.get_primitive_type(ctx, PrimitiveTy::Bool);
+                let cond_val = self.get_expr_with_type(ctx, *cond, bool_ty)?;
+                let if_scope = {
+                    let mut if_scope = None;
+                    ctx.with_scope(ScopeKind::If { cond: cond_val }, |ctx| {
+                        if_scope = Some(ctx.current_scope);
+                        ctx.with_scope(ScopeKind::Then(vec![]), |ctx| {
+                            self.visit_stmt(ctx, then_block)
+                        })?;
+                        if let Some(eblock) = else_block {
+                            ctx.with_scope(ScopeKind::Else(vec![]), |ctx| {
+                                self.visit_stmt(ctx, eblock)
+                            })
+                        } else {
+                            Ok(())
+                        }
+                    })?;
+                    if_scope.unwrap()
+                };
+                self.push_instr(ctx, TirInstr::If(if_scope));
+                Ok(())
+            }
+            NirStmtKind::Block(stmts) => {
+                let blk = {
+                    let mut blk = None;
+                    ctx.with_scope(ScopeKind::Block(vec![]), |ctx| {
+                        blk = Some(ctx.current_scope);
+                        stmts.iter().try_for_each(|stmt| self.visit_stmt(ctx, stmt))
+                    })?;
+                    blk.unwrap()
+                };
+                self.push_instr(ctx, TirInstr::Block(blk));
+                Ok(())
+            }
+
+            x => todo!("{:?}", x),
         }
     }
 

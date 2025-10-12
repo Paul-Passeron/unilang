@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use crate::{
     common::{
         global_interner::{
-            ClassId, DefId, FunId, ImplBlockId, ItemId, ModuleId, ScopeId, ScopeInterner, Symbol,
-            TirExprId, TraitId, TyId, TypeExprId, UnresolvedId, VariableId,
+            ClassId, DefId, ExprId, FunId, ImplBlockId, ItemId, ModuleId, ScopeId, ScopeInterner,
+            Symbol, TirExprId, TraitId, TyId, TypeExprId, UnresolvedId, VariableId,
         },
         source_location::Span,
     },
@@ -71,10 +71,12 @@ pub enum ScopeKind {
     Class(ClassId, ItemId),
     Function(FunId, ItemId, Vec<TirInstr>),
     Trait(TraitId, ItemId),
-    Loop,
-    Condition,
-    Block,
+    Block(Vec<TirInstr>),
     Impl(ImplBlockId, ItemId),
+
+    If { cond: TirExprId },
+    Then(Vec<TirInstr>),
+    Else(Vec<TirInstr>),
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
