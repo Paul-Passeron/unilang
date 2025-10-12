@@ -1,0 +1,12 @@
+@include std::io
+mod Test => {
+    let foo(): int => {
+        return 6465;
+    }
+}
+
+let main(): int => {
+    let ptr => "Hey !";
+    printf("This is a string literal: \"%s\", %d\n", ptr, Test::foo());
+    return 0;
+}
