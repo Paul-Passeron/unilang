@@ -9,12 +9,25 @@ let main(): int => {
     let b => "Hey !";
     printf("a = %d (expected 3)\n", a);
     printf("b = %s (expected Hey !)\n", b);
+    printf("-------------------------------------\n");
 
     a => 4;
     printf("a = %d (expected 4)\n", a);
+    printf("-------------------------------------\n");
 
     (a, b) => foo();
     printf("a = %d (expected 69)\n", a);
     printf("b = %s (expected Hello, World)\n", b);
+    printf("-------------------------------------\n");
+
+    let c: int => 36;
+    printf("a = %d (expected 69)\n", a);
+    printf("c = %d (expected 36)\n", c);
+    printf("-------------------------------------\n");
+
+    (a, c) => (c, a);
+    printf("a = %d (expected 36)\n", a);
+    printf("c = %d (expected 69)\n", c);
+
     return 0;
 }
