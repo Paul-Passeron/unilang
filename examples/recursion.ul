@@ -1,0 +1,15 @@
+@include std::io
+
+let fib(x: int): int => {
+    if x <= 1 => return 1;
+    return fib(x - 1) + fib(x - 2);
+}
+
+let main(): int => {
+    let i: int => 0;
+    while i <= 15 => {
+        printf("fib(%d) = %d\n", i, fib(i));
+        i => i + 1;
+    }
+    return 0;
+}

@@ -546,13 +546,17 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                 for instr in &then_instrs {
                     self.translate(ctx, instr);
                 }
-                self.builder.build_unconditional_branch(merge_bb).unwrap();
+                if let None = then_bb.get_terminator() {
+                    self.builder.build_unconditional_branch(merge_bb).unwrap();
+                }
 
                 self.builder.position_at_end(else_bb);
                 for instr in &else_instrs {
                     self.translate(ctx, instr);
                 }
-                self.builder.build_unconditional_branch(merge_bb).unwrap();
+                if let None = else_bb.get_terminator() {
+                    self.builder.build_unconditional_branch(merge_bb).unwrap();
+                }
                 self.builder.position_at_end(merge_bb);
             }
             TirInstr::Block(id) => {
