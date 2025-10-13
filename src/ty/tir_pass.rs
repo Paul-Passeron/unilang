@@ -212,8 +212,8 @@ impl<'ctx> TirCtx {
                 Ok(self.get_ptr_to(ctx, ty))
             }
             TirExpr::True | TirExpr::False => Ok(self.get_primitive_type(ctx, PrimitiveTy::Bool)),
-            TirExpr::PtrAccess(one_shot_id, field_access_kind) => todo!(),
-            TirExpr::VarPtr(one_shot_id) => todo!(),
+            TirExpr::PtrAccess(_, _) => todo!(),
+            TirExpr::VarPtr(_) => todo!(),
         }
     }
 
@@ -1010,8 +1010,8 @@ impl<'ctx> TirCtx {
     ) -> Result<(), TcError> {
         let e = ctx.ctx.interner.get_expr(assigned).clone();
         match &e.kind {
-            NirExprKind::Subscript { value, index } => todo!(),
-            NirExprKind::Access { from, field } => todo!(),
+            NirExprKind::Subscript { .. } => todo!(),
+            NirExprKind::Access { .. } => todo!(),
             NirExprKind::Named(name) => {
                 if *name == ctx.ctx.interner.insert_symbol(&"true".to_string())
                     || *name == ctx.ctx.interner.insert_symbol(&"false".to_string())

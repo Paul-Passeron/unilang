@@ -287,7 +287,6 @@ impl<'ctx, 'a> MonoIRPass<'a> {
             },
 
             TirExpr::Access(expr, FieldAccessKind::Index(x)) => {
-                let ty = self.tir_ctx.get_type_of_tir_expr(ctx, expr).unwrap();
                 let agg = self.expressions[&expr].into_struct_value();
                 self.builder
                     .build_extract_value(agg, x, "")
@@ -471,7 +470,7 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     .unwrap()
                     .as_any_value_enum()
             }
-            TirExpr::PtrAccess(expr, _) => todo!(),
+            TirExpr::PtrAccess(_, _) => todo!(),
             TirExpr::VarPtr(var_id) => self.vars[&var_id].1.as_any_value_enum(),
         };
         println!("Inserting {:?}", expr);
