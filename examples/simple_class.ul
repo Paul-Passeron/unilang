@@ -1,0 +1,14 @@
+class MyClass => {
+    public x: int;
+    public y: char *;
+}
+
+let main(): int => {
+    let instance: MyClass;
+
+    instance::x => 8;
+    instance::y => "Hey";
+
+    printf("instance::x = %d\n", instance::x);
+    printf("instance::y = %s\n", instance::y);
+}

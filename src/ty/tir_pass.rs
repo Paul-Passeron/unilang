@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     common::{
         global_interner::{
-            ExprId, FunId, ItemId, ModuleId, ScopeId, Symbol, TirExprId, TyId, TypeExprId,
+            DefId, ExprId, FunId, ItemId, ModuleId, ScopeId, Symbol, TirExprId, TyId, TypeExprId,
         },
         pass::Pass,
     },
@@ -40,12 +40,30 @@ impl TirCtx {
 }
 
 impl<'ctx> TirCtx {
+    pub fn instantiate(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        template: DefId,
+        args: &Vec<TypeExprId>,
+    ) -> Result<TyId, TcError> {
+        assert!(args.len() == 0);
+        let class_id = {
+            let def = ctx.ctx.interner.get_def(template);
+            match def {
+                Definition::Class(class_id) => *class_id,
+                _ => unreachable!(),
+            }
+        };
+
+        todo!()
+    }
+
     pub fn visit_type(&mut self, ctx: &mut TyCtx<'ctx>, ty: TypeExprId) -> Result<TyId, TcError> {
-        let te = ctx.ctx.interner.get_type_expr(ty);
-        match te {
+        let te = ctx.ctx.interner.get_type_expr(ty).clone();
+        match &te {
             TypeExpr::Template(_) => todo!(),
             TypeExpr::Associated(_) => todo!(),
-            TypeExpr::Instantiation { .. } => todo!(),
+            TypeExpr::Instantiation { template, args } => self.instantiate(ctx, *template, args),
             TypeExpr::Ptr(id) => {
                 let ty = ConcreteType::Ptr(self.visit_type(ctx, *id)?);
                 Ok(ctx.ctx.interner.insert_conc_type(ty))
@@ -1163,6 +1181,7 @@ impl<'ctx> TirCtx {
                 NirItem::Function(fdef) => self.visit_fundef(ctx, &fdef),
                 NirItem::Alias(_, _) => Ok(()),
                 NirItem::Module(def) => self.visit_module(ctx, &def),
+                NirItem::Class(_) => Ok(()),
                 _ => todo!(),
             }
         })

@@ -6,13 +6,10 @@ use inkwell::{
     context::Context,
     module::{Linkage, Module},
     targets::{TargetMachine, TargetTriple},
-    types::{
-        AnyType, AnyTypeEnum, AsTypeRef, BasicMetadataTypeEnum, BasicType, BasicTypeEnum,
-        FunctionType,
-    },
+    types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType},
     values::{
-        AnyValue, AnyValueEnum, AsValueRef, BasicMetadataValueEnum, BasicValue, BasicValueEnum,
-        FunctionValue, GlobalValue, InstructionOpcode, PointerValue,
+        AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue,
+        GlobalValue, InstructionOpcode, PointerValue,
     },
 };
 
@@ -178,7 +175,7 @@ impl<'ctx, 'a> MonoIRPass<'a> {
             .iter()
             .map(|SCField { ty, .. }| {
                 let ty = self.get_mono_ty(ctx, *ty);
-                unsafe { BasicMetadataTypeEnum::new(ty.as_type_ref()) }
+                BasicMetadataTypeEnum::try_from(ty).unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -302,10 +299,11 @@ impl<'ctx, 'a> MonoIRPass<'a> {
             TirExpr::IntCast(int_ty, expr_id) => {
                 let ty = self.get_mono_ty(ctx, int_ty);
 
-                let int_ty = unsafe { BasicTypeEnum::new(ty.as_type_ref()) }.into_int_type();
+                let int_ty = BasicTypeEnum::try_from(ty).unwrap().into_int_type();
 
-                let expr = &self.expressions[&expr_id];
-                let int_expr = unsafe { BasicValueEnum::new(expr.as_value_ref()) }.into_int_value();
+                let int_expr = BasicValueEnum::try_from(self.expressions[&expr_id])
+                    .unwrap()
+                    .into_int_value();
 
                 self.builder
                     .build_int_cast(int_expr, int_ty, "")
@@ -332,8 +330,8 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                 tuple_val.as_any_value_enum()
             }
             TirExpr::BinOp { lhs, rhs, op } => {
-                let lhs_val = unsafe { BasicValueEnum::new(self.expressions[&lhs].as_value_ref()) };
-                let rhs_val = unsafe { BasicValueEnum::new(self.expressions[&rhs].as_value_ref()) };
+                let lhs_val = BasicValueEnum::try_from(self.expressions[&lhs]).unwrap();
+                let rhs_val = BasicValueEnum::try_from(self.expressions[&rhs]).unwrap();
                 assert!(
                     (lhs_val.get_type().is_pointer_type())
                         || lhs_val.get_type() == rhs_val.get_type(),
@@ -484,10 +482,10 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                 self.builder
                     .build_return(
                         val.as_ref()
-                            .map(|v| unsafe {
-                                let b: Box<dyn BasicValue> = Box::new(BasicValueEnum::new(
-                                    self.expressions[v].as_value_ref(),
-                                ));
+                            .map(|v| {
+                                let b: Box<dyn BasicValue> = Box::new(
+                                    BasicValueEnum::try_from(self.expressions[v]).unwrap(),
+                                );
                                 b
                             })
                             .as_ref()
@@ -497,8 +495,7 @@ impl<'ctx, 'a> MonoIRPass<'a> {
             }
             TirInstr::VarDecl(var_id) => {
                 let decl = ctx.ctx.interner.get_variable(*var_id).clone();
-                let ty =
-                    unsafe { BasicTypeEnum::new(self.get_mono_ty(ctx, decl.ty).as_type_ref()) };
+                let ty = BasicTypeEnum::try_from(self.get_mono_ty(ctx, decl.ty)).unwrap();
                 let name = format!("{}_ptr", ctx.ctx.interner.get_symbol(decl.name));
 
                 let var_ptr = self.builder.build_alloca(ty, name.as_str()).unwrap();
@@ -506,7 +503,7 @@ impl<'ctx, 'a> MonoIRPass<'a> {
             }
             TirInstr::VarAssign(var_id, expr_id) => {
                 let (_, var_ptr) = self.vars[var_id];
-                let expr = unsafe { BasicValueEnum::new(self.expressions[expr_id].as_value_ref()) };
+                let expr = BasicValueEnum::try_from(self.expressions[expr_id]).unwrap();
                 self.builder.build_store(var_ptr, expr).unwrap();
             }
             TirInstr::Calculate(expr) => {
