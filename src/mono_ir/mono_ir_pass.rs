@@ -150,7 +150,20 @@ impl<'ctx, 'a> MonoIRPass<'a> {
         }
         let t = ctx.ctx.interner.get_conc_type(ty);
         let res = match t {
-            ConcreteType::SpecializedClass(_) => todo!(),
+            ConcreteType::SpecializedClass(sc_id) => {
+                let sc = ctx.ctx.interner.get_sc(*sc_id);
+                let fields = sc
+                    .fields
+                    .iter()
+                    .map(|x| BasicTypeEnum::try_from(self.get_mono_ty(ctx, x.ty)).unwrap())
+                    .collect::<Vec<_>>();
+                let opaque_struct = self
+                    .ictx
+                    .opaque_struct_type(&ctx.ctx.interner.get_symbol(sc.name));
+                opaque_struct.set_body(&fields[..], false);
+
+                opaque_struct.as_any_type_enum()
+            }
             ConcreteType::Primitive(primitive_ty) => self.get_iw_for_primitive(*primitive_ty),
             ConcreteType::Ptr(_) => self.ictx.ptr_type(AddressSpace::from(0)).as_any_type_enum(),
             ConcreteType::Tuple(tys) => {
@@ -290,7 +303,27 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     .unwrap()
                     .as_any_value_enum()
             }
-            TirExpr::Access(_, _) => todo!(),
+            TirExpr::Access(expr, FieldAccessKind::Symbol(field_name)) => {
+                let agg = self.expressions[&expr].into_struct_value();
+
+                let t = self.tir_ctx.get_type_of_tir_expr(ctx, expr).unwrap();
+                let ty = ctx.ctx.interner.get_conc_type(t);
+                if let ConcreteType::SpecializedClass(sc_id) = ty {
+                    let sc = ctx.ctx.interner.get_sc(*sc_id);
+                    let index = sc
+                        .fields
+                        .iter()
+                        .position(|elem| elem.name == field_name)
+                        .unwrap() as u32;
+
+                    self.builder
+                        .build_extract_value(agg, index, "")
+                        .unwrap()
+                        .as_any_value_enum()
+                } else {
+                    unreachable!()
+                }
+            }
             TirExpr::VarExpr(var_id) => {
                 let (var_ty, var_ptr) = self.vars[&var_id];
                 let value = self.builder.build_load(var_ty, var_ptr, "").unwrap();
@@ -455,7 +488,11 @@ impl<'ctx, 'a> MonoIRPass<'a> {
             TirExpr::False => self.ictx.bool_type().const_zero().as_any_value_enum(),
             TirExpr::PtrAccess(expr, FieldAccessKind::Index(x)) => {
                 let ty = self.tir_ctx.get_type_of_tir_expr(ctx, expr).unwrap();
-
+                let t = ctx.ctx.interner.get_conc_type(ty);
+                let ty = match t {
+                    ConcreteType::Ptr(x) => *x,
+                    _ => unreachable!(),
+                };
                 let pointee = self.get_mono_ty(ctx, ty);
                 let ptr = self.expressions[&expr];
                 self.builder
@@ -468,7 +505,38 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     .unwrap()
                     .as_any_value_enum()
             }
-            TirExpr::PtrAccess(_, _) => todo!(),
+            TirExpr::PtrAccess(expr, FieldAccessKind::Symbol(field_name)) => {
+                let t = self.tir_ctx.get_type_of_tir_expr(ctx, expr).unwrap();
+                let ty = ctx.ctx.interner.get_conc_type(t);
+                let t = match ty {
+                    ConcreteType::Ptr(x) => *x,
+                    _ => unreachable!(),
+                };
+                let ty = ctx.ctx.interner.get_conc_type(t);
+                if let ConcreteType::SpecializedClass(sc_id) = ty {
+                    let sc = ctx.ctx.interner.get_sc(*sc_id);
+                    let index = sc
+                        .fields
+                        .iter()
+                        .position(|elem| elem.name == field_name)
+                        .unwrap();
+
+                    let pointee = self.get_mono_ty(ctx, t).into_struct_type();
+                    let ptr = self.expressions[&expr];
+
+                    self.builder
+                        .build_struct_gep(
+                            BasicTypeEnum::try_from(pointee).unwrap(),
+                            ptr.into_pointer_value(),
+                            index as u32,
+                            "",
+                        )
+                        .unwrap()
+                        .as_any_value_enum()
+                } else {
+                    unreachable!()
+                }
+            }
             TirExpr::VarPtr(var_id) => self.vars[&var_id].1.as_any_value_enum(),
         };
         println!("Inserting {:?}", expr);

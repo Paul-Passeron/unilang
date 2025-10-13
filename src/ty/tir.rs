@@ -111,14 +111,11 @@ pub struct TirMethod {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct SCCons {
-    pub params: Vec<SCField>,
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct SpecializedClass {
     pub original: DefId,
-    pub templates: TyId,
+    pub name: Symbol,
+    pub templates: Vec<TyId>,
     pub fields: Vec<SCField>,
-    pub constructors: Vec<SCCons>,
+    pub methods: Vec<FunId>,
+    pub constructors: Vec<FunId>,
 }

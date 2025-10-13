@@ -1,3 +1,5 @@
+@include std::io
+
 class MyClass => {
     public x: int;
     public y: char *;
@@ -11,4 +13,6 @@ let main(): int => {
 
     printf("instance::x = %d\n", instance::x);
     printf("instance::y = %s\n", instance::y);
+
+    return 0;
 }

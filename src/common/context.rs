@@ -123,7 +123,7 @@ impl GlobalContext {
             .output()
             .unwrap();
 
-        let _ = std::fs::remove_file(Path::new(obj_file.as_str()));
+        // let _ = std::fs::remove_file(Path::new(obj_file.as_str()));
 
         Ok(())
     }

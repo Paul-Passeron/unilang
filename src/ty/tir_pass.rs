@@ -17,9 +17,12 @@ use crate::{
     },
     ty::{
         PrimitiveTy, TcError, TyCtx,
-        scope::{Definition, Pattern, ScopeKind, TypeExpr, VarDecl},
+        scope::{Class, ClassMember, Definition, Pattern, ScopeKind, TypeExpr, VarDecl},
         surface_resolution::SurfaceResolutionPassOutput,
-        tir::{ConcreteType, SCField, Signature, TirCtx, TirExpr, TirInstr, TypedIntLit},
+        tir::{
+            ConcreteType, SCField, Signature, SpecializedClass, TirCtx, TirExpr, TirInstr,
+            TypedIntLit,
+        },
     },
 };
 
@@ -47,6 +50,7 @@ impl<'ctx> TirCtx {
         args: &Vec<TypeExprId>,
     ) -> Result<TyId, TcError> {
         assert!(args.len() == 0);
+
         let class_id = {
             let def = ctx.ctx.interner.get_def(template);
             match def {
@@ -55,7 +59,49 @@ impl<'ctx> TirCtx {
             }
         };
 
-        todo!()
+        let Class {
+            name,
+            templates,
+            members,
+            methods,
+        } = ctx.ctx.interner.get_class(class_id).clone();
+
+        assert!(templates.len() == args.len());
+
+        let fields = members
+            .into_iter()
+            .map(
+                |ClassMember {
+                     name: field_name,
+                     ty,
+                 }| {
+                    self.visit_type(ctx, ty).map(|ty| SCField {
+                        name: field_name,
+                        ty,
+                    })
+                },
+            )
+            .try_collect()?;
+
+        let c = SpecializedClass {
+            original: template,
+            name,
+            fields,
+            templates: vec![],
+            constructors: vec![],
+            methods: vec![],
+        };
+
+        let sc_id = ctx.ctx.interner.insert_sc(c);
+
+        assert!(methods.len() == 0);
+
+        let ty = ctx
+            .ctx
+            .interner
+            .insert_conc_type(ConcreteType::SpecializedClass(sc_id));
+
+        Ok(ty)
     }
 
     pub fn visit_type(&mut self, ctx: &mut TyCtx<'ctx>, ty: TypeExprId) -> Result<TyId, TcError> {
@@ -230,8 +276,50 @@ impl<'ctx> TirCtx {
                 Ok(self.get_ptr_to(ctx, ty))
             }
             TirExpr::True | TirExpr::False => Ok(self.get_primitive_type(ctx, PrimitiveTy::Bool)),
-            TirExpr::PtrAccess(_, _) => todo!(),
-            TirExpr::VarPtr(_) => todo!(),
+
+            TirExpr::PtrAccess(expr, FieldAccessKind::Symbol(field_name)) => {
+                let t = self.get_type_of_tir_expr(ctx, expr).unwrap();
+                let mut ty = ctx.ctx.interner.get_conc_type(t);
+                if let ConcreteType::Ptr(x) = ty {
+                    ty = ctx.ctx.interner.get_conc_type(*x);
+                }
+                if let ConcreteType::SpecializedClass(sc_id) = ty {
+                    let sc = ctx.ctx.interner.get_sc(*sc_id);
+                    let field = sc
+                        .fields
+                        .iter()
+                        .find(|elem| elem.name == field_name)
+                        .ok_or(TcError::Text("Field named ??? not found in class ???"))?;
+                    Ok(ctx
+                        .ctx
+                        .interner
+                        .insert_conc_type(ConcreteType::Ptr(field.ty)))
+                } else {
+                    return Err(TcError::Text("No named field in non-class type"));
+                }
+            }
+            TirExpr::PtrAccess(expr, FieldAccessKind::Index(i)) => {
+                let t = self.get_type_of_tir_expr(ctx, expr).unwrap();
+                let mut ty = ctx.ctx.interner.get_conc_type(t);
+                if let ConcreteType::Ptr(x) = ty {
+                    ty = ctx.ctx.interner.get_conc_type(*x);
+                }
+                if let ConcreteType::Tuple(ids) = ty {
+                    if ids.len() <= i as usize {
+                        return Err(TcError::Text("Tuple access out of range"));
+                    }
+                    Ok(ctx
+                        .ctx
+                        .interner
+                        .insert_conc_type(ConcreteType::Ptr(ids[i as usize])))
+                } else {
+                    return Err(TcError::Text("No index field in non-tuple type"));
+                }
+            }
+            TirExpr::VarPtr(id) => {
+                let inner = ctx.ctx.interner.get_variable(id).ty;
+                Ok(ctx.ctx.interner.insert_conc_type(ConcreteType::Ptr(inner)))
+            }
         }
     }
 
@@ -311,7 +399,19 @@ impl<'ctx> TirCtx {
                 let t = self.get_type_of_expr(ctx, from.clone())?;
                 let ty = ctx.ctx.interner.get_conc_type(t);
                 match field.kind {
-                    FieldAccessKind::Symbol(_) => todo!(),
+                    FieldAccessKind::Symbol(name) => {
+                        if let ConcreteType::SpecializedClass(sc_id) = ty {
+                            let sc = ctx.ctx.interner.get_sc(*sc_id);
+                            for f in &sc.fields {
+                                if f.name == name {
+                                    return Ok(f.ty);
+                                }
+                            }
+                            return Err(TcError::Text("Field named ??? not found in class ???"));
+                        } else {
+                            return Err(TcError::Text("No named field in non-class type"));
+                        }
+                    }
                     FieldAccessKind::Index(i) => {
                         if let ConcreteType::Tuple(tys) = ty {
                             if tys.len() < i as usize {
@@ -793,7 +893,21 @@ impl<'ctx> TirCtx {
         access: FieldAccessKind,
     ) -> Result<TirExprId, TcError> {
         match access {
-            FieldAccessKind::Symbol(_) => todo!(),
+            FieldAccessKind::Symbol(name) => {
+                let t = self.get_type_of_tir_expr(ctx, expr)?;
+                let ty = ctx.ctx.interner.get_conc_type(t);
+                if let ConcreteType::SpecializedClass(sc_id) = ty {
+                    let sc = ctx.ctx.interner.get_sc(*sc_id);
+                    for f in &sc.fields {
+                        if f.name == name {
+                            return Ok(self.create_expr(ctx, TirExpr::Access(expr, access)));
+                        }
+                    }
+                    return Err(TcError::Text("Field named ??? not found in class ???"));
+                } else {
+                    return Err(TcError::Text("No named field in non-class type"));
+                }
+            }
             FieldAccessKind::Index(i) => {
                 let ty = self.get_type_of_tir_expr(ctx, expr)?;
                 let t = ctx.ctx.interner.get_conc_type(ty);
@@ -1020,16 +1134,13 @@ impl<'ctx> TirCtx {
         }
     }
 
-    pub fn visit_assign(
+    pub fn get_expr_ptr(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
-        assigned: ExprId,
-        rval: TirExprId,
-    ) -> Result<(), TcError> {
-        let e = ctx.ctx.interner.get_expr(assigned).clone();
+        expr: ExprId,
+    ) -> Result<TirExprId, TcError> {
+        let e = ctx.ctx.interner.get_expr(expr).clone();
         match &e.kind {
-            NirExprKind::Subscript { .. } => todo!(),
-            NirExprKind::Access { .. } => todo!(),
             NirExprKind::Named(name) => {
                 if *name == ctx.ctx.interner.insert_symbol(&"true".to_string())
                     || *name == ctx.ctx.interner.insert_symbol(&"false".to_string())
@@ -1045,12 +1156,56 @@ impl<'ctx> TirCtx {
                 match def {
                     Definition::Var(id) => {
                         let lval = self.create_expr(ctx, TirExpr::VarPtr(id));
-                        self.push_instr(ctx, TirInstr::Assign(lval, rval));
-                        Ok(())
+                        Ok(lval)
                     }
                     _ => todo!(),
                 }
             }
+            NirExprKind::Access { from, field } => {
+                let from_expr = self.get_expr_ptr(ctx, *from)?;
+                let lval = self.create_expr(ctx, TirExpr::PtrAccess(from_expr, field.kind));
+                Ok(lval)
+            }
+            _ => todo!(),
+        }
+    }
+
+    pub fn visit_assign(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        assigned: ExprId,
+        rval: TirExprId,
+    ) -> Result<(), TcError> {
+        let e = ctx.ctx.interner.get_expr(assigned).clone();
+        match &e.kind {
+            // NirExprKind::Subscript { .. } => todo!(),
+            // NirExprKind::Access { from, field } => {
+            //     let from_expr = self.get_expr_ptr(ctx, *from)?;
+            //     let lval = self.create_expr(ctx, TirExpr::PtrAccess(from_expr, field.kind));
+            //     self.push_instr(ctx, TirInstr::Assign(lval, rval));
+            //     Ok(())
+            // }
+            // NirExprKind::Named(name) => {
+            //     if *name == ctx.ctx.interner.insert_symbol(&"true".to_string())
+            //         || *name == ctx.ctx.interner.insert_symbol(&"false".to_string())
+            //     {
+            //         return Err(TcError::Text("Invalid LValue"));
+            //     }
+            //     let name = name.clone();
+            //     let def = ctx.get_symbol_def(name);
+            //     if def.is_none() {
+            //         return Err(TcError::NameNotFound(name));
+            //     }
+            //     let def = ctx.ctx.interner.get_def(def.unwrap()).clone();
+            //     match def {
+            //         Definition::Var(id) => {
+            //             let lval = self.create_expr(ctx, TirExpr::VarPtr(id));
+            //             self.push_instr(ctx, TirInstr::Assign(lval, rval));
+            //             Ok(())
+            //         }
+            //         _ => todo!(),
+            //     }
+            // }
             NirExprKind::Tuple(exprs) => {
                 for (i, expr) in exprs.iter().enumerate() {
                     let rval_i = self
@@ -1059,7 +1214,11 @@ impl<'ctx> TirCtx {
                 }
                 Ok(())
             }
-            _ => todo!(),
+            _ => {
+                let expr_ptr = self.get_expr_ptr(ctx, assigned)?;
+                self.push_instr(ctx, TirInstr::Assign(expr_ptr, rval));
+                Ok(())
+            }
         }
     }
 

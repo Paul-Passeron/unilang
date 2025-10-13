@@ -1,9 +1,20 @@
+@include std::io
+
 let foo(a: (int, (char, u64))): (u64, int, (char, char, char)) => {
     return (0, 0, (0, 0, 0));
 }
 
-let bar(): int => {
+let main(): int => {
     let (a, _, (_, _, (b, c, _))) =>
         (1, 2, (3, 4, (5, 6, 7)));
+
+    let tuple: (int, int, (int, int)) => (1, 2, (3, 4));
+    tuple::0 => 5;
+    (tuple::2)::1 => 6545;
+    printf("tuple = (%d, %d, (%d, %d))\n",
+            tuple::0,
+            tuple::1,
+            tuple::2::0,
+            tuple::2::1,);
     return c;
 }
