@@ -1,0 +1,5 @@
+mod A => {
+    let foo(): int => {
+        return 69;
+    }
+}

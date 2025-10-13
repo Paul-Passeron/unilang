@@ -32,8 +32,21 @@ pub enum TypedIntLit {
 pub enum TirExpr {
     Arg(usize),
     TypedIntLit(TypedIntLit),
+
+    // like '.' in C
     Access(TirExprId, FieldAccessKind),
+
+    // like '->' in C
+    PtrAccess(TirExprId, FieldAccessKind),
+
+    // Context: let var: type;
+
+    // The value contained in var
     VarExpr(VariableId),
+
+    // The ptr to var (&var) in C
+    VarPtr(VariableId),
+
     IntCast(TyId, TirExprId),
     PtrCast(TyId, TirExprId),
     Tuple(Vec<TirExprId>),
@@ -52,9 +65,11 @@ pub enum TirExpr {
 pub enum TirInstr {
     Return(Option<TirExprId>),
     VarDecl(VariableId),
-    Assign(VariableId, TirExprId),
+    VarAssign(VariableId, TirExprId),
+    Assign(TirExprId, TirExprId),
     Calculate(TirExprId),
     If(ScopeId),
+    While(ScopeId),
     Block(ScopeId),
 }
 #[derive(Debug)]

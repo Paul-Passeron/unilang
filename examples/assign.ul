@@ -1,0 +1,20 @@
+@include std::io
+
+let foo(): (int, char *) => {
+    return (69, "Hello, World");
+}
+
+let main(): int => {
+    let a: int => 3;
+    let b => "Hey !";
+    printf("a = %d (expected 3)\n", a);
+    printf("b = %s (expected Hey !)\n", b);
+
+    a => 4;
+    printf("a = %d (expected 4)\n", a);
+
+    (a, b) => foo();
+    printf("a = %d (expected 69)\n", a);
+    printf("b = %s (expected Hello, World)\n", b);
+    return 0;
+}

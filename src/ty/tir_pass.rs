@@ -212,6 +212,8 @@ impl<'ctx> TirCtx {
                 Ok(self.get_ptr_to(ctx, ty))
             }
             TirExpr::True | TirExpr::False => Ok(self.get_primitive_type(ctx, PrimitiveTy::Bool)),
+            TirExpr::PtrAccess(one_shot_id, field_access_kind) => todo!(),
+            TirExpr::VarPtr(one_shot_id) => todo!(),
         }
     }
 
@@ -666,6 +668,12 @@ impl<'ctx> TirCtx {
                     (lt, self.get_primitive_type(ctx, PrimitiveTy::I64))
                 } else if self.is_type_ptr(ctx, rt) {
                     (self.get_primitive_type(ctx, PrimitiveTy::I64), rt)
+                } else if self.is_type_integer(ctx, lt) && self.is_type_integer(ctx, rt) {
+                    if lt_size > rt_size {
+                        (lt, lt)
+                    } else {
+                        (rt, rt)
+                    }
                 } else {
                     (lt, rt)
                 };
@@ -800,6 +808,8 @@ impl<'ctx> TirCtx {
             ScopeKind::Else(tir_instrs)
             | ScopeKind::Then(tir_instrs)
             | ScopeKind::Block(tir_instrs)
+            | ScopeKind::WhileLoop(_, tir_instrs)
+            | ScopeKind::WhileCond(tir_instrs)
             | ScopeKind::Function(_, _, tir_instrs) => tir_instrs.push(instr),
             _ => unreachable!(),
         }
@@ -839,7 +849,7 @@ impl<'ctx> TirCtx {
                 self.push_instr(ctx, TirInstr::VarDecl(id));
                 ctx.push_def(*symb, d);
                 expr.iter()
-                    .for_each(|x| self.push_instr(ctx, TirInstr::Assign(id, *x)));
+                    .for_each(|x| self.push_instr(ctx, TirInstr::VarAssign(id, *x)));
                 Ok(())
             }
             NirPatternKind::Tuple(nirs) => {
@@ -965,8 +975,86 @@ impl<'ctx> TirCtx {
                 self.push_instr(ctx, TirInstr::Block(blk));
                 Ok(())
             }
-
+            NirStmtKind::While { cond, body } => {
+                let bool_ty = self.get_primitive_type(ctx, PrimitiveTy::Bool);
+                let while_scope = {
+                    let mut while_scope = None;
+                    ctx.with_scope(ScopeKind::While, |ctx| {
+                        while_scope = Some(ctx.current_scope);
+                        let e = ctx.with_scope(ScopeKind::WhileCond(vec![]), |ctx| {
+                            self.get_expr_with_type(ctx, *cond, bool_ty)
+                        })?;
+                        ctx.with_scope(ScopeKind::WhileLoop(e, vec![]), |ctx| {
+                            self.visit_stmt(ctx, body)
+                        })
+                    })?;
+                    while_scope.unwrap()
+                };
+                self.push_instr(ctx, TirInstr::While(while_scope));
+                Ok(())
+            }
+            NirStmtKind::Assign { assigned, value } => {
+                let ty = self.get_type_of_expr(ctx, *assigned)?;
+                let rval = self.get_expr_with_type(ctx, *value, ty)?;
+                self.visit_assign(ctx, *assigned, rval)
+            }
             x => todo!("{:?}", x),
+        }
+    }
+
+    pub fn visit_assign(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        assigned: ExprId,
+        rval: TirExprId,
+    ) -> Result<(), TcError> {
+        let e = ctx.ctx.interner.get_expr(assigned).clone();
+        match &e.kind {
+            NirExprKind::Subscript { value, index } => todo!(),
+            NirExprKind::Access { from, field } => todo!(),
+            NirExprKind::Named(name) => {
+                if *name == ctx.ctx.interner.insert_symbol(&"true".to_string())
+                    || *name == ctx.ctx.interner.insert_symbol(&"false".to_string())
+                {
+                    return Err(TcError::Text("Invalid LValue"));
+                }
+                let name = name.clone();
+                let def = ctx.get_symbol_def(name);
+                if def.is_none() {
+                    return Err(TcError::NameNotFound(name));
+                }
+                let def = ctx.ctx.interner.get_def(def.unwrap()).clone();
+                match def {
+                    Definition::Var(id) => {
+                        let lval = self.create_expr(ctx, TirExpr::VarPtr(id));
+                        self.push_instr(ctx, TirInstr::Assign(lval, rval));
+                        Ok(())
+                    }
+                    _ => todo!(),
+                }
+            }
+            NirExprKind::Tuple(exprs) => {
+                for (i, expr) in exprs.iter().enumerate() {
+                    let rval_i = self
+                        .create_expr(ctx, TirExpr::Access(rval, FieldAccessKind::Index(i as u32)));
+                    self.visit_assign(ctx, *expr, rval_i)?;
+                }
+                Ok(())
+            }
+            _ => todo!(),
+        }
+    }
+
+    pub fn get_nth_field_of_tuple_type(
+        &self,
+        ctx: &TyCtx<'ctx>,
+        ty: TyId,
+        index: usize,
+    ) -> Option<TyId> {
+        let t = ctx.ctx.interner.get_conc_type(ty);
+        match t {
+            ConcreteType::Tuple(ids) => ids.get(index).copied(),
+            _ => None,
         }
     }
 
@@ -1025,7 +1113,7 @@ impl<'ctx> TirCtx {
                     });
                     self.push_instr(ctx, TirInstr::VarDecl(var_id));
                     let e = self.create_expr(ctx, TirExpr::Arg(i));
-                    self.push_instr(ctx, TirInstr::Assign(var_id, e));
+                    self.push_instr(ctx, TirInstr::VarAssign(var_id, e));
                     let def = ctx.ctx.interner.insert_def(Definition::Var(var_id));
                     ctx.push_def(param.name, def);
                 });

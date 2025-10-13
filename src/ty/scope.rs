@@ -77,6 +77,10 @@ pub enum ScopeKind {
     If { cond: TirExprId },
     Then(Vec<TirInstr>),
     Else(Vec<TirInstr>),
+
+    While,
+    WhileCond(Vec<TirInstr>),
+    WhileLoop(TirExprId, Vec<TirInstr>),
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

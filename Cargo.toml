@@ -17,5 +17,5 @@ unescape = "0.1.0"
 
 
 [profile.release]
-strip=true
-lto = true
+# strip=true
+# lto = true

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use inkwell::{
-    AddressSpace,
+    AddressSpace, IntPredicate,
     builder::Builder,
     context::Context,
     module::{Linkage, Module},
@@ -21,7 +21,10 @@ use crate::{
         global_interner::{FunId, ScopeId, StringLiteral, TirExprId, TyId, VariableId},
         pass::Pass,
     },
-    nir::{interner::ConstructibleId, nir::NirBinOpKind},
+    nir::{
+        interner::ConstructibleId,
+        nir::{FieldAccessKind, NirBinOpKind},
+    },
     ty::{
         PrimitiveTy, TcError, TyCtx,
         scope::ScopeKind,
@@ -282,6 +285,15 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     .const_int(x as u64, false)
                     .as_any_value_enum(),
             },
+
+            TirExpr::Access(expr, FieldAccessKind::Index(x)) => {
+                let ty = self.tir_ctx.get_type_of_tir_expr(ctx, expr).unwrap();
+                let agg = self.expressions[&expr].into_struct_value();
+                self.builder
+                    .build_extract_value(agg, x, "")
+                    .unwrap()
+                    .as_any_value_enum()
+            }
             TirExpr::Access(_, _) => todo!(),
             TirExpr::VarExpr(var_id) => {
                 let (var_ty, var_ptr) = self.vars[&var_id];
@@ -302,7 +314,24 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     .as_any_value_enum()
             }
             TirExpr::PtrCast(_, _) => todo!(),
-            TirExpr::Tuple(_) => todo!(),
+            TirExpr::Tuple(exprs) => {
+                let iw_exprs = exprs
+                    .iter()
+                    .map(|x| BasicValueEnum::try_from(self.expressions[x]).unwrap())
+                    .collect::<Vec<_>>();
+                let ty = self.tir_ctx.get_type_of_tir_expr(ctx, expr).unwrap();
+                let t = self.get_mono_ty(ctx, ty).into_struct_type();
+
+                let mut tuple_val = t.get_undef();
+                for (i, iw_expr) in iw_exprs.into_iter().enumerate() {
+                    tuple_val = self
+                        .builder
+                        .build_insert_value(tuple_val, iw_expr, i as u32, "")
+                        .unwrap()
+                        .into_struct_value();
+                }
+                tuple_val.as_any_value_enum()
+            }
             TirExpr::BinOp { lhs, rhs, op } => {
                 let lhs_val = unsafe { BasicValueEnum::new(self.expressions[&lhs].as_value_ref()) };
                 let rhs_val = unsafe { BasicValueEnum::new(self.expressions[&rhs].as_value_ref()) };
@@ -346,6 +375,25 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                         NirBinOpKind::Sub => todo!(),
                         _ => unreachable!(),
                     }
+                } else if matches!(
+                    op,
+                    NirBinOpKind::Geq | NirBinOpKind::Leq | NirBinOpKind::Gt | NirBinOpKind::Lt
+                ) {
+                    self.builder
+                        .build_int_compare(
+                            match op {
+                                NirBinOpKind::Geq => IntPredicate::SGE,
+                                NirBinOpKind::Leq => IntPredicate::SLE,
+                                NirBinOpKind::Gt => IntPredicate::SGT,
+                                NirBinOpKind::Lt => IntPredicate::SLT,
+                                _ => unreachable!(),
+                            },
+                            lhs_val.into_int_value(),
+                            rhs_val.into_int_value(),
+                            "",
+                        )
+                        .unwrap()
+                        .as_any_value_enum()
                 } else {
                     // TODO: determine unsigned / signed
                     let opcode = match op {
@@ -361,10 +409,10 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                         NirBinOpKind::BOr => todo!(),
                         NirBinOpKind::BAnd => todo!(),
                         NirBinOpKind::BXor => todo!(),
-                        NirBinOpKind::Geq => todo!(),
-                        NirBinOpKind::Leq => todo!(),
-                        NirBinOpKind::Gt => todo!(),
-                        NirBinOpKind::Lt => {
+                        NirBinOpKind::Geq
+                        | NirBinOpKind::Leq
+                        | NirBinOpKind::Gt
+                        | NirBinOpKind::Lt => {
                             todo!()
                         }
                     };
@@ -408,6 +456,23 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                 .const_int(1, false)
                 .as_any_value_enum(),
             TirExpr::False => self.ictx.bool_type().const_zero().as_any_value_enum(),
+            TirExpr::PtrAccess(expr, FieldAccessKind::Index(x)) => {
+                let ty = self.tir_ctx.get_type_of_tir_expr(ctx, expr).unwrap();
+
+                let pointee = self.get_mono_ty(ctx, ty);
+                let ptr = self.expressions[&expr];
+                self.builder
+                    .build_struct_gep(
+                        BasicTypeEnum::try_from(pointee).unwrap(),
+                        ptr.into_pointer_value(),
+                        x,
+                        "",
+                    )
+                    .unwrap()
+                    .as_any_value_enum()
+            }
+            TirExpr::PtrAccess(expr, _) => todo!(),
+            TirExpr::VarPtr(var_id) => self.vars[&var_id].1.as_any_value_enum(),
         };
         println!("Inserting {:?}", expr);
         self.expressions.insert(expr, res.clone());
@@ -440,7 +505,7 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                 let var_ptr = self.builder.build_alloca(ty, name.as_str()).unwrap();
                 self.vars.insert(*var_id, (ty, var_ptr));
             }
-            TirInstr::Assign(var_id, expr_id) => {
+            TirInstr::VarAssign(var_id, expr_id) => {
                 let (_, var_ptr) = self.vars[var_id];
                 let expr = unsafe { BasicValueEnum::new(self.expressions[expr_id].as_value_ref()) };
                 self.builder.build_store(var_ptr, expr).unwrap();
@@ -500,6 +565,55 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                 for instr in instrs {
                     self.translate(ctx, instr);
                 }
+            }
+            TirInstr::While(scope_id) => {
+                let scope = ctx.ctx.interner.get_scope(*scope_id);
+                let cond_instrs = match &ctx.ctx.interner.get_scope(scope.children[0]).kind {
+                    ScopeKind::WhileCond(instrs) => instrs.clone(),
+                    _ => unreachable!(),
+                };
+                let (cond, body) = match &ctx.ctx.interner.get_scope(scope.children[1]).kind {
+                    ScopeKind::WhileLoop(cond, body) => (cond.clone(), body.clone()),
+                    _ => unreachable!(),
+                };
+                let fn_id = ctx.get_current_fun().unwrap();
+                let (fn_val, _) = self.funs[&fn_id];
+
+                let cond_bb = self.ictx.append_basic_block(fn_val, "while_cond");
+                let body_bb = self.ictx.append_basic_block(fn_val, "while_body");
+                let end_bb = self.ictx.append_basic_block(fn_val, "while_end");
+
+                self.builder.build_unconditional_branch(cond_bb).unwrap();
+
+                self.builder.position_at_end(cond_bb);
+                for i in &cond_instrs {
+                    self.translate(ctx, i);
+                }
+                self.builder
+                    .build_conditional_branch(
+                        self.expressions[&cond].into_int_value(),
+                        body_bb,
+                        end_bb,
+                    )
+                    .unwrap();
+
+                self.builder.position_at_end(body_bb);
+                for i in &body {
+                    self.translate(ctx, i);
+                }
+                self.builder.build_unconditional_branch(cond_bb).unwrap();
+
+                self.builder.position_at_end(end_bb);
+            }
+            TirInstr::Assign(ptr, val) => {
+                let ptr = self.expressions[ptr];
+                let val = self.expressions[val];
+                self.builder
+                    .build_store(
+                        ptr.into_pointer_value(),
+                        BasicValueEnum::try_from(val).unwrap(),
+                    )
+                    .unwrap();
             }
         }
     }
