@@ -3,7 +3,8 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     common::{
         global_interner::{
-            DefId, ExprId, FunId, ItemId, ModuleId, ScopeId, Symbol, TirExprId, TyId, TypeExprId,
+            DefId, ExprId, FunId, ImplBlockId, ItemId, ModuleId, ScopeId, Symbol, TirExprId, TyId,
+            TypeExprId,
         },
         pass::Pass,
     },
@@ -11,13 +12,13 @@ use crate::{
         interner::ConstructibleId,
         nir::{
             FieldAccess, FieldAccessKind, NirBinOp, NirBinOpKind, NirCall, NirExprKind,
-            NirFunctionDef, NirItem, NirLiteral, NirModuleDef, NirPattern, NirPatternKind, NirStmt,
-            NirStmtKind, NirVarDecl,
+            NirFunctionDef, NirItem, NirLiteral, NirMethod, NirModuleDef, NirPattern,
+            NirPatternKind, NirStmt, NirStmtKind, NirVarDecl,
         },
     },
     ty::{
-        PrimitiveTy, TcError, TyCtx,
-        scope::{Class, ClassMember, Definition, Pattern, ScopeKind, TypeExpr, VarDecl},
+        PrimitiveTy, TcError, TcFunProto, TcParam, TyCtx,
+        scope::{Class, ClassMember, Definition, Method, Pattern, ScopeKind, TypeExpr, VarDecl},
         surface_resolution::SurfaceResolutionPassOutput,
         tir::{
             ConcreteType, SCField, Signature, SpecializedClass, TirCtx, TirExpr, TirInstr,
@@ -32,17 +33,46 @@ pub enum Receiver {
     Object(TirExprId),
 }
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct SpecInfo {
+    pub def: DefId,
+    pub args: Vec<TyId>,
+}
+
 impl TirCtx {
-    pub fn new() -> Self {
+    pub fn new<'ctx>(ctx: &TyCtx<'ctx>) -> Self {
         Self {
-            // methods: HashMap::new(),
+            methods: HashMap::new(),
             protos: HashMap::new(),
             calculated: HashSet::new(),
+            impls: Self::get_all_impls(ctx),
+            class_stack: vec![],
+            specs: HashMap::new(),
         }
     }
 }
 
 impl<'ctx> TirCtx {
+    pub fn get_all_impls(ctx: &TyCtx<'ctx>) -> Vec<ImplBlockId> {
+        fn aux<'ctx>(ctx: &TyCtx<'ctx>, v: &mut Vec<ImplBlockId>, id: ScopeId) {
+            let s = ctx.ctx.interner.get_scope(id);
+            match &s.kind {
+                ScopeKind::Impl(block_id, _) => {
+                    v.push(*block_id);
+                }
+                ScopeKind::Global | ScopeKind::Module(_, _) => {
+                    for child in s.children.clone() {
+                        aux(ctx, v, child);
+                    }
+                }
+                _ => (),
+            }
+        }
+        let mut v = vec![];
+        aux(ctx, &mut v, ScopeId::new(0));
+        v
+    }
+
     pub fn instantiate(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
@@ -50,6 +80,15 @@ impl<'ctx> TirCtx {
         args: &Vec<TypeExprId>,
     ) -> Result<TyId, TcError> {
         assert!(args.len() == 0);
+
+        let spec_info = SpecInfo {
+            def: template,
+            args: vec![],
+        };
+
+        if self.specs.contains_key(&spec_info) {
+            return Ok(self.specs[&spec_info]);
+        }
 
         let class_id = {
             let def = ctx.ctx.interner.get_def(template);
@@ -94,12 +133,41 @@ impl<'ctx> TirCtx {
 
         let sc_id = ctx.ctx.interner.insert_sc(c);
 
-        assert!(methods.len() == 0);
-
         let ty = ctx
             .ctx
             .interner
             .insert_conc_type(ConcreteType::SpecializedClass(sc_id));
+
+        self.specs.insert(spec_info, ty);
+
+        assert!(self.impls.len() == 0);
+
+        self.class_stack.push(sc_id);
+        self.methods.insert(ty, HashMap::new());
+        ctx.with_scope(ScopeKind::Spec(sc_id), |ctx| {
+            {
+                for Method { id: method_id, .. } in &methods {
+                    let method_ast = match ctx.ctx.interner.get_item(*method_id) {
+                        NirItem::Method(ast) => ast.clone(),
+                        _ => unreachable!(),
+                    };
+                    self.concretize_method(ctx, &method_ast)?;
+                }
+            }
+
+            {
+                for Method { id: method_id, .. } in &methods {
+                    let method_ast = match ctx.ctx.interner.get_item(*method_id) {
+                        NirItem::Method(ast) => ast.clone(),
+                        _ => unreachable!(),
+                    };
+                    self.visit_method(ctx, &method_ast, *method_id)?;
+                }
+            }
+            Ok(())
+        })?;
+
+        self.class_stack.pop();
 
         Ok(ty)
     }
@@ -127,6 +195,7 @@ impl<'ctx> TirCtx {
                 let ty = ConcreteType::Primitive(*primitive_ty);
                 Ok(ctx.ctx.interner.insert_conc_type(ty))
             }
+            TypeExpr::Concrete(id) => Ok(*id),
         }
     }
 
@@ -461,7 +530,7 @@ impl<'ctx> TirCtx {
             }) => {
                 assert!(generic_args.len() == 0);
 
-                let (f_id, _self_arg): (FunId, Option<ExprId>) = if called.receiver.is_some() {
+                let (f_id, self_arg): (FunId, Option<TirExprId>) = if called.receiver.is_some() {
                     let receiver = self.expr_as_receiver(ctx, called.receiver.unwrap())?;
                     match receiver {
                         Receiver::Module(id) => {
@@ -480,7 +549,15 @@ impl<'ctx> TirCtx {
                                 }
                             }
                         }
-                        Receiver::Object(_) => todo!(),
+                        Receiver::Object(x) => {
+                            let t = self.get_type_of_tir_expr(ctx, x)?;
+                            let inner = Self::inner_ptr_ty(ctx, t).unwrap();
+                            let methods = &self.methods[&inner];
+                            if !methods.contains_key(&called.called) {
+                                return Err(TcError::Text("No method named ??? in class ???"));
+                            }
+                            (methods[&called.called], Some(x))
+                        }
                     }
                 } else {
                     (self.get_fun_id_from_symbol(ctx, called.called)?, None)
@@ -488,13 +565,28 @@ impl<'ctx> TirCtx {
 
                 let sig = self.protos[&f_id].clone();
 
-                if Self::arg_len_mismatch(args.len(), sig.params.len(), sig.variadic) {
+                if Self::arg_len_mismatch(
+                    args.len()
+                        + match self_arg {
+                            None => 0,
+                            Some(_) => 1,
+                        },
+                    sig.params.len(),
+                    sig.variadic,
+                ) {
                     return Err(TcError::Text("Arg len mismatch in function call"));
                 }
 
                 Ok(sig.return_ty)
             }
             _ => todo!(),
+        }
+    }
+
+    pub fn inner_ptr_ty(ctx: &mut TyCtx<'ctx>, ptr: TyId) -> Option<TyId> {
+        match ctx.ctx.interner.get_conc_type(ptr) {
+            ConcreteType::Ptr(x) => Some(*x),
+            _ => None,
         }
     }
 
@@ -559,7 +651,7 @@ impl<'ctx> TirCtx {
         if let Ok(id) = self.expr_as_module(ctx, expr) {
             return Ok(Receiver::Module(id));
         }
-        self.get_expr(ctx, expr).map(Receiver::Object)
+        self.get_expr_ptr(ctx, expr).map(Receiver::Object)
     }
 
     pub fn arg_len_mismatch(src: usize, target: usize, variadic: bool) -> bool {
@@ -828,7 +920,7 @@ impl<'ctx> TirCtx {
             }) => {
                 assert!(generic_args.len() == 0);
 
-                let (f_id, _self_arg): (FunId, Option<ExprId>) = if called.receiver.is_some() {
+                let (f_id, self_arg): (FunId, Option<TirExprId>) = if called.receiver.is_some() {
                     let receiver = self.expr_as_receiver(ctx, called.receiver.unwrap())?;
                     match receiver {
                         Receiver::Module(id) => {
@@ -847,7 +939,15 @@ impl<'ctx> TirCtx {
                                 }
                             }
                         }
-                        Receiver::Object(_) => todo!(),
+                        Receiver::Object(x) => {
+                            let t = self.get_type_of_tir_expr(ctx, x)?;
+                            let inner = Self::inner_ptr_ty(ctx, t).unwrap();
+                            let methods = &self.methods[&inner];
+                            if !methods.contains_key(&called.called) {
+                                return Err(TcError::Text("No method named ??? in class ???"));
+                            }
+                            (methods[&called.called], Some(x))
+                        }
                     }
                 } else {
                     (self.get_fun_id_from_symbol(ctx, called.called)?, None)
@@ -855,7 +955,15 @@ impl<'ctx> TirCtx {
 
                 let sig = self.protos[&f_id].clone();
 
-                if Self::arg_len_mismatch(args.len(), sig.params.len(), sig.variadic) {
+                if Self::arg_len_mismatch(
+                    args.len()
+                        + match self_arg {
+                            None => 0,
+                            Some(_) => 1,
+                        },
+                    sig.params.len(),
+                    sig.variadic,
+                ) {
                     return Err(TcError::Text("Arg len mismatch in function call"));
                 }
 
@@ -868,7 +976,7 @@ impl<'ctx> TirCtx {
                     params.push(None)
                 }
 
-                let args = args
+                let mut args = args
                     .iter()
                     .zip(params.into_iter())
                     .map(|(expr, param)| {
@@ -879,6 +987,9 @@ impl<'ctx> TirCtx {
                         }
                     })
                     .try_collect::<Vec<_>>()?;
+
+                self_arg.iter().for_each(|x| args.insert(0, *x));
+                // args.insert(0, self_arg);
 
                 Ok(self.create_expr(ctx, TirExpr::Funcall(f_id, args)))
             }
@@ -1239,7 +1350,6 @@ impl<'ctx> TirCtx {
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         id: FunId,
-        input: &NirFunctionDef,
     ) -> Result<(), TcError> {
         let fun = ctx.ctx.interner.get_fun(id).clone();
 
@@ -1257,7 +1367,7 @@ impl<'ctx> TirCtx {
         let return_ty = self.visit_type(ctx, fun.return_ty)?;
 
         let sig = Signature {
-            name: input.name,
+            name: fun.name,
             params,
             return_ty,
             variadic: fun.variadic,
@@ -1268,6 +1378,151 @@ impl<'ctx> TirCtx {
         Ok(())
     }
 
+    pub fn concretize_method(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        input: &NirMethod,
+    ) -> Result<(), TcError> {
+        let current_class = self.class_stack.last().unwrap();
+        let self_ty = ctx
+            .ctx
+            .interner
+            .insert_conc_type(ConcreteType::SpecializedClass(*current_class));
+        let self_ptr_ty = ctx
+            .ctx
+            .interner
+            .insert_conc_type(ConcreteType::Ptr(self_ty));
+
+        let self_symbol = ctx.ctx.interner.insert_symbol(&"self".to_string());
+
+        let ty = ctx
+            .ctx
+            .interner
+            .insert_type_expr(TypeExpr::Concrete(self_ptr_ty));
+
+        let mut params = vec![TcParam {
+            name: self_symbol,
+            ty: ty,
+        }];
+
+        input.args.iter().try_for_each(|arg| {
+            ctx.visit_type(&arg.ty)
+                .map(|ty| params.push(TcParam { name: arg.name, ty }))
+        })?;
+
+        let return_ty = match &input.return_ty {
+            Some(ty) => ctx.visit_type(ty),
+            None => Ok(ctx
+                .ctx
+                .interner
+                .insert_type_expr(TypeExpr::Primitive(PrimitiveTy::Void))),
+        }?;
+
+        let fun_id = ctx.ctx.interner.insert_fun(TcFunProto {
+            name: input.name,
+            params,
+            return_ty,
+            variadic: false,
+        });
+
+        self.methods
+            .get_mut(&self_ty)
+            .unwrap()
+            .insert(input.name, fun_id);
+        let fun = ctx.ctx.interner.get_fun(fun_id).clone();
+
+        let params = fun
+            .params
+            .iter()
+            .map(|param| {
+                self.visit_type(ctx, param.ty).map(|ty| SCField {
+                    name: param.name,
+                    ty,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let return_ty = self.visit_type(ctx, fun.return_ty)?;
+
+        let sig = Signature {
+            name: fun.name,
+            params,
+            return_ty,
+            variadic: fun.variadic,
+        };
+
+        self.protos.insert(fun_id, sig);
+        Ok(())
+    }
+
+    pub fn visit_method(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        input: &NirMethod,
+        item: ItemId,
+    ) -> Result<(), TcError> {
+        let current_class = self.class_stack.last().unwrap();
+        let self_ty = ctx
+            .ctx
+            .interner
+            .insert_conc_type(ConcreteType::SpecializedClass(*current_class));
+        let self_ptr_ty = ctx
+            .ctx
+            .interner
+            .insert_conc_type(ConcreteType::Ptr(self_ty));
+
+        let self_symbol = ctx.ctx.interner.insert_symbol(&"self".to_string());
+
+        let fun_id = self.methods[&self_ty][&input.name];
+
+        ctx.with_scope(ScopeKind::Function(fun_id, item, vec![]), |ctx| {
+            if input.body.is_some() {
+                // Self parameter
+                {
+                    let self_var_id = ctx.ctx.interner.insert_variable(VarDecl {
+                        name: self_symbol,
+                        ty: self_ptr_ty,
+                    });
+                    self.push_instr(ctx, TirInstr::VarDecl(self_var_id));
+                    let self_value = self.create_expr(ctx, TirExpr::Arg(0));
+                    self.push_instr(ctx, TirInstr::VarAssign(self_var_id, self_value));
+                    let self_def = ctx.ctx.interner.insert_def(Definition::Var(self_var_id));
+                    ctx.push_def(self_symbol, self_def);
+                }
+
+                // Other parameters
+                {
+                    input
+                        .args
+                        .clone()
+                        .iter()
+                        .enumerate()
+                        .try_for_each(|(i, param)| {
+                            let ty_id = ctx.visit_type(&param.ty)?;
+                            let concrete_ty = self.visit_type(ctx, ty_id)?;
+
+                            let var_id = ctx.ctx.interner.insert_variable(VarDecl {
+                                name: param.name,
+                                ty: concrete_ty,
+                            });
+                            self.push_instr(ctx, TirInstr::VarDecl(var_id));
+                            // Offset by 1 because of `self` parameter
+                            let e = self.create_expr(ctx, TirExpr::Arg(i + 1));
+                            self.push_instr(ctx, TirInstr::VarAssign(var_id, e));
+                            let def = ctx.ctx.interner.insert_def(Definition::Var(var_id));
+                            ctx.push_def(param.name, def);
+                            Ok(())
+                        })?;
+                }
+            }
+
+            input
+                .body
+                .as_ref()
+                .iter()
+                .try_for_each(|body| body.iter().try_for_each(|stmt| self.visit_stmt(ctx, stmt)))
+        })
+    }
+
     pub fn visit_fundef(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
@@ -1276,6 +1531,7 @@ impl<'ctx> TirCtx {
         assert!(input.generic_args.len() == 0);
 
         let f_id = ctx.get_current_fun().unwrap();
+        //
         let proto = &self.protos[&f_id];
         if input.body.is_some() {
             proto
@@ -1300,19 +1556,7 @@ impl<'ctx> TirCtx {
             .body
             .as_ref()
             .iter()
-            .try_for_each(|body| body.iter().try_for_each(|stmt| self.visit_stmt(ctx, stmt)))?;
-
-        let scope = ctx.get_current_fun_scope().unwrap();
-        println!("\n\nFundef {}", ctx.ctx.interner.get_symbol(input.name));
-
-        for instr in match &ctx.ctx.interner.get_scope(scope).kind {
-            ScopeKind::Function(_, _, instrs) => instrs.clone(),
-            _ => vec![],
-        } {
-            println!("    {:?}", instr);
-        }
-        println!("\n");
-        Ok(())
+            .try_for_each(|body| body.iter().try_for_each(|stmt| self.visit_stmt(ctx, stmt)))
     }
 
     pub fn visit_module(
@@ -1361,12 +1605,8 @@ impl<'ctx> Pass<'ctx, SurfaceResolutionPassOutput<'ctx>> for TirCtx {
             scope: ScopeId,
         ) -> Result<(), TcError> {
             let s = ctx.get_scope(scope).clone();
-            if let ScopeKind::Function(fun_id, item, _) = s.kind {
-                let nir_fdef = match ctx.ctx.interner.get_item(item).clone() {
-                    NirItem::Function(x) => x,
-                    _ => unreachable!(),
-                };
-                this.concretize_fun_proto(ctx, fun_id, &nir_fdef)
+            if let ScopeKind::Function(fun_id, _, _) = s.kind {
+                this.concretize_fun_proto(ctx, fun_id)
             } else {
                 s.children
                     .iter()

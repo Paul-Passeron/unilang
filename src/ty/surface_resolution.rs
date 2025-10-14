@@ -373,7 +373,7 @@ impl<'ctx> SurfaceResolution {
                 _ => unreachable!(),
             }
             .clone();
-            methods.push(self.visit_method(ctx, &meth)?);
+            methods.push(self.visit_method(ctx, &meth, *method)?);
         }
         let cmut = ctx.ctx.interner.get_class_mut(id);
         cmut.methods = methods;
@@ -526,7 +526,7 @@ impl<'ctx> SurfaceResolution {
                 _ => unreachable!(),
             }
             .clone();
-            let method = self.visit_method(ctx, &method)?;
+            let method = self.visit_method(ctx, &method, *method_id)?;
             ctx.ctx.interner.get_imp_mut(id).methods.push(method);
         }
         Ok(())
@@ -556,6 +556,7 @@ impl<'ctx> SurfaceResolution {
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         input: &NirMethod,
+        id: ItemId,
     ) -> Result<Method, TcError> {
         let name = input.name;
 
@@ -583,7 +584,7 @@ impl<'ctx> SurfaceResolution {
 
         assert!(input.generic_args.len() == 0);
 
-        let args = input
+        let args: Vec<TcParam> = input
             .args
             .iter()
             .map(
@@ -597,7 +598,25 @@ impl<'ctx> SurfaceResolution {
                 },
             )
             .collect::<Result<_, _>>()?;
-        Ok(Method { name, kind, args })
+
+        // let id = ctx.ctx.interner.insert_fun(TcFunProto {
+        //     name,
+        //     params: args.clone(),
+        //     return_ty: match &kind {
+        //         MethodKind::Method { return_type } => *return_type,
+        //         MethodKind::Constructor => {
+        //             todo!("return void ty")
+        //         }
+        //     },
+        //     variadic: false,
+        // });
+
+        Ok(Method {
+            name,
+            kind,
+            args,
+            id,
+        })
     }
 }
 

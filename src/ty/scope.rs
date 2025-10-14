@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use crate::{
     common::{
         global_interner::{
-            ClassId, DefId, FunId, ImplBlockId, ItemId, ModuleId, ScopeId, ScopeInterner, Symbol,
-            TirExprId, TraitId, TyId, TypeExprId, UnresolvedId, VariableId,
+            ClassId, DefId, FunId, ImplBlockId, ItemId, ModuleId, SCId, ScopeId, ScopeInterner,
+            Symbol, TirExprId, TraitId, TyId, TypeExprId, UnresolvedId, VariableId,
         },
         source_location::Span,
     },
@@ -29,6 +29,7 @@ pub enum TypeExpr {
     Ptr(TypeExprId),
     Tuple(Vec<TypeExprId>),
     Primitive(PrimitiveTy),
+    Concrete(TyId),
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +49,7 @@ pub struct Method {
     pub name: Symbol,
     pub kind: MethodKind,
     pub args: Vec<TcParam>,
+    pub id: ItemId,
 }
 
 #[derive(Debug, Clone)]
@@ -81,6 +83,8 @@ pub enum ScopeKind {
     While,
     WhileCond(Vec<TirInstr>),
     WhileLoop(TirExprId, Vec<TirInstr>),
+
+    Spec(SCId),
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

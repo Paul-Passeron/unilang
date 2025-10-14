@@ -82,7 +82,7 @@ impl GlobalContext {
             Ok(resolved) => resolved,
             Err(x) => return Err(CompilerError::TcError(x)),
         };
-        let mut tir_ctx = TirCtx::new();
+        let mut tir_ctx = TirCtx::new(&tc);
         if let Err(err) = tir_ctx.run(&mut tc, resolved) {
             return Err(CompilerError::TcError(err));
         }
@@ -123,7 +123,7 @@ impl GlobalContext {
             .output()
             .unwrap();
 
-        // let _ = std::fs::remove_file(Path::new(obj_file.as_str()));
+        let _ = std::fs::remove_file(Path::new(obj_file.as_str()));
 
         Ok(())
     }

@@ -1,0 +1,31 @@
+@include std::io
+
+class MyClass => {
+    public method(): void => {
+        printf("self ptr: %p\n", self);
+    }
+}
+
+class OtherOne => {
+    public method(): void => {
+        printf("Hello from the other class\n");
+    }
+}
+
+let main(): int => {
+    let x: MyClass;
+    x::method();
+    x::method();
+    x::method();
+    x::method();
+
+    let y: MyClass;
+    y::method();
+    x::method();
+
+    let z: OtherOne;
+    z::method();
+
+    y::method();
+    return 0;
+}

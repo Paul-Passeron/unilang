@@ -290,7 +290,7 @@ impl<'ctx> TyCtx<'ctx> {
         }
     }
 
-    fn visit_type(&mut self, input: &NirType) -> Result<TypeExprId, TcError> {
+    pub fn visit_type(&mut self, input: &NirType) -> Result<TypeExprId, TcError> {
         match &input.kind {
             NirTypeKind::Ptr(nir_type) => self
                 .visit_type(nir_type)

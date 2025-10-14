@@ -2,16 +2,20 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     common::global_interner::{
-        DefId, FunId, SCId, ScopeId, StringLiteral, Symbol, TirExprId, TyId, VariableId,
+        DefId, FunId, ImplBlockId, SCId, ScopeId, StringLiteral, Symbol, TirExprId, TyId,
+        VariableId,
     },
     nir::nir::{FieldAccessKind, NirBinOpKind, Visibility},
-    ty::PrimitiveTy,
+    ty::{PrimitiveTy, tir_pass::SpecInfo},
 };
 
 pub struct TirCtx {
-    // pub methods: HashMap<TyId, Vec<TirMethod>>,
+    pub methods: HashMap<TyId, HashMap<Symbol, FunId>>,
     pub protos: HashMap<FunId, Signature>,
     pub calculated: HashSet<TirExprId>,
+    pub impls: Vec<ImplBlockId>,
+    pub class_stack: Vec<SCId>,
+    pub specs: HashMap<SpecInfo, TyId>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
