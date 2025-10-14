@@ -973,8 +973,7 @@ impl<'ctx> TirCtx {
                         if let Some(inner_inner) = Self::inner_ptr_ty(ctx, inner) {
                             let methods = &self.methods[&inner_inner].clone();
                             if methods.contains_key(&called.called) {
-                                let expr = self.create_expr(ctx, TirExpr::Deref(x));
-                                return Ok((methods[&called.called], Some(expr)));
+                                return Ok((methods[&called.called], Some(x)));
                             }
                         }
                         return Err(TcError::Text(
@@ -998,24 +997,14 @@ impl<'ctx> TirCtx {
             FieldAccessKind::Symbol(name) => {
                 let t = self.get_type_of_tir_expr(ctx, expr)?;
                 let mut ty = ctx.ctx.interner.get_conc_type(t);
-                let is_ptr = if let ConcreteType::Ptr(inner) = ty {
+                if let ConcreteType::Ptr(inner) = ty {
                     ty = ctx.ctx.interner.get_conc_type(*inner);
-                    true
-                } else {
-                    false
                 };
                 if let ConcreteType::SpecializedClass(sc_id) = ty {
                     let sc = ctx.ctx.interner.get_sc(*sc_id);
                     for f in &sc.fields {
                         if f.name == name {
-                            return if is_ptr {
-                                println!("------------------ ACCESS FOR {:?}::{:?}", expr, access);
-                                Ok(self.create_expr(ctx, TirExpr::Access(expr, access)))
-                            } else {
-                                println!("------------------ PTR FOR {:?}::{:?}", expr, access);
-                                let val = self.create_expr(ctx, TirExpr::PtrAccess(expr, access));
-                                Ok(self.create_expr(ctx, TirExpr::Deref(val)))
-                            };
+                            return Ok(self.create_expr(ctx, TirExpr::Access(expr, access)));
                         }
                     }
                     return Err(TcError::Text("Field named ??? not found in class ???"));
