@@ -168,12 +168,6 @@ impl<'ctx> TyCtx<'ctx> {
     }
 
     pub fn push_def(&mut self, symb: Symbol, def: DefId) {
-        println!(
-            "Pushing def {} => {:?}",
-            self.ctx.interner.get_symbol(symb),
-            def
-        );
-
         self.get_last_scope_mut().definitions.push((symb, def));
     }
 

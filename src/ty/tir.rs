@@ -51,6 +51,9 @@ pub enum TirExpr {
     // The ptr to var (&var) in C
     VarPtr(VariableId),
 
+    // The value in ptr (*ptr) in C
+    Deref(TirExprId),
+
     IntCast(TyId, TirExprId),
     PtrCast(TyId, TirExprId),
     Tuple(Vec<TirExprId>),

@@ -295,7 +295,6 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     .const_int(x as u64, false)
                     .as_any_value_enum(),
             },
-
             TirExpr::Access(expr, FieldAccessKind::Index(x)) => {
                 let agg = self.expressions[&expr].into_struct_value();
                 self.builder
@@ -304,10 +303,17 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     .as_any_value_enum()
             }
             TirExpr::Access(expr, FieldAccessKind::Symbol(field_name)) => {
-                let agg = self.expressions[&expr].into_struct_value();
+                // check if its a pointer
+                let agg = self.expressions[&expr];
 
                 let t = self.tir_ctx.get_type_of_tir_expr(ctx, expr).unwrap();
-                let ty = ctx.ctx.interner.get_conc_type(t);
+                let mut ty = ctx.ctx.interner.get_conc_type(t);
+                let is_ptr = if let ConcreteType::Ptr(inner) = ty {
+                    ty = ctx.ctx.interner.get_conc_type(*inner);
+                    Some(*inner)
+                } else {
+                    None
+                };
                 if let ConcreteType::SpecializedClass(sc_id) = ty {
                     let sc = ctx.ctx.interner.get_sc(*sc_id);
                     let index = sc
@@ -315,11 +321,27 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                         .iter()
                         .position(|elem| elem.name == field_name)
                         .unwrap() as u32;
-
-                    self.builder
-                        .build_extract_value(agg, index, "")
-                        .unwrap()
-                        .as_any_value_enum()
+                    if let Some(inner) = is_ptr {
+                        let inner_ty = self.get_mono_ty(ctx, inner);
+                        let ptr = self
+                            .builder
+                            .build_struct_gep(
+                                BasicTypeEnum::try_from(inner_ty).unwrap(),
+                                agg.into_pointer_value(),
+                                index,
+                                "",
+                            )
+                            .unwrap();
+                        self.builder
+                            .build_load(inner_ty.into_struct_type(), ptr, "")
+                            .unwrap()
+                            .as_any_value_enum()
+                    } else {
+                        self.builder
+                            .build_extract_value(agg.into_struct_value(), index, "")
+                            .unwrap()
+                            .as_any_value_enum()
+                    }
                 } else {
                     unreachable!()
                 }
@@ -512,7 +534,14 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     ConcreteType::Ptr(x) => *x,
                     _ => unreachable!(),
                 };
-                let ty = ctx.ctx.interner.get_conc_type(t);
+                let mut ty = ctx.ctx.interner.get_conc_type(t);
+
+                let is_ptr = if let ConcreteType::Ptr(inner) = ty {
+                    ty = ctx.ctx.interner.get_conc_type(*inner);
+                    Some(*inner)
+                } else {
+                    None
+                };
                 if let ConcreteType::SpecializedClass(sc_id) = ty {
                     let sc = ctx.ctx.interner.get_sc(*sc_id);
                     let index = sc
@@ -521,23 +550,51 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                         .position(|elem| elem.name == field_name)
                         .unwrap();
 
-                    let pointee = self.get_mono_ty(ctx, t).into_struct_type();
-                    let ptr = self.expressions[&expr];
+                    let pointee = self.get_mono_ty(ctx, t);
 
-                    self.builder
-                        .build_struct_gep(
-                            BasicTypeEnum::try_from(pointee).unwrap(),
-                            ptr.into_pointer_value(),
-                            index as u32,
-                            "",
-                        )
-                        .unwrap()
-                        .as_any_value_enum()
+                    let ptr = self.expressions[&expr];
+                    if let Some(inner) = is_ptr {
+                        let inner_ty = self.get_mono_ty(ctx, inner);
+                        let derefed = self
+                            .builder
+                            .build_load(pointee.into_pointer_type(), ptr.into_pointer_value(), "")
+                            .unwrap();
+                        self.builder
+                            .build_struct_gep(
+                                inner_ty.into_struct_type(),
+                                derefed.into_pointer_value(),
+                                index as u32,
+                                "",
+                            )
+                            .unwrap()
+                            .as_any_value_enum()
+                    } else {
+                        self.builder
+                            .build_struct_gep(
+                                BasicTypeEnum::try_from(pointee).unwrap(),
+                                ptr.into_pointer_value(),
+                                index as u32,
+                                "",
+                            )
+                            .unwrap()
+                            .as_any_value_enum()
+                    }
                 } else {
                     unreachable!()
                 }
             }
             TirExpr::VarPtr(var_id) => self.vars[&var_id].1.as_any_value_enum(),
+            TirExpr::Deref(val) => {
+                let ptr = self.expressions[&val];
+                let ty = self.tir_ctx.get_type_of_tir_expr(ctx, val).unwrap();
+                let ty = TirCtx::inner_ptr_ty(ctx, ty).unwrap();
+                let ty = self.get_mono_ty(ctx, ty);
+                let ptr = ptr.into_pointer_value();
+                self.builder
+                    .build_load(BasicTypeEnum::try_from(ty).unwrap(), ptr, "")
+                    .unwrap()
+                    .as_any_value_enum()
+            }
         };
         println!("Inserting {:?}", expr);
         self.expressions.insert(expr, res.clone());

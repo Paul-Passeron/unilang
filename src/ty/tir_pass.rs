@@ -11,7 +11,7 @@ use crate::{
     nir::{
         interner::ConstructibleId,
         nir::{
-            FieldAccess, FieldAccessKind, NirBinOp, NirBinOpKind, NirCall, NirExprKind,
+            FieldAccess, FieldAccessKind, NirBinOp, NirBinOpKind, NirCall, NirCalled, NirExprKind,
             NirFunctionDef, NirItem, NirLiteral, NirMethod, NirModuleDef, NirPattern,
             NirPatternKind, NirStmt, NirStmtKind, NirVarDecl,
         },
@@ -133,10 +133,7 @@ impl<'ctx> TirCtx {
 
         let sc_id = ctx.ctx.interner.insert_sc(c);
 
-        let ty = ctx
-            .ctx
-            .interner
-            .insert_conc_type(ConcreteType::SpecializedClass(sc_id));
+        let ty = self.create_type(ctx, ConcreteType::SpecializedClass(sc_id));
 
         self.specs.insert(spec_info, ty);
 
@@ -180,7 +177,7 @@ impl<'ctx> TirCtx {
             TypeExpr::Instantiation { template, args } => self.instantiate(ctx, *template, args),
             TypeExpr::Ptr(id) => {
                 let ty = ConcreteType::Ptr(self.visit_type(ctx, *id)?);
-                Ok(ctx.ctx.interner.insert_conc_type(ty))
+                Ok(self.create_type(ctx, ty))
             }
             TypeExpr::Tuple(ids) => {
                 let tys = ids
@@ -189,11 +186,11 @@ impl<'ctx> TirCtx {
                     .map(|id| self.visit_type(ctx, *id))
                     .collect::<Result<Vec<_>, _>>()?;
                 let ty = ConcreteType::Tuple(tys);
-                Ok(ctx.ctx.interner.insert_conc_type(ty))
+                Ok(self.create_type(ctx, ty))
             }
             TypeExpr::Primitive(primitive_ty) => {
                 let ty = ConcreteType::Primitive(*primitive_ty);
-                Ok(ctx.ctx.interner.insert_conc_type(ty))
+                Ok(self.create_type(ctx, ty))
             }
             TypeExpr::Concrete(id) => Ok(*id),
         }
@@ -230,19 +227,24 @@ impl<'ctx> TirCtx {
                 .all(|(src, target)| self.type_is_coercible(ctx, *src, *target));
         }
 
+        if let ConcreteType::Ptr(_) = s
+            && let ConcreteType::Ptr(_) = t
+        {
+            return true;
+        }
+
         todo!("Coerce {:?} into {:?} ?", s, t)
     }
 
     pub fn create_expr(&mut self, ctx: &mut TyCtx<'ctx>, expr: TirExpr) -> TirExprId {
-        let e = ctx.ctx.interner.insert_te(expr);
+        let e = ctx.ctx.interner.insert_te(expr.clone());
+        println!("{:?} => {:?}", e, expr);
         self.push_instr(ctx, TirInstr::Calculate(e));
         e
     }
 
     pub fn get_primitive_type(&mut self, ctx: &mut TyCtx<'ctx>, prim: PrimitiveTy) -> TyId {
-        ctx.ctx
-            .interner
-            .insert_conc_type(ConcreteType::Primitive(prim))
+        self.create_type(ctx, ConcreteType::Primitive(prim))
     }
 
     pub fn get_type_of_tir_expr(
@@ -255,43 +257,43 @@ impl<'ctx> TirCtx {
             TirExpr::TypedIntLit(x) => match x {
                 TypedIntLit::Ptr(id, _) => {
                     let ty = ConcreteType::Ptr(id);
-                    Ok(ctx.ctx.interner.insert_conc_type(ty))
+                    Ok(self.create_type(ctx, ty))
                 }
                 TypedIntLit::I8(_) => {
                     let ty = ConcreteType::Primitive(PrimitiveTy::I8);
-                    Ok(ctx.ctx.interner.insert_conc_type(ty))
+                    Ok(self.create_type(ctx, ty))
                 }
                 TypedIntLit::I16(_) => {
                     let ty = ConcreteType::Primitive(PrimitiveTy::I16);
-                    Ok(ctx.ctx.interner.insert_conc_type(ty))
+                    Ok(self.create_type(ctx, ty))
                 }
                 TypedIntLit::I32(_) => {
                     let ty = ConcreteType::Primitive(PrimitiveTy::I32);
-                    Ok(ctx.ctx.interner.insert_conc_type(ty))
+                    Ok(self.create_type(ctx, ty))
                 }
                 TypedIntLit::I64(_) => {
                     let ty = ConcreteType::Primitive(PrimitiveTy::I64);
-                    Ok(ctx.ctx.interner.insert_conc_type(ty))
+                    Ok(self.create_type(ctx, ty))
                 }
                 TypedIntLit::U8(_) => {
                     let ty = ConcreteType::Primitive(PrimitiveTy::U8);
-                    Ok(ctx.ctx.interner.insert_conc_type(ty))
+                    Ok(self.create_type(ctx, ty))
                 }
                 TypedIntLit::U16(_) => {
                     let ty = ConcreteType::Primitive(PrimitiveTy::U16);
-                    Ok(ctx.ctx.interner.insert_conc_type(ty))
+                    Ok(self.create_type(ctx, ty))
                 }
                 TypedIntLit::U32(_) => {
                     let ty = ConcreteType::Primitive(PrimitiveTy::U32);
-                    Ok(ctx.ctx.interner.insert_conc_type(ty))
+                    Ok(self.create_type(ctx, ty))
                 }
                 TypedIntLit::U64(_) => {
                     let ty = ConcreteType::Primitive(PrimitiveTy::U64);
-                    Ok(ctx.ctx.interner.insert_conc_type(ty))
+                    Ok(self.create_type(ctx, ty))
                 }
                 TypedIntLit::Bool(_) => {
                     let ty = ConcreteType::Primitive(PrimitiveTy::Bool);
-                    Ok(ctx.ctx.interner.insert_conc_type(ty))
+                    Ok(self.create_type(ctx, ty))
                 }
             },
             TirExpr::Access(var, field_access_kind) => {
@@ -309,7 +311,7 @@ impl<'ctx> TirCtx {
                         .map(|x| self.get_type_of_tir_expr(ctx, *x))
                         .collect::<Result<Vec<_>, _>>()?,
                 );
-                Ok(ctx.ctx.interner.insert_conc_type(ty))
+                Ok(self.create_type(ctx, ty))
             }
             TirExpr::BinOp { lhs, op, rhs } => match op {
                 NirBinOpKind::Equ
@@ -345,7 +347,6 @@ impl<'ctx> TirCtx {
                 Ok(self.get_ptr_to(ctx, ty))
             }
             TirExpr::True | TirExpr::False => Ok(self.get_primitive_type(ctx, PrimitiveTy::Bool)),
-
             TirExpr::PtrAccess(expr, FieldAccessKind::Symbol(field_name)) => {
                 let t = self.get_type_of_tir_expr(ctx, expr).unwrap();
                 let mut ty = ctx.ctx.interner.get_conc_type(t);
@@ -359,12 +360,11 @@ impl<'ctx> TirCtx {
                         .iter()
                         .find(|elem| elem.name == field_name)
                         .ok_or(TcError::Text("Field named ??? not found in class ???"))?;
-                    Ok(ctx
-                        .ctx
-                        .interner
-                        .insert_conc_type(ConcreteType::Ptr(field.ty)))
+                    Ok(self.create_type(ctx, ConcreteType::Ptr(field.ty)))
                 } else {
-                    return Err(TcError::Text("No named field in non-class type"));
+                    return Err(TcError::Text(
+                        "No named field in non-class type (get_type_of_tir_expr)",
+                    ));
                 }
             }
             TirExpr::PtrAccess(expr, FieldAccessKind::Index(i)) => {
@@ -377,18 +377,16 @@ impl<'ctx> TirCtx {
                     if ids.len() <= i as usize {
                         return Err(TcError::Text("Tuple access out of range"));
                     }
-                    Ok(ctx
-                        .ctx
-                        .interner
-                        .insert_conc_type(ConcreteType::Ptr(ids[i as usize])))
+                    Ok(self.create_type(ctx, ConcreteType::Ptr(ids[i as usize])))
                 } else {
                     return Err(TcError::Text("No index field in non-tuple type"));
                 }
             }
             TirExpr::VarPtr(id) => {
                 let inner = ctx.ctx.interner.get_variable(id).ty;
-                Ok(ctx.ctx.interner.insert_conc_type(ConcreteType::Ptr(inner)))
+                Ok(self.create_type(ctx, ConcreteType::Ptr(inner)))
             }
+            TirExpr::Deref(_ptr_expr) => todo!(),
         }
     }
 
@@ -416,7 +414,7 @@ impl<'ctx> TirCtx {
     }
 
     pub fn get_ptr_to(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> TyId {
-        ctx.ctx.interner.insert_conc_type(ConcreteType::Ptr(ty))
+        self.create_type(ctx, ConcreteType::Ptr(ty))
     }
 
     pub fn get_type_of_expr(
@@ -462,13 +460,16 @@ impl<'ctx> TirCtx {
                         .map(|x| self.get_type_of_expr(ctx, *x))
                         .collect::<Result<Vec<_>, _>>()?,
                 );
-                Ok(ctx.ctx.interner.insert_conc_type(ty))
+                Ok(self.create_type(ctx, ty))
             }
             NirExprKind::Access { from, field } => {
                 let t = self.get_type_of_expr(ctx, from.clone())?;
-                let ty = ctx.ctx.interner.get_conc_type(t);
+                let mut ty = ctx.ctx.interner.get_conc_type(t);
                 match field.kind {
                     FieldAccessKind::Symbol(name) => {
+                        if let ConcreteType::Ptr(inner) = ty {
+                            ty = ctx.ctx.interner.get_conc_type(*inner);
+                        }
                         if let ConcreteType::SpecializedClass(sc_id) = ty {
                             let sc = ctx.ctx.interner.get_sc(*sc_id);
                             for f in &sc.fields {
@@ -478,7 +479,9 @@ impl<'ctx> TirCtx {
                             }
                             return Err(TcError::Text("Field named ??? not found in class ???"));
                         } else {
-                            return Err(TcError::Text("No named field in non-class type"));
+                            return Err(TcError::Text(
+                                "No named field in non-class type (get_type_of_expr)",
+                            ));
                         }
                     }
                     FieldAccessKind::Index(i) => {
@@ -529,39 +532,8 @@ impl<'ctx> TirCtx {
                 span: _,
             }) => {
                 assert!(generic_args.len() == 0);
-
-                let (f_id, self_arg): (FunId, Option<TirExprId>) = if called.receiver.is_some() {
-                    let receiver = self.expr_as_receiver(ctx, called.receiver.unwrap())?;
-                    match receiver {
-                        Receiver::Module(id) => {
-                            let m = ctx.ctx.interner.get_module(id);
-                            let s = m.scope;
-                            let def_id = ctx.get_symbol_def_in_scope(s, called.called);
-                            if def_id.is_none() {
-                                return Err(TcError::Text("No such function in module"));
-                            }
-                            let def_id = def_id.unwrap();
-                            let def = ctx.ctx.interner.get_def(def_id);
-                            match &def {
-                                Definition::Function(fun_id) => (*fun_id, None),
-                                _ => {
-                                    return Err(TcError::Text("No such function in module"));
-                                }
-                            }
-                        }
-                        Receiver::Object(x) => {
-                            let t = self.get_type_of_tir_expr(ctx, x)?;
-                            let inner = Self::inner_ptr_ty(ctx, t).unwrap();
-                            let methods = &self.methods[&inner];
-                            if !methods.contains_key(&called.called) {
-                                return Err(TcError::Text("No method named ??? in class ???"));
-                            }
-                            (methods[&called.called], Some(x))
-                        }
-                    }
-                } else {
-                    (self.get_fun_id_from_symbol(ctx, called.called)?, None)
-                };
+                let (f_id, self_arg): (FunId, Option<TirExprId>) =
+                    self.get_fun_id_and_self_arg(ctx, called)?;
 
                 let sig = self.protos[&f_id].clone();
 
@@ -920,38 +892,8 @@ impl<'ctx> TirCtx {
             }) => {
                 assert!(generic_args.len() == 0);
 
-                let (f_id, self_arg): (FunId, Option<TirExprId>) = if called.receiver.is_some() {
-                    let receiver = self.expr_as_receiver(ctx, called.receiver.unwrap())?;
-                    match receiver {
-                        Receiver::Module(id) => {
-                            let m = ctx.ctx.interner.get_module(id);
-                            let s = m.scope;
-                            let def_id = ctx.get_symbol_def_in_scope(s, called.called);
-                            if def_id.is_none() {
-                                return Err(TcError::Text("No such function in module"));
-                            }
-                            let def_id = def_id.unwrap();
-                            let def = ctx.ctx.interner.get_def(def_id);
-                            match &def {
-                                Definition::Function(fun_id) => (*fun_id, None),
-                                _ => {
-                                    return Err(TcError::Text("No such function in module"));
-                                }
-                            }
-                        }
-                        Receiver::Object(x) => {
-                            let t = self.get_type_of_tir_expr(ctx, x)?;
-                            let inner = Self::inner_ptr_ty(ctx, t).unwrap();
-                            let methods = &self.methods[&inner];
-                            if !methods.contains_key(&called.called) {
-                                return Err(TcError::Text("No method named ??? in class ???"));
-                            }
-                            (methods[&called.called], Some(x))
-                        }
-                    }
-                } else {
-                    (self.get_fun_id_from_symbol(ctx, called.called)?, None)
-                };
+                let (f_id, self_arg): (FunId, Option<TirExprId>) =
+                    self.get_fun_id_and_self_arg(ctx, called)?;
 
                 let sig = self.protos[&f_id].clone();
 
@@ -997,6 +939,55 @@ impl<'ctx> TirCtx {
         }
     }
 
+    fn get_fun_id_and_self_arg(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        called: &NirCalled,
+    ) -> Result<(FunId, Option<TirExprId>), TcError> {
+        if called.receiver.is_some() {
+            let receiver = self.expr_as_receiver(ctx, called.receiver.unwrap())?;
+            match receiver {
+                Receiver::Module(id) => {
+                    let m = ctx.ctx.interner.get_module(id);
+                    let s = m.scope;
+                    let def_id = ctx.get_symbol_def_in_scope(s, called.called);
+                    if def_id.is_none() {
+                        return Err(TcError::Text("No such function in module"));
+                    }
+                    let def_id = def_id.unwrap();
+                    let def = ctx.ctx.interner.get_def(def_id);
+                    match &def {
+                        Definition::Function(fun_id) => {
+                            return Ok((*fun_id, None));
+                        }
+                        _ => {
+                            return Err(TcError::Text("No such function in module"));
+                        }
+                    }
+                }
+                Receiver::Object(x) => {
+                    let t = self.get_type_of_tir_expr(ctx, x)?;
+                    let inner = Self::inner_ptr_ty(ctx, t).unwrap();
+                    let methods = &self.methods[&inner].clone();
+                    if !methods.contains_key(&called.called) {
+                        if let Some(inner_inner) = Self::inner_ptr_ty(ctx, inner) {
+                            let methods = &self.methods[&inner_inner].clone();
+                            if methods.contains_key(&called.called) {
+                                let expr = self.create_expr(ctx, TirExpr::Deref(x));
+                                return Ok((methods[&called.called], Some(expr)));
+                            }
+                        }
+                        return Err(TcError::Text(
+                            "No method named ??? in class ??? (get_expr_with_type)",
+                        ));
+                    }
+                    return Ok((methods[&called.called], Some(x)));
+                }
+            }
+        }
+        return Ok((self.get_fun_id_from_symbol(ctx, called.called)?, None));
+    }
+
     pub fn get_access(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
@@ -1006,17 +997,32 @@ impl<'ctx> TirCtx {
         match access {
             FieldAccessKind::Symbol(name) => {
                 let t = self.get_type_of_tir_expr(ctx, expr)?;
-                let ty = ctx.ctx.interner.get_conc_type(t);
+                let mut ty = ctx.ctx.interner.get_conc_type(t);
+                let is_ptr = if let ConcreteType::Ptr(inner) = ty {
+                    ty = ctx.ctx.interner.get_conc_type(*inner);
+                    true
+                } else {
+                    false
+                };
                 if let ConcreteType::SpecializedClass(sc_id) = ty {
                     let sc = ctx.ctx.interner.get_sc(*sc_id);
                     for f in &sc.fields {
                         if f.name == name {
-                            return Ok(self.create_expr(ctx, TirExpr::Access(expr, access)));
+                            return if is_ptr {
+                                println!("------------------ ACCESS FOR {:?}::{:?}", expr, access);
+                                Ok(self.create_expr(ctx, TirExpr::Access(expr, access)))
+                            } else {
+                                println!("------------------ PTR FOR {:?}::{:?}", expr, access);
+                                let val = self.create_expr(ctx, TirExpr::PtrAccess(expr, access));
+                                Ok(self.create_expr(ctx, TirExpr::Deref(val)))
+                            };
                         }
                     }
                     return Err(TcError::Text("Field named ??? not found in class ???"));
                 } else {
-                    return Err(TcError::Text("No named field in non-class type"));
+                    return Err(TcError::Text(
+                        "No named field in non-class type (get-access)",
+                    ));
                 }
             }
             FieldAccessKind::Index(i) => {
@@ -1378,20 +1384,22 @@ impl<'ctx> TirCtx {
         Ok(())
     }
 
+    pub fn create_type(&mut self, ctx: &mut TyCtx<'ctx>, ty: ConcreteType) -> TyId {
+        let res = ctx.ctx.interner.insert_conc_type(ty);
+        if !self.methods.contains_key(&res) {
+            self.methods.insert(res, HashMap::new());
+        }
+        res
+    }
+
     pub fn concretize_method(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         input: &NirMethod,
     ) -> Result<(), TcError> {
         let current_class = self.class_stack.last().unwrap();
-        let self_ty = ctx
-            .ctx
-            .interner
-            .insert_conc_type(ConcreteType::SpecializedClass(*current_class));
-        let self_ptr_ty = ctx
-            .ctx
-            .interner
-            .insert_conc_type(ConcreteType::Ptr(self_ty));
+        let self_ty = self.create_type(ctx, ConcreteType::SpecializedClass(*current_class));
+        let self_ptr_ty = self.create_type(ctx, ConcreteType::Ptr(self_ty));
 
         let self_symbol = ctx.ctx.interner.insert_symbol(&"self".to_string());
 
@@ -1461,14 +1469,8 @@ impl<'ctx> TirCtx {
         item: ItemId,
     ) -> Result<(), TcError> {
         let current_class = self.class_stack.last().unwrap();
-        let self_ty = ctx
-            .ctx
-            .interner
-            .insert_conc_type(ConcreteType::SpecializedClass(*current_class));
-        let self_ptr_ty = ctx
-            .ctx
-            .interner
-            .insert_conc_type(ConcreteType::Ptr(self_ty));
+        let self_ty = self.create_type(ctx, ConcreteType::SpecializedClass(*current_class));
+        let self_ptr_ty = self.create_type(ctx, ConcreteType::Ptr(self_ty));
 
         let self_symbol = ctx.ctx.interner.insert_symbol(&"self".to_string());
 

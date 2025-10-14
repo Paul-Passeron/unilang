@@ -1,0 +1,22 @@
+@extern malloc(size: u32): void *;
+class MyClass => {
+    public x: int;
+
+    public init(): void => {
+        self::x => 123;
+        printf("Init !\n");
+    }
+
+    public method(): void => {
+        printf("Method called (x=%d)\n", self::x);
+    }
+}
+
+let main(): int => {
+    let my_instance: MyClass * => malloc(4);
+    my_instance::init();
+    my_instance::method();
+    return 0;
+}
+
+@include std::io
