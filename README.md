@@ -49,7 +49,7 @@ class MyClass => {
         self::y => y;
     }
 
-    public MyClass(): void => {
+    public method(): void => {
         printf("self::x = %d, self::y = %d\n", self::x, self::y);
     }
 }
