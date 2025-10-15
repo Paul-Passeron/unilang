@@ -229,17 +229,15 @@ impl<'ctx, 'a> MonoIRPass<'a> {
     }
 
     fn calculate(&mut self, ctx: &mut TyCtx<'ctx>, expr: TirExprId) -> AnyValueEnum<'a> {
-        if self.expressions.contains_key(&expr) {
-            return self.expressions[&expr].clone();
-        }
+        // if self.expressions.contains_key(&expr) {
+        //     return self.expressions[&expr].clone();
+        // }
         let e = ctx.ctx.interner.get_te(expr).clone();
         let res = match e {
             TirExpr::Arg(i) => {
                 let fun_id = ctx.get_current_fun().unwrap();
                 let (fn_val, _) = self.funs[&fun_id].clone();
                 fn_val.get_nth_param(i as u32).unwrap().as_any_value_enum()
-
-                // self.builder.
             }
             TirExpr::TypedIntLit(typed_int_lit) => match typed_int_lit {
                 TypedIntLit::Ptr(_, x) => {
@@ -602,6 +600,16 @@ impl<'ctx, 'a> MonoIRPass<'a> {
     }
 
     fn translate(&mut self, ctx: &mut TyCtx<'ctx>, instr: &TirInstr) {
+        if self
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_terminator()
+            .is_some()
+        {
+            // todo: issue warning maybe
+            return;
+        }
         match instr {
             TirInstr::Return(val) => {
                 self.builder

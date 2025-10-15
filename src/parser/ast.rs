@@ -241,6 +241,8 @@ pub enum Stmt {
     Block(Vec<Ast<Stmt>>),
 
     Break,
+
+    Defer(Ast<Stmt>),
 }
 
 pub struct Program(pub Vec<Ast<TopLevel>>);
@@ -521,6 +523,7 @@ impl PrettyPrint for Stmt {
                 iterator,
                 body,
             } => todo!(),
+            Stmt::Defer(ast) => todo!(),
         }
     }
 }

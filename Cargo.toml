@@ -19,3 +19,4 @@ unescape = "0.1.0"
 [profile.release]
 # strip=true
 # lto = true
+# opt-level = 3

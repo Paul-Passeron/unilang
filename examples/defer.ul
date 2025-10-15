@@ -1,0 +1,16 @@
+@include std::io
+
+let early_return(b: bool): void => {
+    defer printf("Defer executed!\n");
+    if b => {return;}
+    printf("No early return\n");
+}
+
+
+let main(): int => {
+    printf("true: \n");
+    early_return(true);
+    printf("\n\nfalse: \n");
+    early_return(false);
+    return 0;
+}

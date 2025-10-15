@@ -1235,6 +1235,10 @@ impl<'ctx> NirVisitor<'ctx> {
                 kind: NirStmtKind::Break,
                 span,
             },
+            Stmt::Defer(ast) => NirStmt {
+                kind: NirStmtKind::Defer(Box::new(self.visit_stmt(ast)?)),
+                span,
+            },
         })
     }
 }

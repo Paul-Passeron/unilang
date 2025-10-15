@@ -268,6 +268,7 @@ impl Parser {
             Self::parse_compound,
             Self::parse_let_stmt,
             Self::parse_return_stmt,
+            Self::parse_defer_stmt,
             Self::parse_break_stmt,
             Self::parse_assign,
             Self::parse_if,
@@ -1515,6 +1516,18 @@ impl Parser {
         let res = self.parse_let_decl()?;
         let span = res.loc().clone();
         Ok(Ast::new(TopLevel::LetDecl(res), span))
+    }
+
+    pub fn parse_defer_stmt(&mut self) -> Result<Ast<Stmt>, ParseError> {
+        if !self.match_tokenkind(TokenKind::Defer) {
+            return self.emit_error(ParseErrKind::BadStartToken);
+        }
+        let tok = self.next().unwrap();
+        let start = &tok.location.start();
+        let e = self.parse_stmt()?;
+        println!("HERE {:?}", e);
+        let end = e.loc().end();
+        Ok(Ast::new(Stmt::Defer(e), start.span_to(&end)))
     }
 
     pub fn parse_return_stmt(&mut self) -> Result<Ast<Stmt>, ParseError> {

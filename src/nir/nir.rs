@@ -200,6 +200,8 @@ pub enum NirStmtKind {
         value: Option<ExprId>,
     },
     Break,
+
+    Defer(Box<NirStmt>),
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

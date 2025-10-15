@@ -5,7 +5,10 @@ use crate::{
         source_location::Span,
     },
     nir::nir::{NirPath, NirType, NirTypeKind},
-    ty::scope::{Definition, Scope, ScopeKind, TypeExpr, Unresolved, UnresolvedKind},
+    ty::{
+        scope::{Definition, Scope, ScopeKind, TypeExpr, Unresolved, UnresolvedKind},
+        tir::TirInstr,
+    },
 };
 
 pub mod scope;
@@ -52,6 +55,7 @@ pub struct TyCtx<'ctx> {
     pub current_scope: ScopeId,
     pub ctx: &'ctx mut GlobalContext,
     pub backpatching: Vec<(DefId, UnresolvedId)>,
+    pub defer_stack: Vec<Vec<Vec<TirInstr>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -80,18 +84,6 @@ impl PrimitiveTy {
         }
     }
 
-    // const INTEGERS: &[PrimitiveTy] = &[
-    //     PrimitiveTy::I8,
-    //     PrimitiveTy::I16,
-    //     PrimitiveTy::I32,
-    //     PrimitiveTy::I64,
-    //     PrimitiveTy::U8,
-    //     PrimitiveTy::U16,
-    //     PrimitiveTy::U32,
-    //     PrimitiveTy::U64,
-    //     PrimitiveTy::Bool,
-    // ];
-
     fn size(&self) -> usize {
         match &self {
             PrimitiveTy::Void => 0,
@@ -109,6 +101,39 @@ impl PrimitiveTy {
 }
 
 impl<'ctx> TyCtx<'ctx> {
+    pub fn push_instr(&mut self, instr: TirInstr, defer: bool) {
+        if defer {
+            self.defer_stack
+                .last_mut()
+                .unwrap()
+                .last_mut()
+                .unwrap()
+                .push(instr);
+            println!("{:?}", self.defer_stack);
+        } else {
+            let scope = self.get_last_scope_mut();
+            match &mut scope.kind {
+                ScopeKind::Else(tir_instrs)
+                | ScopeKind::Then(tir_instrs)
+                | ScopeKind::Block(tir_instrs)
+                | ScopeKind::WhileLoop(_, tir_instrs)
+                | ScopeKind::WhileCond(tir_instrs)
+                | ScopeKind::Function(_, _, tir_instrs) => tir_instrs.push(instr),
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    pub fn clear_deferred(&mut self) {
+        self.defer_stack.clear();
+        self.defer_stack.push(vec![Vec::new()]);
+    }
+
+    pub fn flush_deferred(&mut self) {
+        self.push_all_deferred();
+        self.clear_deferred();
+    }
+
     pub fn enter_scope(&mut self, kind: ScopeKind) -> ScopeId {
         let parent = self.current_scope;
         let scope = Scope {
@@ -122,16 +147,33 @@ impl<'ctx> TyCtx<'ctx> {
         let parent_mut = self.ctx.interner.get_scope_mut(parent);
         parent_mut.children.push(id);
         self.current_scope = id;
-        println!("Entering scope {:?}", id);
+        self.defer_stack.push(vec![Vec::new()]);
         id
+    }
+
+    pub fn push_all_deferred(&mut self) {
+        println!(
+            "------------------------------- Pushing all deferred -------------------------------"
+        );
+        let mut stack = self.defer_stack.clone();
+        while let Some(mut last) = stack.pop() {
+            while let Some(instr_block) = last.pop() {
+                for instr in instr_block {
+                    self.push_instr(dbg!(instr), false);
+                }
+            }
+        }
+        println!("------------------------------- END -------------------------------");
     }
 
     pub fn exit_scope(&mut self) {
         if let Some(parent) = self.ctx.interner.get_scope(self.current_scope).parent {
-            println!(
-                "Exiting scope {:?} to scope {:?}",
-                self.current_scope, parent
-            );
+            let mut last = self.defer_stack.pop().unwrap();
+            while let Some(instr_block) = last.pop() {
+                for instr in instr_block {
+                    self.push_instr(instr, false);
+                }
+            }
             self.current_scope = parent;
         }
     }
@@ -219,6 +261,7 @@ impl<'ctx> TyCtx<'ctx> {
             current_scope: scope_id,
             ctx,
             backpatching: Vec::new(),
+            defer_stack: vec![],
         };
         res.add_builtins();
         res
