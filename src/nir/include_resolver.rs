@@ -16,16 +16,19 @@ impl IncludeResolver {
             p.push(s);
         }
         p.set_extension("ul");
-        p.exists().then_some(p)
+        println!("Path is {} (exists ?) {}", p.display(), p.exists());
+        Some(p)
+        // p.exists().then_some(p)
     }
 
     pub fn get_path(&self, path: Vec<&String>) -> Option<PathBuf> {
         if path.is_empty() {
+            println!("Because empty");
             return None;
         }
 
         if path[0] == "std" {
-            return Self::get_path_for_dir(&path[1..], &self.std);
+            return Self::get_path_for_dir(&path[0..], &self.std);
         }
 
         let current = std::env::current_dir().unwrap();
@@ -37,7 +40,7 @@ impl IncludeResolver {
         if let Some(x) = Self::get_path_for_dir(&path[..], current.parent().unwrap()) {
             return Some(x);
         }
-
+        println!("None here !");
         None
     }
 }

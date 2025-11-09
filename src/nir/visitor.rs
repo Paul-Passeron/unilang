@@ -1079,6 +1079,7 @@ impl<'ctx> NirVisitor<'ctx> {
                 let path = self.ctx.include_resolver.get_path(v);
 
                 if path.is_none() {
+                    println!("PATHS IS NONE");
                     return Err(NirError {
                         span: *item.loc(),
                         error: NirErrorKind::UnresolvedInclude,

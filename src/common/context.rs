@@ -104,7 +104,8 @@ impl GlobalContext {
                 "generic", // CPU
                 "",        // Features
                 OptimizationLevel::Default,
-                RelocMode::Default,
+                RelocMode::PIC, // TODO: might need to detect which is
+                // needed automatically.
                 CodeModel::Default,
             )
             .expect("Failed to create target machine");
@@ -124,7 +125,6 @@ impl GlobalContext {
             .unwrap();
 
         let _ = std::fs::remove_file(Path::new(obj_file.as_str()));
-
         Ok(())
     }
 }

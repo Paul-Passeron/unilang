@@ -1525,7 +1525,6 @@ impl Parser {
         let tok = self.next().unwrap();
         let start = &tok.location.start();
         let e = self.parse_stmt()?;
-        println!("HERE {:?}", e);
         let end = e.loc().end();
         Ok(Ast::new(Stmt::Defer(e), start.span_to(&end)))
     }
