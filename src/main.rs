@@ -1,6 +1,5 @@
 #![feature(formatting_options)]
 #![allow(dead_code)]
-#![feature(let_chains)]
 #![feature(iterator_try_collect)]
 
 use clap::Parser;
@@ -16,7 +15,9 @@ mod ty;
 
 fn main() {
     match GlobalContext::new(Config::parse()).compile() {
-        Err(error) => panic!("{:?}", error),
+        Err(err) => {
+            eprintln!("{:?}", err);
+        }
         _ => (),
     }
 }

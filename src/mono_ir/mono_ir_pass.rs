@@ -427,7 +427,12 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     }
                 } else if matches!(
                     op,
-                    NirBinOpKind::Geq | NirBinOpKind::Leq | NirBinOpKind::Gt | NirBinOpKind::Lt
+                    NirBinOpKind::Geq
+                        | NirBinOpKind::Leq
+                        | NirBinOpKind::Gt
+                        | NirBinOpKind::Lt
+                        | NirBinOpKind::Equ
+                        | NirBinOpKind::Dif
                 ) {
                     self.builder
                         .build_int_compare(
@@ -436,6 +441,8 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                                 NirBinOpKind::Leq => IntPredicate::SLE,
                                 NirBinOpKind::Gt => IntPredicate::SGT,
                                 NirBinOpKind::Lt => IntPredicate::SLT,
+                                NirBinOpKind::Equ => IntPredicate::EQ,
+                                NirBinOpKind::Dif => IntPredicate::NE,
                                 _ => unreachable!(),
                             },
                             lhs_val.into_int_value(),
@@ -452,14 +459,14 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                         NirBinOpKind::Mul => InstructionOpcode::Mul,
                         NirBinOpKind::Div => InstructionOpcode::SDiv,
                         NirBinOpKind::Mod => InstructionOpcode::SRem,
-                        NirBinOpKind::Equ => todo!(),
-                        NirBinOpKind::Dif => todo!(),
                         NirBinOpKind::LOr => todo!(),
                         NirBinOpKind::LAnd => todo!(),
                         NirBinOpKind::BOr => todo!(),
                         NirBinOpKind::BAnd => todo!(),
                         NirBinOpKind::BXor => todo!(),
-                        NirBinOpKind::Geq
+                        NirBinOpKind::Equ
+                        | NirBinOpKind::Dif
+                        | NirBinOpKind::Geq
                         | NirBinOpKind::Leq
                         | NirBinOpKind::Gt
                         | NirBinOpKind::Lt => {
@@ -590,6 +597,13 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                 let ptr = ptr.into_pointer_value();
                 self.builder
                     .build_load(BasicTypeEnum::try_from(ty).unwrap(), ptr, "")
+                    .unwrap()
+                    .as_any_value_enum()
+            }
+            TirExpr::Minus(x) => {
+                let original = self.expressions[&x].into_int_value();
+                self.builder
+                    .build_int_neg(original, "")
                     .unwrap()
                     .as_any_value_enum()
             }

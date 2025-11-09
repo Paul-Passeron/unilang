@@ -65,6 +65,7 @@ pub enum TirExpr {
     StringLiteral(StringLiteral),
     True,
     False,
+    Minus(TirExprId),
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

@@ -392,6 +392,7 @@ impl<'ctx> TirCtx {
                 Ok(self.create_type(ctx, ConcreteType::Ptr(inner)))
             }
             TirExpr::Deref(_ptr_expr) => todo!(),
+            TirExpr::Minus(x) => self.get_type_of_tir_expr(ctx, x),
         }
     }
 
@@ -555,7 +556,13 @@ impl<'ctx> TirCtx {
 
                 Ok(sig.return_ty)
             }
-
+            NirExprKind::Minus(num) => {
+                let ty = self.get_type_of_expr(ctx, *num)?;
+                if !self.is_type_integer(ctx, ty) {
+                    todo!();
+                }
+                Ok(ty)
+            }
             x => todo!("{x:?}"),
         }
     }
@@ -952,6 +959,13 @@ impl<'ctx> TirCtx {
                 // args.insert(0, self_arg);
 
                 Ok(self.create_expr(ctx, TirExpr::Funcall(f_id, args), defer))
+            }
+            NirExprKind::Minus(x) => {
+                let e = self.get_expr_with_type(ctx, *x, ty, defer)?;
+                if !self.is_type_integer(ctx, ty) {
+                    todo!();
+                }
+                Ok(self.create_expr(ctx, TirExpr::Minus(e), defer))
             }
             x => todo!("{x:?}"),
         }
