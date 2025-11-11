@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use crate::{
     common::{
         global_interner::{
-            DefId, ExprId, FunId, ImplBlockId, ItemId, ModuleId, ScopeId, Symbol, TirExprId, TyId,
-            TypeExprId,
+            DefId, ExprId, FunId, FunInterner, ImplBlockId, ItemId, ModuleId, SCId, ScopeId,
+            Symbol, TirExprId, TyId, TypeExprId,
         },
         pass::Pass,
     },
@@ -127,7 +127,7 @@ impl<'ctx> TirCtx {
             )
             .try_collect()?;
 
-        let c = SpecializedClass {
+        let mut c = SpecializedClass {
             original: template,
             name,
             fields,
@@ -146,24 +146,42 @@ impl<'ctx> TirCtx {
 
         self.class_stack.push(sc_id);
         self.methods.insert(ty, HashMap::new());
+
         ctx.with_scope(ScopeKind::Spec(sc_id), |ctx| {
-            {
-                for Method { id: method_id, .. } in &methods {
-                    let method_ast = match ctx.ctx.interner.get_item(*method_id) {
+            for Method { id: method_id, .. } in &methods {
+                if let Some(method_ast) = match ctx.ctx.interner.get_item(*method_id) {
+                    NirItem::Method(ast) => (ast.name != name).then_some(ast.clone()),
+                    _ => unreachable!(),
+                } {
+                    let fun_id = self.concretize_method(ctx, &method_ast)?;
+                    ctx.ctx.interner.get_sc_mut(sc_id).methods.push(fun_id);
+                } else {
+                    let ast = match ctx.ctx.interner.get_item(*method_id) {
                         NirItem::Method(ast) => ast.clone(),
                         _ => unreachable!(),
                     };
-                    self.concretize_method(ctx, &method_ast)?;
+                    let fun_id = self.concretize_constructor(ctx, &ast)?;
+                    ctx.ctx.interner.get_sc_mut(sc_id).constructors.push(fun_id);
                 }
             }
 
-            {
-                for Method { id: method_id, .. } in &methods {
-                    let method_ast = match ctx.ctx.interner.get_item(*method_id) {
+            for (i, Method { id: method_id, .. }) in methods.iter().enumerate() {
+                if let Some(method_ast) = match ctx.ctx.interner.get_item(*method_id) {
+                    NirItem::Method(ast) => (ast.name != name).then_some(ast.clone()),
+                    _ => unreachable!(),
+                } {
+                    self.visit_method(ctx, &method_ast, *method_id)?;
+                } else {
+                    let ast = match ctx.ctx.interner.get_item(*method_id) {
                         NirItem::Method(ast) => ast.clone(),
                         _ => unreachable!(),
                     };
-                    self.visit_method(ctx, &method_ast, *method_id)?;
+                    self.visit_constructor(
+                        ctx,
+                        &ast,
+                        ctx.ctx.interner.get_sc(sc_id).constructors[i],
+                        *method_id,
+                    )?;
                 }
             }
             Ok(())
@@ -238,7 +256,56 @@ impl<'ctx> TirCtx {
             return true;
         }
 
+        if let ConcreteType::SpecializedClass(class_id) = t {
+            let args = match &s {
+                ConcreteType::Tuple(ids) => ids.clone(),
+                _ => vec![src],
+            };
+
+            // get constructors of specialized class
+            // TODO: remove the clone and have cleaner interface with
+            // not everything taking ctx as mut
+            let cons = self.get_matching_constructor(ctx, args, *class_id);
+            return cons.is_ok();
+        }
         todo!("Coerce {:?} into {:?} ?", s, t)
+    }
+
+    pub fn get_matching_constructor(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        args: Vec<TyId>,
+        target: SCId,
+    ) -> Result<FunId, TcError> {
+        // get constructors of specialized class
+        // TODO: remove the clone and have cleaner interface with
+        // not everything taking ctx as mut
+        let c = ctx.ctx.interner.get_sc(target).clone();
+        println!("Constructors: {:?}", c.constructors);
+        println!("Methods: {:?}", c.methods);
+        let cons = c
+            .constructors
+            .iter()
+            .find(|cons| {
+                let fun_proto = ctx.ctx.interner.get_fun(**cons).clone();
+                if fun_proto.params.len() != args.len() + 1 {
+                    return false;
+                }
+                println!("FUN PROTO !");
+                for (dst, src) in fun_proto.params.iter().skip(1).zip(args.iter()) {
+                    let dst = self.visit_type(ctx, dst.ty).unwrap();
+                    if !self.type_is_coercible(ctx, *src, dst) {
+                        return false;
+                    }
+                }
+                return true;
+            })
+            .copied();
+        if cons.is_none() {
+            Err(TcError::Text("No viable constructor found for arg list"))
+        } else {
+            Ok(cons.unwrap())
+        }
     }
 
     pub fn create_expr(&mut self, ctx: &mut TyCtx<'ctx>, expr: TirExpr, defer: bool) -> TirExprId {
@@ -562,6 +629,16 @@ impl<'ctx> TirCtx {
                     todo!();
                 }
                 Ok(ty)
+            }
+            NirExprKind::As { ty, expr } => {
+                let target_te = ctx.visit_type(ty)?;
+                let target = self.visit_type(ctx, target_te)?;
+                let expr_ty = self.get_type_of_expr(ctx, *expr)?;
+                if self.type_is_coercible(ctx, expr_ty, target) {
+                    Ok(target)
+                } else {
+                    Err(TcError::Text("Types are not coercible for @as directive"))
+                }
             }
             x => todo!("{x:?}"),
         }
@@ -998,7 +1075,7 @@ impl<'ctx> TirCtx {
                     }
                 }
                 TypeReceiver::Object(t) => {
-                    let inner = Self::inner_ptr_ty(ctx, t).unwrap();
+                    let inner = Self::inner_ptr_ty(ctx, t).unwrap_or(t);
                     let methods = &self.methods[&inner].clone();
                     if !methods.contains_key(&called.called) {
                         if let Some(inner_inner) = Self::inner_ptr_ty(ctx, inner) {
@@ -1441,11 +1518,73 @@ impl<'ctx> TirCtx {
         res
     }
 
+    pub fn concretize_constructor(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        input: &NirMethod,
+    ) -> Result<FunId, TcError> {
+        let current_class = self.class_stack.last().unwrap();
+        let self_ty = self.create_type(ctx, ConcreteType::SpecializedClass(*current_class));
+        let self_ptr_ty = self.create_type(ctx, ConcreteType::Ptr(self_ty));
+
+        let self_symbol = ctx.ctx.interner.insert_symbol(&"self".to_string());
+
+        let ty = ctx
+            .ctx
+            .interner
+            .insert_type_expr(TypeExpr::Concrete(self_ptr_ty));
+
+        let mut params = vec![TcParam {
+            name: self_symbol,
+            ty: ty,
+        }];
+
+        input.args.iter().try_for_each(|arg| {
+            ctx.visit_type(&arg.ty)
+                .map(|ty| params.push(TcParam { name: arg.name, ty }))
+        })?;
+
+        let return_ty = ctx
+            .ctx
+            .interner
+            .insert_type_expr(TypeExpr::Primitive(PrimitiveTy::Void));
+
+        let fun_id = ctx.ctx.interner.insert_fun(TcFunProto {
+            name: input.name,
+            params,
+            return_ty,
+            variadic: false,
+        });
+
+        let return_ty = self.visit_type(ctx, return_ty)?;
+        let fun = ctx.ctx.interner.get_fun(fun_id).clone();
+
+        let params = fun
+            .params
+            .iter()
+            .map(|param| {
+                self.visit_type(ctx, param.ty).map(|ty| SCField {
+                    name: param.name,
+                    ty,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let sig = Signature {
+            name: fun.name,
+            params,
+            return_ty,
+            variadic: fun.variadic,
+        };
+
+        self.protos.insert(fun_id, sig);
+        Ok(fun_id)
+    }
+
     pub fn concretize_method(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         input: &NirMethod,
-    ) -> Result<(), TcError> {
+    ) -> Result<FunId, TcError> {
         let current_class = self.class_stack.last().unwrap();
         let self_ty = self.create_type(ctx, ConcreteType::SpecializedClass(*current_class));
         let self_ptr_ty = self.create_type(ctx, ConcreteType::Ptr(self_ty));
@@ -1508,7 +1647,71 @@ impl<'ctx> TirCtx {
         };
 
         self.protos.insert(fun_id, sig);
-        Ok(())
+        Ok(fun_id)
+    }
+
+    pub fn visit_constructor(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        input: &NirMethod,
+        fun_id: FunId,
+        item: ItemId,
+    ) -> Result<(), TcError> {
+        let current_class = self.class_stack.last().unwrap();
+        let self_ty = self.create_type(ctx, ConcreteType::SpecializedClass(*current_class));
+        let self_ptr_ty = self.create_type(ctx, ConcreteType::Ptr(self_ty));
+
+        let self_symbol = ctx.ctx.interner.insert_symbol(&"self".to_string());
+
+        let res = ctx.with_scope(ScopeKind::Function(fun_id, item, vec![]), |ctx| {
+            if input.body.is_some() {
+                // Self parameter
+                {
+                    let self_var_id = ctx.ctx.interner.insert_variable(VarDecl {
+                        name: self_symbol,
+                        ty: self_ptr_ty,
+                    });
+                    ctx.push_instr(TirInstr::VarDecl(self_var_id), false);
+                    let self_value = self.create_expr(ctx, TirExpr::Arg(0), false);
+                    ctx.push_instr(TirInstr::VarAssign(self_var_id, self_value), false);
+                    let self_def = ctx.ctx.interner.insert_def(Definition::Var(self_var_id));
+                    ctx.push_def(self_symbol, self_def);
+                }
+
+                // Other parameters
+                {
+                    input
+                        .args
+                        .clone()
+                        .iter()
+                        .enumerate()
+                        .try_for_each(|(i, param)| {
+                            let ty_id = ctx.visit_type(&param.ty)?;
+                            let concrete_ty = self.visit_type(ctx, ty_id)?;
+
+                            let var_id = ctx.ctx.interner.insert_variable(VarDecl {
+                                name: param.name,
+                                ty: concrete_ty,
+                            });
+                            ctx.push_instr(TirInstr::VarDecl(var_id), false);
+                            // Offset by 1 because of `self` parameter
+                            let e = self.create_expr(ctx, TirExpr::Arg(i + 1), false);
+                            ctx.push_instr(TirInstr::VarAssign(var_id, e), false);
+                            let def = ctx.ctx.interner.insert_def(Definition::Var(var_id));
+                            ctx.push_def(param.name, def);
+                            Ok(())
+                        })?;
+                }
+            }
+
+            input.body.as_ref().iter().try_for_each(|body| {
+                body.iter()
+                    .try_for_each(|stmt| self.visit_stmt(ctx, stmt, false))
+            })
+        })?;
+        ctx.flush_deferred();
+
+        Ok(res)
     }
 
     pub fn visit_method(

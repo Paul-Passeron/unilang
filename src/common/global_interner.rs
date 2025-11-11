@@ -270,10 +270,10 @@ impl GlobalInterner {
     pub fn get_unresolved_mut(&mut self, id: UnresolvedId) -> &mut Unresolved {
         self.unresolved.get_mut(id)
     }
-    pub fn get_conc_type_mut(&mut self, id: TyId) -> &ConcreteType {
+    pub fn get_conc_type_mut(&mut self, id: TyId) -> &mut ConcreteType {
         self.conc_type.get_mut(id)
     }
-    pub fn get_sc_mut(&mut self, id: SCId) -> &SpecializedClass {
+    pub fn get_sc_mut(&mut self, id: SCId) -> &mut SpecializedClass {
         self.sc.get_mut(id)
     }
 

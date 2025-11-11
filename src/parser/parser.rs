@@ -1643,30 +1643,4 @@ impl Parser {
         }
         Ok(Program(res))
     }
-
-    //     pub fn parse_file(fm: &mut FileManager, file_path: &Path) -> Result<Program, ParseError> {
-    //         let file = fm.add_file(file_path.to_path_buf());
-    //         let source = fm.get_file(file);
-    //         let mut lexer = Lexer::new(source, get_token_rules(), get_skip_rules());
-    //         let mut tokens = Vec::new();
-    //         while !lexer.is_done() {
-    //             let tok = lexer.next();
-    //             if tok.is_err() {
-    //                 let err = tok.err().unwrap();
-    //                 if err.message == "EOF" {
-    //                     break;
-    //                 }
-    //                 let l = err.location.span_to(err.location.clone());
-    //                 return Err(ParseError {
-    //                     kind: (ParseErrKind::LexerError(err.message), ParseErrLevel::Abort),
-    //                     span: l,
-    //                 });
-    //             }
-    //             let tok = tok.ok().unwrap();
-    //             tokens.push(tok);
-    //         }
-
-    //         let mut parser = Parser::new(Rc::from(&tokens[..]));
-    //         parser.parse_program()
-    //   }
 }
