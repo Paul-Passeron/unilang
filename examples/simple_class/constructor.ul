@@ -11,7 +11,7 @@ class A => {
     public x: int;
     public A() => {
         self::x => 2;
-        printf("Hello from constructor\n");
+        printf("Hello from constructor with no args\n");
     }
 
     public A(b: B) => {
@@ -25,10 +25,9 @@ class A => {
 }
 
 let main(): int => {
-    printf("Hello, World from constructor example !\n");
     let a1 => @as A();
     let a2 => @as A(69);
-    let a3 => @as A(@as B());
+    let a3 => @as A @as B();
     printf("a1::x = %d\n", a1::x);
     printf("a2::x = %d\n", a2::x);
     printf("a3::x = %d\n", a3::x);

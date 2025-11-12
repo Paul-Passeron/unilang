@@ -1,0 +1,17 @@
+@include std::io
+@include std::alloc
+
+class <T> Box => {
+    public data: T*;
+
+    public Box(x: T) => {
+        self::data => malloc(@size T);
+        *(self::data) => x;
+    }
+}
+
+let main(): int => {
+    let b => @as Box<int>(10);
+    printf("%d\n", *b::data);
+    return 0;
+}
