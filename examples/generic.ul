@@ -8,10 +8,24 @@ class <T> Box => {
         self::data => malloc(@size T);
         *(self::data) => x;
     }
+
+    public set(x: T): void => {
+        *(self::data) => x;
+    }
 }
 
 let main(): int => {
     let b => @as Box<int>(10);
     printf("%d\n", *b::data);
+    printf("%p\n", b::data);
+
+    let b2 => @as Box<int>(10);
+    printf("%d\n", *b2::data);
+    printf("%p\n", b2::data);
+
+    b2::set(3543);
+    printf("%d\n", *b2::data);
+    printf("%p\n", b2::data);
+
     return 0;
 }
