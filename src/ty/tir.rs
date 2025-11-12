@@ -66,6 +66,9 @@ pub enum TirExpr {
     True,
     False,
     Minus(TirExprId),
+
+    // Allocates a ptr to TyId
+    Alloca(TyId),
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

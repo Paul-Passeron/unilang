@@ -460,6 +460,7 @@ impl<'ctx> TirCtx {
             }
             TirExpr::Deref(_ptr_expr) => todo!(),
             TirExpr::Minus(x) => self.get_type_of_tir_expr(ctx, x),
+            TirExpr::Alloca(ty) => Ok(self.create_type(ctx, ConcreteType::Ptr(ty))),
         }
     }
 
@@ -1043,6 +1044,71 @@ impl<'ctx> TirCtx {
                     todo!();
                 }
                 Ok(self.create_expr(ctx, TirExpr::Minus(e), defer))
+            }
+            NirExprKind::As {
+                ty: as_ty,
+                expr: inner_expr,
+            } => {
+                let te = ctx.visit_type(as_ty)?;
+                let src = self.visit_type(ctx, te)?;
+                if src != ty {
+                    todo!("Recast @as expr")
+                }
+
+                let nir = ctx.ctx.interner.get_expr(*inner_expr).clone();
+
+                let args = match &nir.kind {
+                    NirExprKind::Tuple(ids) => ids
+                        .iter()
+                        .map(|x| self.get_type_of_expr(ctx, *x))
+                        .collect::<Result<Vec<_>, _>>()?,
+                    _ => vec![self.get_type_of_expr(ctx, *inner_expr)?],
+                };
+
+                if !matches!(
+                    ctx.ctx.interner.get_conc_type(src),
+                    ConcreteType::SpecializedClass(_)
+                ) {
+                    return self.get_expr_with_type(ctx, *inner_expr, src, defer);
+                }
+
+                let sc_id = match ctx.ctx.interner.get_conc_type(src) {
+                    ConcreteType::SpecializedClass(id) => *id,
+                    _ => {
+                        return self.get_expr_with_type(ctx, *inner_expr, src, defer);
+                    }
+                };
+
+                let cons = self.get_matching_constructor(ctx, args, sc_id)?;
+                let ptr = self.create_expr(ctx, TirExpr::Alloca(src), defer);
+                let mut args = vec![ptr];
+
+                match nir.kind {
+                    NirExprKind::Tuple(ids) => ids
+                        .iter()
+                        .enumerate()
+                        .map(|(i, x)| {
+                            let fun = ctx.ctx.interner.get_fun(cons);
+                            let ty = fun.params[i + 1].ty;
+                            let ty = self.visit_type(ctx, ty)?;
+                            self.get_expr_with_type(ctx, *x, ty, defer)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                    _ => {
+                        let fun = ctx.ctx.interner.get_fun(cons);
+                        let ty = fun.params[1].ty;
+                        let ty = self.visit_type(ctx, ty)?;
+                        vec![self.get_expr_with_type(ctx, *inner_expr, ty, defer)?]
+                    }
+                }
+                .into_iter()
+                .for_each(|x| args.push(x));
+
+                // call the constructor
+                self.create_expr(ctx, TirExpr::Funcall(cons, args), defer);
+
+                // return the loaded ptr
+                Ok(self.create_expr(ctx, TirExpr::Deref(ptr), defer))
             }
             x => todo!("{x:?}"),
         }

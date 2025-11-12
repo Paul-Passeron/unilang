@@ -1,18 +1,36 @@
 @include std::io
 
+class B => {
+    public y: int;
+    public B() => {
+        self::y => 420;
+    }
+}
+
 class A => {
     public x: int;
     public A() => {
         self::x => 2;
-        printf("Hello from constructor");
+        printf("Hello from constructor\n");
     }
-    public methods(): void => {
-        printf("Hello from methods");
+
+    public A(b: B) => {
+        printf("Hello from constructor with B !\n");
+        self::x => b::y;
+    }
+    public A(x: int) => {
+        self::x => x;
+        printf("Hello from constructor with one arg !\n");
     }
 }
 
 let main(): int => {
     printf("Hello, World from constructor example !\n");
-    let a => @as A();
+    let a1 => @as A();
+    let a2 => @as A(69);
+    let a3 => @as A(@as B());
+    printf("a1::x = %d\n", a1::x);
+    printf("a2::x = %d\n", a2::x);
+    printf("a3::x = %d\n", a3::x);
     return 0;
 }

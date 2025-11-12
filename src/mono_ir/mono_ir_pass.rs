@@ -607,6 +607,13 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     .unwrap()
                     .as_any_value_enum()
             }
+            TirExpr::Alloca(ty) => {
+                let ty = self.get_mono_ty(ctx, ty);
+                self.builder
+                    .build_alloca(BasicTypeEnum::try_from(ty).unwrap(), "")
+                    .unwrap()
+                    .as_any_value_enum()
+            }
         };
         println!("Inserting {:?}", expr);
         self.expressions.insert(expr, res.clone());
