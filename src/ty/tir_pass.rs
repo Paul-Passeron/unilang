@@ -1106,6 +1106,10 @@ impl<'ctx> TirCtx {
                 let mut params = sig
                     .params
                     .iter()
+                    .skip(match self_arg {
+                        None => 0,
+                        Some(_) => 1,
+                    })
                     .map(|x| Some(x.clone()))
                     .collect::<Vec<_>>();
                 for _ in params.len()..args.len() {
