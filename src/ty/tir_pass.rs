@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use crate::{
     common::{
         global_interner::{
-            DefId, ExprId, FunId, FunInterner, ImplBlockId, ItemId, ModuleId, SCId, ScopeId,
-            Symbol, TirExprId, TyId, TypeExprId,
+            DefId, ExprId, FunId, ImplBlockId, ItemId, ModuleId, SCId, ScopeId, Symbol, TirExprId,
+            TyId, TypeExprId,
         },
         pass::Pass,
     },
@@ -84,11 +84,12 @@ impl<'ctx> TirCtx {
         template: DefId,
         args: &Vec<TypeExprId>,
     ) -> Result<TyId, TcError> {
-        assert!(args.len() == 0);
-
         let spec_info = SpecInfo {
             def: template,
-            args: vec![],
+            args: args
+                .iter()
+                .map(|x| self.visit_type(ctx, *x))
+                .collect::<Result<Vec<_>, _>>()?,
         };
 
         if self.specs.contains_key(&spec_info) {
@@ -112,42 +113,54 @@ impl<'ctx> TirCtx {
 
         assert!(templates.len() == args.len());
 
-        let fields = members
-            .into_iter()
-            .map(
-                |ClassMember {
-                     name: field_name,
-                     ty,
-                 }| {
-                    self.visit_type(ctx, ty).map(|ty| SCField {
-                        name: field_name,
-                        ty,
-                    })
-                },
-            )
-            .try_collect()?;
-
-        let mut c = SpecializedClass {
+        println!("Templates: {args:?}");
+        let c = SpecializedClass {
             original: template,
             name,
-            fields,
-            templates: vec![],
+            fields: vec![],
+            templates: spec_info.args.clone(),
             constructors: vec![],
             methods: vec![],
         };
 
         let sc_id = ctx.ctx.interner.insert_sc(c);
 
-        let ty = self.create_type(ctx, ConcreteType::SpecializedClass(sc_id));
+        let ty = ctx.with_scope(ScopeKind::Spec(sc_id), |ctx| {
+            for (i, arg) in spec_info.args.iter().enumerate() {
+                println!(
+                    "Pushing template param {i:} with name {:?}",
+                    templates[i].name
+                );
+                let te = ctx.ctx.interner.insert_type_expr(TypeExpr::Concrete(*arg));
+                let def_id = ctx.ctx.interner.insert_def(Definition::Type(te));
+                ctx.push_def(templates[i].name, def_id);
+            }
 
-        self.specs.insert(spec_info, ty);
+            let fields = members
+                .into_iter()
+                .map(
+                    |ClassMember {
+                         name: field_name,
+                         ty,
+                     }| {
+                        self.visit_type(ctx, ty).map(|ty| SCField {
+                            name: field_name,
+                            ty,
+                        })
+                    },
+                )
+                .try_collect()?;
+            ctx.ctx.interner.get_sc_mut(sc_id).fields = fields;
 
-        assert!(self.impls.len() == 0);
+            let ty = self.create_type(ctx, ConcreteType::SpecializedClass(sc_id));
 
-        self.class_stack.push(sc_id);
-        self.methods.insert(ty, HashMap::new());
+            self.specs.insert(spec_info, ty);
 
-        ctx.with_scope(ScopeKind::Spec(sc_id), |ctx| {
+            assert!(self.impls.len() == 0);
+
+            self.class_stack.push(sc_id);
+            self.methods.insert(ty, HashMap::new());
+
             for Method { id: method_id, .. } in &methods {
                 if let Some(method_ast) = match ctx.ctx.interner.get_item(*method_id) {
                     NirItem::Method(ast) => (ast.name != name).then_some(ast.clone()),
@@ -184,7 +197,7 @@ impl<'ctx> TirCtx {
                     )?;
                 }
             }
-            Ok(())
+            Ok(ty)
         })?;
 
         self.class_stack.pop();
@@ -192,10 +205,35 @@ impl<'ctx> TirCtx {
         Ok(ty)
     }
 
+    pub fn get_templates(&mut self, ctx: &mut TyCtx<'ctx>) -> Result<Vec<TyId>, TcError> {
+        fn get_templates_in_scope<'ctx>(ctx: &mut TyCtx<'ctx>, id: ScopeId) -> Option<Vec<TyId>> {
+            let scope = ctx.get_scope(id);
+            match &scope.kind {
+                ScopeKind::Spec(_) => {
+                    todo!()
+                }
+                _ => (),
+            }
+            if let Some(parent) = scope.parent {
+                get_templates_in_scope(ctx, parent)
+            } else {
+                None
+            }
+        }
+        get_templates_in_scope(ctx, ctx.current_scope).ok_or_else(|| todo!())
+    }
+
     pub fn visit_type(&mut self, ctx: &mut TyCtx<'ctx>, ty: TypeExprId) -> Result<TyId, TcError> {
         let te = ctx.ctx.interner.get_type_expr(ty).clone();
         match &te {
-            TypeExpr::Template(_) => todo!(),
+            TypeExpr::Template(name) => {
+                let d = ctx.get_symbol_def(*name).ok_or_else(|| todo!())?;
+                let def = ctx.ctx.interner.get_def(d);
+                match &def {
+                    Definition::Type(id) => self.visit_type(ctx, *id),
+                    _ => Err(todo!()),
+                }
+            }
             TypeExpr::Associated(_) => todo!(),
             TypeExpr::Instantiation { template, args } => self.instantiate(ctx, *template, args),
             TypeExpr::Ptr(id) => {
@@ -302,7 +340,9 @@ impl<'ctx> TirCtx {
             })
             .copied();
         if cons.is_none() {
-            Err(TcError::Text("No viable constructor found for arg list"))
+            Err(TcError::Text(format!(
+                "No viable constructor found for arg list"
+            )))
         } else {
             Ok(cons.unwrap())
         }
@@ -431,12 +471,14 @@ impl<'ctx> TirCtx {
                         .fields
                         .iter()
                         .find(|elem| elem.name == field_name)
-                        .ok_or(TcError::Text("Field named ??? not found in class ???"))?;
+                        .ok_or(TcError::Text(format!(
+                            "Field named ??? not found in class ???"
+                        )))?;
                     Ok(self.create_type(ctx, ConcreteType::Ptr(field.ty)))
                 } else {
-                    return Err(TcError::Text(
+                    return Err(TcError::Text(format!(
                         "No named field in non-class type (get_type_of_tir_expr)",
-                    ));
+                    )));
                 }
             }
             TirExpr::PtrAccess(expr, FieldAccessKind::Index(i)) => {
@@ -447,11 +489,11 @@ impl<'ctx> TirCtx {
                 }
                 if let ConcreteType::Tuple(ids) = ty {
                     if ids.len() <= i as usize {
-                        return Err(TcError::Text("Tuple access out of range"));
+                        return Err(TcError::Text(format!("Tuple access out of range")));
                     }
                     Ok(self.create_type(ctx, ConcreteType::Ptr(ids[i as usize])))
                 } else {
-                    return Err(TcError::Text("No index field in non-tuple type"));
+                    return Err(TcError::Text(format!("No index field in non-tuple type")));
                 }
             }
             TirExpr::VarPtr(id) => {
@@ -473,15 +515,35 @@ impl<'ctx> TirCtx {
         let t = ctx.ctx.interner.get_conc_type(ty);
 
         match access {
-            FieldAccessKind::Symbol(_) => todo!(),
+            FieldAccessKind::Symbol(name) => {
+                let mut ty = ctx.ctx.interner.get_conc_type(ty);
+                if let ConcreteType::Ptr(inner) = ty {
+                    ty = ctx.ctx.interner.get_conc_type(*inner);
+                };
+                if let ConcreteType::SpecializedClass(sc_id) = ty {
+                    let sc = ctx.ctx.interner.get_sc(*sc_id);
+                    for f in &sc.fields {
+                        if f.name == *name {
+                            return Ok(f.ty);
+                        }
+                    }
+                    return Err(TcError::Text(format!(
+                        "Field named ??? not found in class ???"
+                    )));
+                } else {
+                    return Err(TcError::Text(format!(
+                        "No named field in non-class type (get-access)",
+                    )));
+                }
+            }
             FieldAccessKind::Index(i) => {
                 if let ConcreteType::Tuple(tys) = t {
                     if tys.len() < *i as usize {
-                        return Err(TcError::Text("Tuple access out of range"));
+                        return Err(TcError::Text(format!("Tuple access out of range")));
                     }
                     Ok(tys[*i as usize])
                 } else {
-                    return Err(TcError::Text("No integer field in non-tuple type"));
+                    return Err(TcError::Text(format!("No integer field in non-tuple type")));
                 }
             }
         }
@@ -551,21 +613,25 @@ impl<'ctx> TirCtx {
                                     return Ok(f.ty);
                                 }
                             }
-                            return Err(TcError::Text("Field named ??? not found in class ???"));
+                            return Err(TcError::Text(format!(
+                                "Field named ??? not found in class ???"
+                            )));
                         } else {
-                            return Err(TcError::Text(
+                            return Err(TcError::Text(format!(
                                 "No named field in non-class type (get_type_of_expr)",
-                            ));
+                            )));
                         }
                     }
                     FieldAccessKind::Index(i) => {
                         if let ConcreteType::Tuple(tys) = ty {
                             if tys.len() < i as usize {
-                                return Err(TcError::Text("Tuple access out of range"));
+                                return Err(TcError::Text(format!("Tuple access out of range")));
                             }
                             Ok(tys[i as usize])
                         } else {
-                            return Err(TcError::Text("No integer field in non-tuple type"));
+                            return Err(TcError::Text(format!(
+                                "No integer field in non-tuple type"
+                            )));
                         }
                     }
                 }
@@ -575,7 +641,9 @@ impl<'ctx> TirCtx {
                 let rt = self.get_type_of_expr(ctx, *right)?;
 
                 if !self.is_type_integer(ctx, lt) || !self.is_type_integer(ctx, rt) {
-                    return Err(TcError::Text("Cannot use binop with non-integer types"));
+                    return Err(TcError::Text(format!(
+                        "Cannot use binop with non-integer types"
+                    )));
                 }
 
                 if self.is_type_ptr(ctx, lt) {
@@ -619,7 +687,7 @@ impl<'ctx> TirCtx {
                     sig.params.len(),
                     sig.variadic,
                 ) {
-                    return Err(TcError::Text("Arg len mismatch in function call"));
+                    return Err(TcError::Text(format!("Arg len mismatch in function call")));
                 }
 
                 Ok(sig.return_ty)
@@ -638,7 +706,25 @@ impl<'ctx> TirCtx {
                 if self.type_is_coercible(ctx, expr_ty, target) {
                     Ok(target)
                 } else {
-                    Err(TcError::Text("Types are not coercible for @as directive"))
+                    Err(dbg!(TcError::Text(format!(
+                        "Types are not coercible for @as directive"
+                    ))))
+                }
+            }
+            NirExprKind::SizeOf(_) => {
+                Ok(self.create_type(ctx, ConcreteType::Primitive(PrimitiveTy::U64)))
+            }
+            NirExprKind::Deref(e) => {
+                let t = self.get_type_of_expr(ctx, *e)?;
+                if self.is_type_ptr(ctx, t) {
+                    match ctx.ctx.interner.get_conc_type(t) {
+                        ConcreteType::Ptr(ty) => Ok(*ty),
+                        _ => unreachable!(),
+                    }
+                } else {
+                    Err(TcError::Text(format!(
+                        "Cannot dereference non-pointer type !"
+                    )))
                 }
             }
             x => todo!("{x:?}"),
@@ -830,7 +916,10 @@ impl<'ctx> TirCtx {
     ) -> Result<TirExprId, TcError> {
         let expr_ty = self.get_type_of_expr(ctx, expr)?;
         if !self.type_is_coercible(ctx, expr_ty, ty) {
-            return Err(TcError::Text("Types are not coercible !"));
+            return Err(dbg!(TcError::Text(format!(
+                "Types are not coercible ! {:?} {:?}",
+                expr_ty, ty
+            ))));
         }
         let expr = ctx.ctx.interner.get_expr(expr).clone();
         let t = ctx.ctx.interner.get_conc_type(ty);
@@ -908,19 +997,19 @@ impl<'ctx> TirCtx {
                         return Ok(self.create_expr(ctx, TirExpr::VarExpr(var_id), defer));
                     }
                     if !self.type_is_coercible(ctx, var.ty, ty) {
-                        return Err(TcError::Text("Types are not coercible !"));
+                        return Err(dbg!(TcError::Text(format!("Types are not coercible !"))));
                     }
                     if self.is_type_integer(ctx, var.ty) && self.is_type_integer(ctx, ty) {
                         let var_expr = self.create_expr(ctx, TirExpr::VarExpr(var_id), defer);
                         return Ok(self.create_expr(ctx, TirExpr::IntCast(ty, var_expr), defer));
                     }
                 }
-                return Err(TcError::Text("Coerce non integer types !"));
+                return Err(TcError::Text(format!("Coerce non integer types !")));
             }
             NirExprKind::Tuple(exprs) => {
                 if let ConcreteType::Tuple(types) = t {
                     if exprs.len() != types.len() {
-                        return Err(TcError::Text("Coerce tuple to tuple of != size"));
+                        return Err(TcError::Text(format!("Coerce tuple to tuple of != size")));
                     }
 
                     let tuple = TirExpr::Tuple(
@@ -933,7 +1022,7 @@ impl<'ctx> TirCtx {
                     );
                     Ok(self.create_expr(ctx, tuple, defer))
                 } else {
-                    return Err(TcError::Text("Coerce tuple into non tuple"));
+                    return Err(TcError::Text(format!("Coerce tuple into non tuple")));
                 }
             }
             NirExprKind::Access { from, field } => {
@@ -944,7 +1033,9 @@ impl<'ctx> TirCtx {
                 let lt = self.get_type_of_expr(ctx, *left)?;
                 let rt = self.get_type_of_expr(ctx, *right)?;
                 if !self.is_type_integer(ctx, lt) || !self.is_type_integer(ctx, rt) {
-                    return Err(TcError::Text("Cannot use binop with non-integer types"));
+                    return Err(TcError::Text(format!(
+                        "Cannot use binop with non-integer types"
+                    )));
                 }
                 let lt_size = self.get_type_size(ctx, lt);
                 let rt_size = self.get_type_size(ctx, rt);
@@ -1009,7 +1100,7 @@ impl<'ctx> TirCtx {
                     sig.params.len(),
                     sig.variadic,
                 ) {
-                    return Err(TcError::Text("Arg len mismatch in function call"));
+                    return Err(TcError::Text(format!("Arg len mismatch in function call")));
                 }
 
                 let mut params = sig
@@ -1110,6 +1201,22 @@ impl<'ctx> TirCtx {
                 // return the loaded ptr
                 Ok(self.create_expr(ctx, TirExpr::Deref(ptr), defer))
             }
+            NirExprKind::SizeOf(ty) => {
+                let te = ctx.visit_type(ty)?;
+                let ty = self.visit_type(ctx, te)?;
+                let size = self.get_type_size(ctx, ty);
+
+                Ok(self.create_expr(
+                    ctx,
+                    TirExpr::TypedIntLit(TypedIntLit::U64(size as u64)),
+                    defer,
+                ))
+            }
+            NirExprKind::Deref(x) => {
+                let ptr = self.get_expr(ctx, *x, defer)?;
+                // TODO: coerce types maybe
+                Ok(self.create_expr(ctx, TirExpr::Deref(ptr), defer))
+            }
             x => todo!("{x:?}"),
         }
     }
@@ -1127,7 +1234,7 @@ impl<'ctx> TirCtx {
                     let s = m.scope;
                     let def_id = ctx.get_symbol_def_in_scope(s, called.called);
                     if def_id.is_none() {
-                        return Err(TcError::Text("No such function in module"));
+                        return Err(TcError::Text(format!("No such function in module")));
                     }
                     let def_id = def_id.unwrap();
                     let def = ctx.ctx.interner.get_def(def_id);
@@ -1136,7 +1243,7 @@ impl<'ctx> TirCtx {
                             return Ok((*fun_id, None));
                         }
                         _ => {
-                            return Err(TcError::Text("No such function in module"));
+                            return Err(TcError::Text(format!("No such function in module")));
                         }
                     }
                 }
@@ -1150,9 +1257,10 @@ impl<'ctx> TirCtx {
                                 return Ok((methods[&called.called], Some(t)));
                             }
                         }
-                        return Err(TcError::Text(
-                            "No method named ??? in class ??? (get_expr_with_type)",
-                        ));
+                        return Err(TcError::Text(format!(
+                            "No method named {:?} in class {:?}",
+                            called.called, inner
+                        )));
                     }
                     return Ok((methods[&called.called], Some(t)));
                 }
@@ -1175,7 +1283,10 @@ impl<'ctx> TirCtx {
                     let s = m.scope;
                     let def_id = ctx.get_symbol_def_in_scope(s, called.called);
                     if def_id.is_none() {
-                        return Err(TcError::Text("No such function in module"));
+                        return Err(TcError::Text(format!(
+                            "No such function {:?} in module",
+                            called.called
+                        )));
                     }
                     let def_id = def_id.unwrap();
                     let def = ctx.ctx.interner.get_def(def_id);
@@ -1184,7 +1295,10 @@ impl<'ctx> TirCtx {
                             return Ok((*fun_id, None));
                         }
                         _ => {
-                            return Err(TcError::Text("No such function in module"));
+                            return Err(TcError::Text(format!(
+                                "No such function {:?} in module {:?}",
+                                called.called, m.name
+                            )));
                         }
                     }
                 }
@@ -1199,9 +1313,10 @@ impl<'ctx> TirCtx {
                                 return Ok((methods[&called.called], Some(x)));
                             }
                         }
-                        return Err(TcError::Text(
-                            "No method named ??? in class ??? (get_expr_with_type)",
-                        ));
+                        return Err(TcError::Text(format!(
+                            "No method {:?} in class {:?} (get_expr_with_type)",
+                            called.called, inner
+                        )));
                     }
                     return Ok((methods[&called.called], Some(x)));
                 }
@@ -1231,11 +1346,14 @@ impl<'ctx> TirCtx {
                             return Ok(self.create_expr(ctx, TirExpr::Access(expr, access), defer));
                         }
                     }
-                    return Err(TcError::Text("Field named ??? not found in class ???"));
+                    return Err(TcError::Text(format!(
+                        "Field named {:?} not found in class {:?}",
+                        name, sc.name
+                    )));
                 } else {
-                    return Err(TcError::Text(
+                    return Err(TcError::Text(format!(
                         "No named field in non-class type (get-access)",
-                    ));
+                    )));
                 }
             }
             FieldAccessKind::Index(i) => {
@@ -1243,11 +1361,11 @@ impl<'ctx> TirCtx {
                 let t = ctx.ctx.interner.get_conc_type(ty);
                 if let ConcreteType::Tuple(tys) = t {
                     if tys.len() <= i as usize {
-                        return Err(TcError::Text("Tuple access out of range"));
+                        return Err(TcError::Text(format!("Tuple access out of range")));
                     }
                     Ok(self.create_expr(ctx, TirExpr::Access(expr, access), defer))
                 } else {
-                    return Err(TcError::Text("No integer field in non-tuple type"));
+                    return Err(TcError::Text(format!("No integer field in non-tuple type")));
                 }
             }
         }
@@ -1303,9 +1421,9 @@ impl<'ctx> TirCtx {
             NirPatternKind::Tuple(nirs) => {
                 let t = ctx.ctx.interner.get_conc_type(ty);
                 if !matches!(t, ConcreteType::Tuple(_)) {
-                    return Err(TcError::Text(
+                    return Err(TcError::Text(format!(
                         "Tried to declare tuple variable with non tuple type",
-                    ));
+                    )));
                 }
 
                 let tys = match t {
@@ -1314,7 +1432,7 @@ impl<'ctx> TirCtx {
                 };
 
                 if tys.len() != nirs.len() {
-                    return Err(TcError::Text("Coerce tuple to tuple of != size"));
+                    return Err(TcError::Text(format!("Coerce tuple to tuple of != size")));
                 }
 
                 nirs.iter()
@@ -1336,9 +1454,9 @@ impl<'ctx> TirCtx {
 
     pub fn visit_let(&mut self, ctx: &mut TyCtx<'ctx>, input: &NirVarDecl) -> Result<(), TcError> {
         if input.ty.is_none() && input.value.is_none() {
-            return Err(TcError::Text(
+            return Err(TcError::Text(format!(
                 "Type inference for variable is not availaible yet",
-            ));
+            )));
         }
 
         let ty = match input.ty.as_ref() {
@@ -1478,7 +1596,7 @@ impl<'ctx> TirCtx {
                 if *name == ctx.ctx.interner.insert_symbol(&"true".to_string())
                     || *name == ctx.ctx.interner.insert_symbol(&"false".to_string())
                 {
-                    return Err(TcError::Text("Invalid LValue"));
+                    return Err(TcError::Text(format!("Invalid LValue")));
                 }
                 let name = name.clone();
                 let def = ctx.get_symbol_def(name);
@@ -1498,6 +1616,11 @@ impl<'ctx> TirCtx {
                 let from_expr = self.get_expr_ptr(ctx, *from, defer)?;
                 let lval = self.create_expr(ctx, TirExpr::PtrAccess(from_expr, field.kind), defer);
                 Ok(lval)
+            }
+            NirExprKind::Deref(e) => {
+                let e = self.get_expr(ctx, *e, defer)?;
+                println!("Type of e is {:?}", self.get_type_of_tir_expr(ctx, e)?);
+                Ok(e)
             }
             _ => todo!(),
         }

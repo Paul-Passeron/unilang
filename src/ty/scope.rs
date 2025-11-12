@@ -20,7 +20,7 @@ pub struct TemplateArgument {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum TypeExpr {
-    Template(usize),
+    Template(Symbol),
     Associated(usize),
     Instantiation {
         template: DefId,

@@ -232,8 +232,10 @@ impl<'ctx, 'a> MonoIRPass<'a> {
         // if self.expressions.contains_key(&expr) {
         //     return self.expressions[&expr].clone();
         // }
-        let e = ctx.ctx.interner.get_te(expr).clone();
-        let res = match e {
+        let original_expr = expr;
+        println!("=======================");
+        let e = ctx.ctx.interner.get_te(dbg!(expr)).clone();
+        let res = match dbg!(e) {
             TirExpr::Arg(i) => {
                 let fun_id = ctx.get_current_fun().unwrap();
                 let (fn_val, _) = self.funs[&fun_id].clone();
@@ -330,8 +332,13 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                                 "",
                             )
                             .unwrap();
+                        let field_ty = self
+                            .tir_ctx
+                            .get_type_of_tir_expr(ctx, original_expr)
+                            .unwrap();
+                        let field_ty = self.get_mono_ty(ctx, field_ty);
                         self.builder
-                            .build_load(inner_ty.into_struct_type(), ptr, "")
+                            .build_load(BasicTypeEnum::try_from(field_ty).unwrap(), ptr, "")
                             .unwrap()
                             .as_any_value_enum()
                     } else {
@@ -761,7 +768,10 @@ impl<'ctx, 'a> MonoIRPass<'a> {
             }
             TirInstr::Assign(ptr, val) => {
                 let ptr = self.expressions[ptr];
+
                 let val = self.expressions[val];
+                println!("Module:{}", self.module.to_string());
+                println!("PTR IS {}", ptr);
                 self.builder
                     .build_store(
                         ptr.into_pointer_value(),

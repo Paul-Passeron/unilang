@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use crate::{
     common::{
         global_interner::{
-            ClassId, DefId, ExprId, ImplBlockId, ItemId, ScopeId, TraitId, TypeExprId, UnresolvedId,
+            ClassId, DefId, ExprId, ImplBlockId, ItemId, ScopeId, Symbol, TraitId, TypeExprId,
+            UnresolvedId,
         },
         pass::Pass,
     },
@@ -353,8 +354,8 @@ impl<'ctx> SurfaceResolution {
     }
 
     fn add_templates_to_scope(ctx: &mut TyCtx<'ctx>, templates: &Vec<TemplateArgument>) {
-        for (i, TemplateArgument { name, .. }) in templates.iter().enumerate() {
-            let te = ctx.ctx.interner.insert_type_expr(TypeExpr::Template(i));
+        for TemplateArgument { name, .. } in templates.iter() {
+            let te = ctx.ctx.interner.insert_type_expr(TypeExpr::Template(*name));
             let def = ctx.ctx.interner.insert_def(Definition::Type(te));
             ctx.push_def(*name, def);
         }
@@ -398,8 +399,8 @@ impl<'ctx> SurfaceResolution {
         Ok(())
     }
 
-    fn get_template_type_expr(ctx: &mut TyCtx<'ctx>, index: usize) -> TypeExprId {
-        ctx.ctx.interner.insert_type_expr(TypeExpr::Template(index))
+    fn get_template_type_expr(ctx: &mut TyCtx<'ctx>, name: Symbol) -> TypeExprId {
+        ctx.ctx.interner.insert_type_expr(TypeExpr::Template(name))
     }
 
     fn visit_trait(
@@ -423,7 +424,7 @@ impl<'ctx> SurfaceResolution {
         ctx.push_def(input.name, def);
 
         ctx.with_scope(ScopeKind::Trait(id, item_id), |ctx| {
-            let type_id = Self::get_template_type_expr(ctx, 0);
+            let type_id = Self::get_template_type_expr(ctx, input.ty.name);
             let def = ctx.ctx.interner.insert_def(Definition::Type(type_id));
             ctx.push_def(input.ty.name, def);
             self.add_methods_to_trait(ctx, id, input)?;
@@ -484,8 +485,11 @@ impl<'ctx> SurfaceResolution {
         let dummy_id = ImplBlockId::new(0);
 
         ctx.with_scope(ScopeKind::Impl(dummy_id, item_id), |ctx| {
-            for (i, t) in templates.iter().enumerate() {
-                let type_id = ctx.ctx.interner.insert_type_expr(TypeExpr::Template(i));
+            for t in templates.iter() {
+                let type_id = ctx
+                    .ctx
+                    .interner
+                    .insert_type_expr(TypeExpr::Template(t.name));
                 let def = ctx.ctx.interner.insert_def(Definition::Type(type_id));
                 ctx.push_def(t.name, def);
             }

@@ -64,7 +64,7 @@ pub enum TcError {
     NameNotFound(Symbol),
     Aggregate(Vec<TcError>),
     BadReturnType(TyId, TyId),
-    Text(&'static str),
+    Text(String),
     NotAModule(ExprId),
 }
 
