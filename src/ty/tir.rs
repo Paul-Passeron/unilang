@@ -150,49 +150,35 @@ impl Signature {
         args: &[TyId],
         has_self: bool,
     ) -> ArgsMatch {
-        print!(
-            "Matching ({}) against ({}): ",
-            self.params
-                .iter()
-                .skip(if has_self { 1 } else { 0 })
-                .map(|x| &x.ty)
-                .to_string(ctx),
-            args.iter().to_string(ctx)
-        );
-        let x = || {
-            let to_skip = if has_self { 1 } else { 0 };
-            let args_len = args.len() + to_skip;
-            if args_len < self.params.len() || (args_len > self.params.len() && !self.variadic) {
+        let to_skip = if has_self { 1 } else { 0 };
+        let args_len = args.len() + to_skip;
+        if args_len < self.params.len() || (args_len > self.params.len() && !self.variadic) {
+            return ArgsMatch::No;
+        }
+
+        let mut casts = Vec::new();
+        let mut perfect = true;
+        for (dst, src) in self
+            .params
+            .iter()
+            .skip(to_skip)
+            .map(|x| x.ty)
+            .zip(args.iter().copied())
+        {
+            if src == dst {
+                casts.push(None)
+            } else if src.is_coercible(tir_ctx, ctx, dst) {
+                perfect = false;
+                casts.push(Some(dst))
+            } else {
                 return ArgsMatch::No;
             }
-
-            let mut casts = Vec::new();
-            let mut perfect = true;
-            for (dst, src) in self
-                .params
-                .iter()
-                .skip(to_skip)
-                .map(|x| x.ty)
-                .zip(args.iter().copied())
-            {
-                if src == dst {
-                    casts.push(None)
-                } else if src.is_coercible(tir_ctx, ctx, dst) {
-                    perfect = false;
-                    casts.push(Some(dst))
-                } else {
-                    return ArgsMatch::No;
-                }
-            }
-            if perfect {
-                ArgsMatch::Perfect
-            } else {
-                ArgsMatch::Casts(casts)
-            }
-        };
-        let res = x();
-        println!("{}", res.to_string(ctx));
-        res
+        }
+        if perfect {
+            ArgsMatch::Perfect
+        } else {
+            ArgsMatch::Casts(casts)
+        }
     }
 }
 

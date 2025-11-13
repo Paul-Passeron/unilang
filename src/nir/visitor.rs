@@ -1079,7 +1079,6 @@ impl<'ctx> NirVisitor<'ctx> {
                 let path = self.ctx.include_resolver.get_path(v);
 
                 if path.is_none() {
-                    println!("PATHS IS NONE");
                     return Err(NirError {
                         span: *item.loc(),
                         error: NirErrorKind::UnresolvedInclude,
@@ -1093,8 +1092,6 @@ impl<'ctx> NirVisitor<'ctx> {
                 }
 
                 let id = self.ctx.file_manager.add_file(&path).unwrap();
-
-                // println!("{:?} => {}", id, path.display());
 
                 let prgm = self.ctx.parse_file(id);
 

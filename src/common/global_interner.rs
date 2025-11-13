@@ -111,9 +111,7 @@ impl GlobalInterner {
         if let Some(res) = self.symbol.contains(value) {
             res
         } else {
-            let res = self.symbol.insert(value.clone());
-            println!("{:?} => {}", res, value);
-            res
+            self.symbol.insert(value.clone())
         }
     }
     pub fn insert_string(&mut self, value: &StrLit) -> StringLiteral {
@@ -133,7 +131,6 @@ impl GlobalInterner {
         self.scope.insert(value)
     }
     pub fn insert_fun(&mut self, value: TcFunProto) -> FunId {
-        println!("Inserting function {}", self.get_symbol(value.name));
         self.fun.insert(value)
     }
     pub fn insert_class(&mut self, value: Class) -> ClassId {
@@ -164,9 +161,7 @@ impl GlobalInterner {
         if let Some(res) = self.conc_type.contains(&value) {
             res
         } else {
-            let res = self.conc_type.insert(value.clone());
-            println!("inserting {:?} as concrete type: {:?}", value, res);
-            res
+            self.conc_type.insert(value.clone())
         }
     }
     pub fn insert_sc(&mut self, value: SpecializedClass) -> SCId {
@@ -373,24 +368,6 @@ impl GlobalInterner {
     }
     pub fn clear_te(&mut self) {
         self.te.clear()
-    }
-
-    pub fn debug_print(&self) {
-        println!("symbol: {} items", self.symbol.len());
-        println!("string: {} items", self.string.len());
-        println!("item: {} items", self.item.len());
-        println!("expr: {} items", self.expr.len());
-        println!("scope: {} items", self.scope.len());
-        println!("fun: {} items", self.fun.len());
-        println!("class: {} items", self.class.len());
-        println!("module: {} items", self.module.len());
-        println!("variable: {} items", self.variable.len());
-        println!("tr: {} items", self.tr.len());
-        println!("type_expr: {} items", self.type_expr.len());
-        println!("imp: {} items", self.imp.len());
-        println!("def: {} items", self.def.len());
-        println!("unresolved: {} items", self.unresolved.len());
-        println!("te: {} items", self.te.len());
     }
 
     pub fn get_symbol_for(&self, value: &String) -> Symbol {

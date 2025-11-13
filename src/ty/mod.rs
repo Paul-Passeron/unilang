@@ -112,7 +112,6 @@ impl<'ctx> TyCtx<'ctx> {
                 .last_mut()
                 .unwrap()
                 .push(instr);
-            println!("{:?}", self.defer_stack);
         } else {
             let scope = self.get_last_scope_mut();
             match &mut scope.kind {
@@ -155,9 +154,6 @@ impl<'ctx> TyCtx<'ctx> {
     }
 
     pub fn push_all_deferred(&mut self) {
-        println!(
-            "------------------------------- Pushing all deferred -------------------------------"
-        );
         let mut stack = self.defer_stack.clone();
         while let Some(mut last) = stack.pop() {
             while let Some(instr_block) = last.pop() {
@@ -166,7 +162,6 @@ impl<'ctx> TyCtx<'ctx> {
                 }
             }
         }
-        println!("------------------------------- END -------------------------------");
     }
 
     pub fn exit_scope(&mut self) {
@@ -272,30 +267,6 @@ impl<'ctx> TyCtx<'ctx> {
 
     fn get_type_string(&self, _ty: &TypeExpr) -> String {
         todo!()
-    }
-
-    pub fn print_error(&mut self, error: &TcError) {
-        print!("[ERROR] ");
-        match error {
-            TcError::NameNotFound(id) => println!(
-                "Name {} was not found in the current context",
-                self.ctx.interner.get_symbol(*id)
-            ),
-            TcError::Aggregate(tc_errors) => {
-                println!("Multiple errors:");
-                for error in tc_errors {
-                    self.print_error(error);
-                }
-            }
-            TcError::BadReturnType(got, expected) => {
-                println!(
-                    "Cannot return type {:?} (expected type {:?})",
-                    got, expected
-                );
-            }
-            TcError::Text(x) => println!("{}", x),
-            TcError::NotAModule(_) => println!("Not a module"),
-        }
     }
 
     pub fn get_last_scope_mut(&mut self) -> &mut Scope {

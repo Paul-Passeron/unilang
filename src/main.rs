@@ -16,9 +16,8 @@ mod ty;
 fn main() {
     match GlobalContext::new(Config::parse()).compile() {
         Err(err) => {
-            eprintln!("{:?}", err);
+            eprintln!("[ERROR]: {:?}", err);
         }
         _ => (),
     }
-    println!("Compilation done !\n");
 }

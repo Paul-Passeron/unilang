@@ -114,7 +114,6 @@ impl<'ctx> TirCtx {
 
         assert!(templates.len() == args.len());
 
-        println!("Templates: {args:?}");
         let c = SpecializedClass {
             original: template,
             name,
@@ -128,10 +127,6 @@ impl<'ctx> TirCtx {
 
         let ty = ctx.with_scope(ScopeKind::Spec(sc_id), |ctx| {
             for (i, arg) in spec_info.args.iter().enumerate() {
-                println!(
-                    "Pushing template param {i:} with name {:?}",
-                    templates[i].name
-                );
                 let te = ctx.ctx.interner.insert_type_expr(TypeExpr::Concrete(*arg));
                 let def_id = ctx.ctx.interner.insert_def(Definition::Type(te));
                 ctx.push_def(templates[i].name, def_id);
@@ -315,7 +310,6 @@ impl<'ctx> TirCtx {
 
     pub fn create_expr(&mut self, ctx: &mut TyCtx<'ctx>, expr: TirExpr, defer: bool) -> TirExprId {
         let e = ctx.ctx.interner.insert_te(expr.clone());
-        println!("{:?} => {:?}", e, expr);
         ctx.push_instr(TirInstr::Calculate(e), defer);
         e
     }
@@ -1432,7 +1426,6 @@ impl<'ctx> TirCtx {
     ) -> Result<(), TcError> {
         match &input.kind {
             NirStmtKind::Return { value } => {
-                println!("------------------------------- RETURN -------------------------------");
                 ctx.push_all_deferred();
 
                 let void_ty = self.get_primitive_type(ctx, PrimitiveTy::Void);
@@ -1569,7 +1562,6 @@ impl<'ctx> TirCtx {
             }
             NirExprKind::Deref(e) => {
                 let e = self.get_expr(ctx, *e, defer)?;
-                println!("Type of e is {:?}", self.get_type_of_tir_expr(ctx, e)?);
                 Ok(e)
             }
             NirExprKind::Subscript { value, index } => {
@@ -1945,16 +1937,6 @@ impl<'ctx> TirCtx {
                 .try_for_each(|stmt| self.visit_stmt(ctx, stmt, false))
         })?;
         ctx.flush_deferred();
-
-        let scope = ctx.get_current_fun_scope().unwrap();
-        match &ctx.ctx.interner.get_scope(scope).kind {
-            ScopeKind::Function(_, _, instrs) => {
-                println!("###################################################################");
-                println!("Instructions: {:#?}", instrs);
-                println!("###################################################################");
-            }
-            _ => (),
-        }
         Ok(res)
     }
 

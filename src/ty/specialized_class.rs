@@ -37,14 +37,7 @@ impl SCId {
 
         constructors
             .clone()
-            .find(|(_, m)| {
-                if matches!(m, ArgsMatch::Perfect) {
-                    println!("Perfect match found");
-                    true
-                } else {
-                    false
-                }
-            })
+            .find(|(_, m)| matches!(m, ArgsMatch::Perfect))
             .map_or_else(
                 || {
                     constructors

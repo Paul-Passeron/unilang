@@ -128,7 +128,6 @@ impl<'ctx> SurfaceResolution {
         }
 
         if ctx.backpatching.len() > 0 {
-            println!("\n\n");
             let mut errors = vec![];
             for (_, id) in ctx.backpatching.clone() {
                 let symb = self.print_unresolved(ctx, id);

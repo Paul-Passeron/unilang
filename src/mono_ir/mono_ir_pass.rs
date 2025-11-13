@@ -48,7 +48,9 @@ impl<'ctx, 'a> Pass<'ctx, ()> for MonoIRPass<'a> {
     fn run(&mut self, ctx: &mut TyCtx<'ctx>, _: ()) -> Result<Self::Output, TcError> {
         self.visit_all_scopes(ctx);
         println!("{}", self.module.print_to_string().to_string());
-        // self.module.verify().unwrap();
+        if let Err(str) = self.module.verify() {
+            eprintln!("[LLVM ERROR]\n{}", str);
+        }
         Ok(())
     }
 }
@@ -229,10 +231,6 @@ impl<'ctx, 'a> MonoIRPass<'a> {
     }
 
     fn calculate(&mut self, ctx: &mut TyCtx<'ctx>, expr: TirExprId) -> AnyValueEnum<'a> {
-        // if self.expressions.contains_key(&expr) {
-        //     return self.expressions[&expr].clone();
-        // }
-        println!("-------------------------------");
         let original_expr = dbg!(expr);
         let e = ctx.ctx.interner.get_te(expr).clone();
         let res = match dbg!(e) {
@@ -644,7 +642,6 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                 ptr.as_any_value_enum()
             }
         };
-        println!("Inserting {:?}", expr);
         self.expressions.insert(expr, res.clone());
         res
     }
@@ -792,8 +789,6 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                 let ptr = self.expressions[ptr];
 
                 let val = self.expressions[val];
-                println!("Module:{}", self.module.to_string());
-                println!("PTR IS {}", ptr);
                 self.builder
                     .build_store(
                         ptr.into_pointer_value(),
