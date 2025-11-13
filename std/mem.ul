@@ -1,0 +1,2 @@
+// void * memcpy( void * destination, const void * source, size_t size );                       // Avant C99
+@extern memcpy(dst: void *, src: void *, size: u64): void *;
