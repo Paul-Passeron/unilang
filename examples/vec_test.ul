@@ -5,8 +5,8 @@ let main(): int => {
     let v => @as Vec<int>();
     printf("Hello, World !\n");
     let i: int => 1;
-    while i <= 10 => {
-        v::append(i * i + 1);
+    while i <= 54654 => {
+        v::append(i);
         i => i + 1;
     }
 

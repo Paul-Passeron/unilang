@@ -39,7 +39,6 @@ class <T> Vec => {
         memcpy(new_items, self::items, self::len * @size T);
         free(self::items);
         self::items => new_items;
-        printf("Done\n");
     }
 
     public len(): u32 => {
