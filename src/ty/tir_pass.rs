@@ -239,8 +239,8 @@ impl<'ctx> TirCtx {
         if src == target {
             return true;
         }
-        let s = ctx.ctx.interner.get_conc_type(src);
-        let t = ctx.ctx.interner.get_conc_type(target);
+        let s = src.as_concrete(ctx);
+        let t = target.as_concrete(ctx);
         if let ConcreteType::Primitive(prim_src) = s
             && let ConcreteType::Primitive(prim_target) = t
         {
@@ -420,9 +420,9 @@ impl<'ctx> TirCtx {
             TirExpr::True | TirExpr::False => Ok(self.get_primitive_type(ctx, PrimitiveTy::Bool)),
             TirExpr::PtrAccess(expr, FieldAccessKind::Symbol(field_name)) => {
                 let t = self.get_type_of_tir_expr(ctx, expr).unwrap();
-                let mut ty = ctx.ctx.interner.get_conc_type(t);
+                let mut ty = t.as_concrete(ctx);
                 if let ConcreteType::Ptr(x) = ty {
-                    ty = ctx.ctx.interner.get_conc_type(*x);
+                    ty = x.as_concrete(ctx);
                 }
                 if let ConcreteType::SpecializedClass(sc_id) = ty {
                     let sc = ctx.ctx.interner.get_sc(*sc_id);
@@ -442,9 +442,9 @@ impl<'ctx> TirCtx {
             }
             TirExpr::PtrAccess(expr, FieldAccessKind::Index(i)) => {
                 let t = self.get_type_of_tir_expr(ctx, expr).unwrap();
-                let mut ty = ctx.ctx.interner.get_conc_type(t);
+                let mut ty = t.as_concrete(ctx);
                 if let ConcreteType::Ptr(x) = ty {
-                    ty = ctx.ctx.interner.get_conc_type(*x);
+                    ty = x.as_concrete(ctx);
                 }
                 if let ConcreteType::Tuple(ids) = ty {
                     if ids.len() <= i as usize {
@@ -472,13 +472,13 @@ impl<'ctx> TirCtx {
         ty: TyId,
         access: &FieldAccessKind,
     ) -> Result<TyId, TcError> {
-        let t = ctx.ctx.interner.get_conc_type(ty);
+        let t = (ty).as_concrete(ctx);
 
         match access {
             FieldAccessKind::Symbol(name) => {
-                let mut ty = ctx.ctx.interner.get_conc_type(ty);
+                let mut ty = (ty).as_concrete(ctx);
                 if let ConcreteType::Ptr(inner) = ty {
-                    ty = ctx.ctx.interner.get_conc_type(*inner);
+                    ty = (*inner).as_concrete(ctx);
                 };
                 if let ConcreteType::SpecializedClass(sc_id) = ty {
                     let sc = ctx.ctx.interner.get_sc(*sc_id);
@@ -561,11 +561,11 @@ impl<'ctx> TirCtx {
             }
             NirExprKind::Access { from, field } => {
                 let t = self.get_type_of_expr(ctx, from.clone())?;
-                let mut ty = ctx.ctx.interner.get_conc_type(t);
+                let mut ty = t.as_concrete(ctx);
                 match field.kind {
                     FieldAccessKind::Symbol(name) => {
                         if let ConcreteType::Ptr(inner) = ty {
-                            ty = ctx.ctx.interner.get_conc_type(*inner);
+                            ty = (*inner).as_concrete(ctx);
                         }
                         if let ConcreteType::SpecializedClass(sc_id) = ty {
                             let sc = ctx.ctx.interner.get_sc(*sc_id);
@@ -678,7 +678,7 @@ impl<'ctx> TirCtx {
             NirExprKind::Deref(e) => {
                 let t = self.get_type_of_expr(ctx, *e)?;
                 if t.as_ptr(ctx).is_some() {
-                    match ctx.ctx.interner.get_conc_type(t) {
+                    match t.as_concrete(ctx) {
                         ConcreteType::Ptr(ty) => Ok(*ty),
                         _ => unreachable!(),
                     }
@@ -697,7 +697,7 @@ impl<'ctx> TirCtx {
                 }
                 let t = self.get_type_of_expr(ctx, *value)?;
                 if t.as_ptr(ctx).is_some() {
-                    match ctx.ctx.interner.get_conc_type(t) {
+                    match t.as_concrete(ctx) {
                         ConcreteType::Ptr(ty) => Ok(*ty),
                         _ => unreachable!(),
                     }
@@ -810,7 +810,7 @@ impl<'ctx> TirCtx {
     }
 
     pub fn get_type_size(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> usize {
-        let t = ctx.ctx.interner.get_conc_type(ty);
+        let t = (ty).as_concrete(ctx);
         let alignement = 4;
         match t {
             ConcreteType::SpecializedClass(_) => todo!(),
@@ -844,7 +844,7 @@ impl<'ctx> TirCtx {
             )));
         }
         let expr = ctx.ctx.interner.get_expr(expr).clone();
-        let t = ctx.ctx.interner.get_conc_type(ty);
+        let t = (ty).as_concrete(ctx);
 
         match &expr.kind {
             NirExprKind::Literal(nir_literal) => match nir_literal {
@@ -1102,14 +1102,11 @@ impl<'ctx> TirCtx {
                     _ => vec![self.get_type_of_expr(ctx, *inner_expr)?],
                 };
 
-                if !matches!(
-                    ctx.ctx.interner.get_conc_type(src),
-                    ConcreteType::SpecializedClass(_)
-                ) {
+                if !matches!((src).as_concrete(ctx), ConcreteType::SpecializedClass(_)) {
                     return self.get_expr_with_type(ctx, *inner_expr, src, defer);
                 }
 
-                let sc_id = match ctx.ctx.interner.get_conc_type(src) {
+                let sc_id = match (src).as_concrete(ctx) {
                     ConcreteType::SpecializedClass(id) => *id,
                     _ => {
                         return self.get_expr_with_type(ctx, *inner_expr, src, defer);
@@ -1295,9 +1292,9 @@ impl<'ctx> TirCtx {
         match access {
             FieldAccessKind::Symbol(name) => {
                 let t = self.get_type_of_tir_expr(ctx, expr)?;
-                let mut ty = ctx.ctx.interner.get_conc_type(t);
+                let mut ty = t.as_concrete(ctx);
                 if let ConcreteType::Ptr(inner) = ty {
-                    ty = ctx.ctx.interner.get_conc_type(*inner);
+                    ty = (*inner).as_concrete(ctx);
                 };
                 if let ConcreteType::SpecializedClass(sc_id) = ty {
                     let sc = ctx.ctx.interner.get_sc(*sc_id);
@@ -1318,7 +1315,7 @@ impl<'ctx> TirCtx {
             }
             FieldAccessKind::Index(i) => {
                 let ty = self.get_type_of_tir_expr(ctx, expr)?;
-                let t = ctx.ctx.interner.get_conc_type(ty);
+                let t = (ty).as_concrete(ctx);
                 if let ConcreteType::Tuple(tys) = t {
                     if tys.len() <= i as usize {
                         return Err(TcError::Text(format!("Tuple access out of range")));
@@ -1363,7 +1360,7 @@ impl<'ctx> TirCtx {
                 Ok(())
             }
             NirPatternKind::Tuple(nirs) => {
-                let t = ctx.ctx.interner.get_conc_type(ty);
+                let t = (ty).as_concrete(ctx);
                 if !matches!(t, ConcreteType::Tuple(_)) {
                     return Err(TcError::Text(format!(
                         "Tried to declare tuple variable with non tuple type",

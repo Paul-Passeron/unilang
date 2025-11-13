@@ -47,12 +47,6 @@ pub struct TcFunProto {
     pub variadic: bool,
 }
 
-// impl FunId {
-//     pub fn to_proto<'ctx>(&self, ctx: &'ctx TyCtx) -> &'ctx TcFunProto {
-//         ctx.ctx.interner.get_fun(*self)
-//     }
-// }
-
 #[derive(Debug)]
 pub struct TyCtx<'ctx> {
     pub current_scope: ScopeId,
