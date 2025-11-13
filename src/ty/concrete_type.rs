@@ -1,6 +1,9 @@
 use crate::{
-    common::global_interner::{SCId, TyId},
-    ty::{PrimitiveTy, TyCtx, tir::ConcreteType},
+    common::global_interner::{SCId, Symbol, TyId},
+    ty::{
+        PrimitiveTy, TyCtx,
+        tir::{ConcreteType, TirCtx},
+    },
 };
 
 impl TyId {
@@ -26,11 +29,38 @@ impl TyId {
         }
     }
 
+    pub fn as_primitive(&self, ctx: &TyCtx) -> Option<PrimitiveTy> {
+        match self.as_concrete(ctx) {
+            ConcreteType::Primitive(p) => Some(*p),
+            _ => None,
+        }
+    }
+
+    pub fn as_tuple<'ctx>(&self, ctx: &'ctx TyCtx) -> Option<&'ctx [TyId]> {
+        match self.as_concrete(ctx) {
+            ConcreteType::Tuple(ids) => Some(&ids[..]),
+            _ => None,
+        }
+    }
+
+    pub fn get_named_field(&self, ctx: &TyCtx, name: Symbol) -> Option<TyId> {
+        self.as_sc(ctx)?
+            .as_spec_class(ctx)
+            .fields
+            .iter()
+            .find(|x| x.name == name)
+            .map(|x| x.ty)
+    }
+
+    pub fn get_nth_tuple_field(&self, ctx: &TyCtx, n: usize) -> Option<TyId> {
+        self.as_tuple(ctx)?.get(n).copied()
+    }
+
     pub fn is_integer(&self, ctx: &TyCtx) -> bool {
         match self.as_concrete(ctx) {
             ConcreteType::Primitive(PrimitiveTy::Void) => false,
             ConcreteType::Primitive(_) => true,
-            _ => true,
+            _ => false,
         }
     }
 
@@ -41,22 +71,21 @@ impl TyId {
         }
     }
 
-    pub fn is_coercible(&self, ctx: &TyCtx, target: TyId) -> bool {
+    pub fn is_coercible(&self, tir_ctx: &TirCtx, ctx: &TyCtx, target: TyId) -> bool {
         if *self == target {
-            return true;
+            return dbg!(true);
         }
         if self.is_integer(ctx) && target.is_integer(ctx) {
-            return true;
+            return dbg!(true);
         }
 
-        if let Some(_) = self.as_ptr(ctx)
-            && let Some(_) = target.as_ptr(ctx)
-        {
-            return true;
+        if self.as_ptr(ctx).is_some() && target.as_ptr(ctx).is_some() {
+            return dbg!(true);
         }
 
         if let Some(sc_id) = target.as_sc(ctx) {
             let args = &self.unfold(ctx)[..];
+            return sc_id.get_matching_constructor(tir_ctx, ctx, args).is_some();
         }
 
         todo!()

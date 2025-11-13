@@ -6,7 +6,7 @@ use crate::{
         VariableId,
     },
     nir::nir::{FieldAccessKind, NirBinOpKind, Visibility},
-    ty::{PrimitiveTy, TyCtx, tir_pass::SpecInfo},
+    ty::{PrimitiveTy, TyCtx, displays::Displayable, tir_pass::SpecInfo},
 };
 
 pub struct TirCtx {
@@ -124,31 +124,75 @@ pub enum ArgsMatch {
     No,
 }
 
-impl Signature {
-    pub fn get_match(&self, ctx: &TyCtx, args: &[TyId]) -> ArgsMatch {
-        let to_skip = if self.params.is_empty() { 0 } else { 1 };
-        let args_len = args.len() + to_skip;
-        if args_len < self.params.len() || (args_len > self.params.len() && !self.variadic) {
-            return ArgsMatch::No;
+impl Displayable for ArgsMatch {
+    fn to_string(&self, ctx: &TyCtx) -> String {
+        match self {
+            ArgsMatch::Perfect => format!("Perfect"),
+            ArgsMatch::Casts(ids) => format!(
+                "Casts: {}",
+                ids.iter()
+                    .enumerate()
+                    .filter(|x| x.1.is_some())
+                    .map(|x| format!("{}: {}", x.0, x.1.unwrap().to_string(ctx)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            ArgsMatch::No => format!("No"),
         }
+    }
+}
 
-        let mut casts = Vec::new();
-        let mut perfect = true;
-        for (dst, src) in self.params.iter().map(|x| x.ty).zip(args.iter().copied()) {
-            if src == dst {
-                casts.push(None)
-            } else if src.is_coercible(ctx, dst) {
-                perfect = false;
-                casts.push(Some(dst))
-            } else {
+impl Signature {
+    pub fn get_match(
+        &self,
+        tir_ctx: &TirCtx,
+        ctx: &TyCtx,
+        args: &[TyId],
+        has_self: bool,
+    ) -> ArgsMatch {
+        print!(
+            "Matching ({}) against ({}): ",
+            self.params
+                .iter()
+                .skip(if has_self { 1 } else { 0 })
+                .map(|x| &x.ty)
+                .to_string(ctx),
+            args.iter().to_string(ctx)
+        );
+        let x = || {
+            let to_skip = if has_self { 1 } else { 0 };
+            let args_len = args.len() + to_skip;
+            if args_len < self.params.len() || (args_len > self.params.len() && !self.variadic) {
                 return ArgsMatch::No;
             }
-        }
-        if perfect {
-            ArgsMatch::Perfect
-        } else {
-            ArgsMatch::Casts(casts)
-        }
+
+            let mut casts = Vec::new();
+            let mut perfect = true;
+            for (dst, src) in self
+                .params
+                .iter()
+                .skip(to_skip)
+                .map(|x| x.ty)
+                .zip(args.iter().copied())
+            {
+                if src == dst {
+                    casts.push(None)
+                } else if src.is_coercible(tir_ctx, ctx, dst) {
+                    perfect = false;
+                    casts.push(Some(dst))
+                } else {
+                    return ArgsMatch::No;
+                }
+            }
+            if perfect {
+                ArgsMatch::Perfect
+            } else {
+                ArgsMatch::Casts(casts)
+            }
+        };
+        let res = x();
+        println!("{}", res.to_string(ctx));
+        res
     }
 }
 

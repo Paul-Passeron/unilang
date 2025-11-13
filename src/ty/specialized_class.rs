@@ -26,7 +26,9 @@ impl SCId {
             let sig = tir_ctx.protos.get(cons);
             (
                 *cons,
-                sig.map_or(ArgsMatch::No, |sig| sig.get_match(ty_ctx, args)),
+                sig.map_or(ArgsMatch::No, |sig| {
+                    sig.get_match(tir_ctx, ty_ctx, args, true)
+                }),
             )
         });
 

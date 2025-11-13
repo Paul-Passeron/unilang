@@ -101,7 +101,7 @@ impl<'ctx> TirCtx {
             let def = ctx.ctx.interner.get_def(template);
             match def {
                 Definition::Class(class_id) => *class_id,
-                _ => unreachable!(),
+                _ => unreachable!("{:?}", def),
             }
         };
 
@@ -550,6 +550,7 @@ impl<'ctx> TirCtx {
                     let ty = self.get_primitive_type(ctx, PrimitiveTy::U8);
                     Ok(self.get_ptr_to(ctx, ty))
                 }
+                NirLiteral::CharLiteral(_) => Ok(self.get_primitive_type(ctx, PrimitiveTy::U8)),
                 _ => todo!(),
             },
             NirExprKind::Named(name) => {
@@ -962,7 +963,18 @@ impl<'ctx> TirCtx {
                         todo!()
                     }
                 }
-                NirLiteral::CharLiteral(_) => todo!(),
+                NirLiteral::CharLiteral(c) => {
+                    assert!(ty.is_integer(ctx));
+                    let e = self.create_expr(
+                        ctx,
+                        TirExpr::TypedIntLit(TypedIntLit::U8(c.to_string().as_bytes()[0])),
+                        defer,
+                    );
+                    if !matches!(ty.as_primitive(ctx), Some(PrimitiveTy::U8)) {
+                        return Ok(self.create_expr(ctx, TirExpr::IntCast(ty.clone(), e), defer));
+                    }
+                    Ok(e)
+                }
             },
             NirExprKind::Named(name) => {
                 if *name == ctx.ctx.interner.insert_symbol(&"true".to_string())
@@ -1683,18 +1695,18 @@ impl<'ctx> TirCtx {
         }
     }
 
-    pub fn get_nth_field_of_tuple_type(
-        &self,
-        ctx: &TyCtx<'ctx>,
-        ty: TyId,
-        index: usize,
-    ) -> Option<TyId> {
-        let t = ctx.ctx.interner.get_conc_type(ty);
-        match t {
-            ConcreteType::Tuple(ids) => ids.get(index).copied(),
-            _ => None,
-        }
-    }
+    // pub fn get_nth_field_of_tuple_type(
+    //     &self,
+    //     ctx: &TyCtx<'ctx>,
+    //     ty: TyId,
+    //     index: usize,
+    // ) -> Option<TyId> {
+    //     let t = ctx.ctx.interner.get_conc_type(ty);
+    //     match t {
+    //         ConcreteType::Tuple(ids) => ids.get(index).copied(),
+    //         _ => None,
+    //     }
+    // }
 
     pub fn concretize_fun_proto(
         &mut self,
