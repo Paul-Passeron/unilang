@@ -1098,7 +1098,7 @@ impl<'ctx> NirVisitor<'ctx> {
 
                 let prgm = self.ctx.parse_file(id);
 
-                let mut include_visitor = NirVisitor::new(self.ctx, false);
+                let mut include_visitor = NirVisitor::new(self.ctx, true);
 
                 if let Err(x) = prgm {
                     return Err(NirError {
