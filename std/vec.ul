@@ -1,0 +1,47 @@
+@include std::alloc
+@include std::mem
+@include std::io
+
+class <T> Vec => {
+    private items: T*;
+    private len: u32;
+    private cap: u32;
+
+    public Vec() => {
+        self::cap => 8;
+        self::len => 0;
+        self::items => malloc(self::cap * @size T);
+    }
+
+    public Vec(capacity: u32) => {
+        if capacity = 0 => {
+            // Does not make sense to malloc 0 bytes
+            capacity => 1;
+        }
+        self::cap => capacity;
+        self::len => 0;
+        self::items => malloc(self::cap * @size T);
+    }
+
+    public append(item: T): void => {
+        if self::len >= self::cap => {
+            self::grow();
+        }
+        self::items[self::len] => item;
+        self::len => self::len + 1;
+    }
+
+    private grow(): void => {
+        let old_cap => self::cap;
+        self::cap => self::cap * 2;
+        let new_items => malloc(self::cap * @size T);
+        memcpy(new_items, self::items, self::len * @size T);
+        free(self::items);
+        self::items => new_items;
+        printf("Done\n");
+    }
+
+    public len(): u32 => {
+        return self::len;
+    }
+}
