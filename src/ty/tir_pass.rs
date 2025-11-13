@@ -18,6 +18,7 @@ use crate::{
     },
     ty::{
         PrimitiveTy, TcError, TcFunProto, TcParam, TyCtx,
+        displays::Displayable,
         scope::{Class, ClassMember, Definition, Method, Pattern, ScopeKind, TypeExpr, VarDecl},
         surface_resolution::SurfaceResolutionPassOutput,
         tir::{
@@ -231,7 +232,7 @@ impl<'ctx> TirCtx {
                 let def = ctx.ctx.interner.get_def(d);
                 match &def {
                     Definition::Type(id) => self.visit_type(ctx, *id),
-                    _ => Err(todo!()),
+                    _ => todo!(),
                 }
             }
             TypeExpr::Associated(_) => todo!(),
@@ -306,7 +307,11 @@ impl<'ctx> TirCtx {
             let cons = self.get_matching_constructor(ctx, args, *class_id);
             return cons.is_ok();
         }
-        todo!("Coerce {:?} into {:?} ?", s, t)
+        todo!(
+            "Coerce {:?} into {:?} ?",
+            src.to_string(ctx),
+            target.to_string(ctx)
+        )
     }
 
     pub fn get_matching_constructor(
@@ -315,37 +320,15 @@ impl<'ctx> TirCtx {
         args: Vec<TyId>,
         target: SCId,
     ) -> Result<FunId, TcError> {
-        // get constructors of specialized class
-        // TODO: remove the clone and have cleaner interface with
-        // not everything taking ctx as mut
-        let c = ctx.ctx.interner.get_sc(target).clone();
-        println!("Constructors: {:?}", c.constructors);
-        println!("Methods: {:?}", c.methods);
-        let cons = c
-            .constructors
-            .iter()
-            .find(|cons| {
-                let fun_proto = ctx.ctx.interner.get_fun(**cons).clone();
-                if fun_proto.params.len() != args.len() + 1 {
-                    return false;
-                }
-                println!("FUN PROTO !");
-                for (dst, src) in fun_proto.params.iter().skip(1).zip(args.iter()) {
-                    let dst = self.visit_type(ctx, dst.ty).unwrap();
-                    if !self.type_is_coercible(ctx, *src, dst) {
-                        return false;
-                    }
-                }
-                return true;
+        target
+            .get_matching_constructor(self, ctx, &args[..])
+            .ok_or_else(|| {
+                TcError::Text(format!(
+                    "Cannot find matching constructor for {} from ({})",
+                    target.to_string(ctx),
+                    args.iter().to_string(ctx),
+                ))
             })
-            .copied();
-        if cons.is_none() {
-            Err(TcError::Text(format!(
-                "No viable constructor found for arg list"
-            )))
-        } else {
-            Ok(cons.unwrap())
-        }
     }
 
     pub fn create_expr(&mut self, ctx: &mut TyCtx<'ctx>, expr: TirExpr, defer: bool) -> TirExprId {
@@ -503,6 +486,7 @@ impl<'ctx> TirCtx {
             TirExpr::Deref(_ptr_expr) => todo!(),
             TirExpr::Minus(x) => self.get_type_of_tir_expr(ctx, x),
             TirExpr::Alloca(ty) => Ok(self.create_type(ctx, ConcreteType::Ptr(ty))),
+            TirExpr::Subscript { ptr, .. } => self.get_type_of_tir_expr(ctx, ptr),
         }
     }
 
@@ -727,6 +711,23 @@ impl<'ctx> TirCtx {
                     )))
                 }
             }
+            NirExprKind::Subscript { value, index } => {
+                // TODO: Implement subscript etc... with
+                // traits for types like Vec
+                let index_ty = self.get_type_of_expr(ctx, *index)?;
+                if !self.is_type_integer(ctx, index_ty) {
+                    return Err(TcError::Text(format!("Index type must be integer !")));
+                }
+                let t = self.get_type_of_expr(ctx, *value)?;
+                if self.is_type_ptr(ctx, t) {
+                    match ctx.ctx.interner.get_conc_type(t) {
+                        ConcreteType::Ptr(ty) => Ok(*ty),
+                        _ => unreachable!(),
+                    }
+                } else {
+                    Err(TcError::Text(format!("Cannot index non-pointer type !")))
+                }
+            }
             x => todo!("{x:?}"),
         }
     }
@@ -914,12 +915,14 @@ impl<'ctx> TirCtx {
         ty: TyId,
         defer: bool,
     ) -> Result<TirExprId, TcError> {
+        // let original_expr = expr;
         let expr_ty = self.get_type_of_expr(ctx, expr)?;
         if !self.type_is_coercible(ctx, expr_ty, ty) {
-            return Err(dbg!(TcError::Text(format!(
-                "Types are not coercible ! {:?} {:?}",
-                expr_ty, ty
-            ))));
+            return Err(TcError::Text(format!(
+                "Types `{}` cannot be coerced to type `{}`",
+                expr_ty.to_string(ctx),
+                ty.to_string(ctx)
+            )));
         }
         let expr = ctx.ctx.interner.get_expr(expr).clone();
         let t = ctx.ctx.interner.get_conc_type(ty);
@@ -999,9 +1002,18 @@ impl<'ctx> TirCtx {
                     if !self.type_is_coercible(ctx, var.ty, ty) {
                         return Err(dbg!(TcError::Text(format!("Types are not coercible !"))));
                     }
+                    if self.is_type_ptr(ctx, var.ty) && self.is_type_ptr(ctx, ty) {
+                        let var_expr = self.create_expr(ctx, TirExpr::VarExpr(var_id), defer);
+                        return Ok(self.create_expr(ctx, TirExpr::PtrCast(ty, var_expr), defer));
+                    }
+
                     if self.is_type_integer(ctx, var.ty) && self.is_type_integer(ctx, ty) {
                         let var_expr = self.create_expr(ctx, TirExpr::VarExpr(var_id), defer);
-                        return Ok(self.create_expr(ctx, TirExpr::IntCast(ty, var_expr), defer));
+                        return Ok(dbg!(self.create_expr(
+                            ctx,
+                            TirExpr::IntCast(ty, var_expr),
+                            defer
+                        )));
                     }
                 }
                 return Err(TcError::Text(format!("Coerce non integer types !")));
@@ -1220,6 +1232,13 @@ impl<'ctx> TirCtx {
                 let ptr = self.get_expr(ctx, *x, defer)?;
                 // TODO: coerce types maybe
                 Ok(self.create_expr(ctx, TirExpr::Deref(ptr), defer))
+            }
+            NirExprKind::Subscript { value, index } => {
+                let value = self.get_expr(ctx, *value, defer)?;
+                let index = self.get_expr(ctx, *index, defer)?;
+                let ptr = self.create_expr(ctx, TirExpr::Subscript { ptr: value, index }, defer);
+                let _e = self.create_expr(ctx, TirExpr::Deref(ptr), defer);
+                todo!()
             }
             x => todo!("{x:?}"),
         }
@@ -1624,6 +1643,12 @@ impl<'ctx> TirCtx {
             NirExprKind::Deref(e) => {
                 let e = self.get_expr(ctx, *e, defer)?;
                 println!("Type of e is {:?}", self.get_type_of_tir_expr(ctx, e)?);
+                Ok(e)
+            }
+            NirExprKind::Subscript { value, index } => {
+                let index = self.get_expr(ctx, *index, defer)?;
+                let ptr = self.get_expr(ctx, *value, defer)?;
+                let e = self.create_expr(ctx, TirExpr::Subscript { ptr, index }, defer);
                 Ok(e)
             }
             _ => todo!(),

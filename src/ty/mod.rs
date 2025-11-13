@@ -11,10 +11,14 @@ use crate::{
     },
 };
 
+pub mod concrete_type;
+pub mod displays;
 pub mod scope;
+pub mod specialized_class;
 pub mod surface_resolution;
 pub mod tir;
 pub mod tir_pass;
+pub mod type_checker;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructField {
@@ -48,6 +52,12 @@ pub struct TcFunProto {
     pub params: Vec<TcParam>,
     pub return_ty: TypeExprId,
     pub variadic: bool,
+}
+
+impl FunId {
+    pub fn to_proto<'ctx>(&self, ctx: &'ctx TyCtx) -> &'ctx TcFunProto {
+        ctx.ctx.interner.get_fun(*self)
+    }
 }
 
 #[derive(Debug)]

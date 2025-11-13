@@ -6,7 +6,7 @@ use crate::{
         VariableId,
     },
     nir::nir::{FieldAccessKind, NirBinOpKind, Visibility},
-    ty::{PrimitiveTy, tir_pass::SpecInfo},
+    ty::{PrimitiveTy, TyCtx, tir_pass::SpecInfo},
 };
 
 pub struct TirCtx {
@@ -69,6 +69,11 @@ pub enum TirExpr {
 
     // Allocates a ptr to TyId
     Alloca(TyId),
+
+    Subscript {
+        ptr: TirExprId,
+        index: TirExprId,
+    },
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -110,6 +115,41 @@ pub struct Signature {
     pub params: Vec<SCField>,
     pub return_ty: TyId,
     pub variadic: bool,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum ArgsMatch {
+    Perfect,
+    Casts(Vec<Option<TyId>>),
+    No,
+}
+
+impl Signature {
+    pub fn get_match(&self, ctx: &TyCtx, args: &[TyId]) -> ArgsMatch {
+        let to_skip = if self.params.is_empty() { 0 } else { 1 };
+        let args_len = args.len() + to_skip;
+        if args_len < self.params.len() || (args_len > self.params.len() && !self.variadic) {
+            return ArgsMatch::No;
+        }
+
+        let mut casts = Vec::new();
+        let mut perfect = true;
+        for (dst, src) in self.params.iter().map(|x| x.ty).zip(args.iter().copied()) {
+            if src == dst {
+                casts.push(None)
+            } else if src.is_coercible(ctx, dst) {
+                perfect = false;
+                casts.push(Some(dst))
+            } else {
+                return ArgsMatch::No;
+            }
+        }
+        if perfect {
+            ArgsMatch::Perfect
+        } else {
+            ArgsMatch::Casts(casts)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
