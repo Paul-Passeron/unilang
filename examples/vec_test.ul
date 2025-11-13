@@ -1,9 +1,42 @@
 @include std::vec
 @include std::io
 
+// // This is impossible for the moment
+// class Object => {
+//     public inner: Vec<Object>;
+
+//     public Object() => {
+//         self::inner => @as Vec<Object>();
+//     }
+// }
+
+
+class Object => {
+    public inner: Vec<int>;
+
+    public Object() => {
+        self::inner => @as Vec<int>();
+    }
+
+    public set(n: i32): void => {
+        let i => 0;
+        while i < n => {
+            (*self)::inner::append(i);
+            i => i + 1;
+        }
+    }
+
+    public get(): int => {
+        return (*self)::inner::len;
+    }
+}
+
 let main(): int => {
     let v => @as Vec<int>();
-    printf("Hello, World !\n");
+    let obj => @as Object();
+    obj::set(40);
+    let res => obj::get();
+    printf("obj::get = %d\n", res);
     let i: int => 1;
     while i <= 54654 => {
         v::append(i);
