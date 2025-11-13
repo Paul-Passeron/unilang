@@ -603,7 +603,7 @@ impl<'ctx, 'a> MonoIRPass<'a> {
             TirExpr::Deref(val) => {
                 let ptr = self.expressions[&val];
                 let ty = self.tir_ctx.get_type_of_tir_expr(ctx, val).unwrap();
-                let ty = TirCtx::inner_ptr_ty(ctx, ty).unwrap();
+                let ty = ty.as_ptr(ctx).unwrap();
                 let ty = self.get_mono_ty(ctx, ty);
                 let ptr = ptr.into_pointer_value();
                 self.builder

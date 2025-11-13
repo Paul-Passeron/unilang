@@ -20,12 +20,6 @@ pub mod tir;
 pub mod tir_pass;
 pub mod type_checker;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StructField {
-    pub name: Symbol,
-    pub ty: TypeExpr,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PrimitiveTy {
     Void,
@@ -54,11 +48,11 @@ pub struct TcFunProto {
     pub variadic: bool,
 }
 
-impl FunId {
-    pub fn to_proto<'ctx>(&self, ctx: &'ctx TyCtx) -> &'ctx TcFunProto {
-        ctx.ctx.interner.get_fun(*self)
-    }
-}
+// impl FunId {
+//     pub fn to_proto<'ctx>(&self, ctx: &'ctx TyCtx) -> &'ctx TcFunProto {
+//         ctx.ctx.interner.get_fun(*self)
+//     }
+// }
 
 #[derive(Debug)]
 pub struct TyCtx<'ctx> {
@@ -70,7 +64,6 @@ pub struct TyCtx<'ctx> {
 
 #[derive(Clone, Debug)]
 pub enum TcError {
-    Todo,
     NameNotFound(Symbol),
     Aggregate(Vec<TcError>),
     BadReturnType(TyId, TyId),
@@ -284,7 +277,6 @@ impl<'ctx> TyCtx<'ctx> {
     pub fn print_error(&mut self, error: &TcError) {
         print!("[ERROR] ");
         match error {
-            TcError::Todo => println!("TODO"),
             TcError::NameNotFound(id) => println!(
                 "Name {} was not found in the current context",
                 self.ctx.interner.get_symbol(*id)

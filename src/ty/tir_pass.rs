@@ -206,24 +206,6 @@ impl<'ctx> TirCtx {
         Ok(ty)
     }
 
-    pub fn get_templates(&mut self, ctx: &mut TyCtx<'ctx>) -> Result<Vec<TyId>, TcError> {
-        fn get_templates_in_scope<'ctx>(ctx: &mut TyCtx<'ctx>, id: ScopeId) -> Option<Vec<TyId>> {
-            let scope = ctx.get_scope(id);
-            match &scope.kind {
-                ScopeKind::Spec(_) => {
-                    todo!()
-                }
-                _ => (),
-            }
-            if let Some(parent) = scope.parent {
-                get_templates_in_scope(ctx, parent)
-            } else {
-                None
-            }
-        }
-        get_templates_in_scope(ctx, ctx.current_scope).ok_or_else(|| todo!())
-    }
-
     pub fn visit_type(&mut self, ctx: &mut TyCtx<'ctx>, ty: TypeExprId) -> Result<TyId, TcError> {
         let te = ctx.ctx.interner.get_type_expr(ty).clone();
         match &te {
@@ -421,9 +403,9 @@ impl<'ctx> TirCtx {
                 _ => {
                     let lt = self.get_type_of_tir_expr(ctx, lhs)?;
                     let rt = self.get_type_of_tir_expr(ctx, rhs)?;
-                    if self.is_type_ptr(ctx, lt) {
+                    if lt.as_ptr(ctx).is_some() {
                         Ok(lt)
-                    } else if self.is_type_ptr(ctx, rt) {
+                    } else if rt.as_ptr(ctx).is_some() {
                         Ok(rt)
                     } else {
                         Ok(self.get_type_of_tir_expr(ctx, lhs)?)
@@ -625,15 +607,15 @@ impl<'ctx> TirCtx {
                 let lt = self.get_type_of_expr(ctx, *left)?;
                 let rt = self.get_type_of_expr(ctx, *right)?;
 
-                if !self.is_type_integer(ctx, lt) || !self.is_type_integer(ctx, rt) {
+                if !lt.is_integer(ctx) || !rt.is_integer(ctx) {
                     return Err(TcError::Text(format!(
                         "Cannot use binop with non-integer types"
                     )));
                 }
 
-                if self.is_type_ptr(ctx, lt) {
+                if lt.as_ptr(ctx).is_some() {
                     Ok(lt)
-                } else if self.is_type_ptr(ctx, rt) {
+                } else if rt.as_ptr(ctx).is_some() {
                     Ok(rt)
                 } else {
                     let lt_size = self.get_type_size(ctx, lt);
@@ -679,7 +661,7 @@ impl<'ctx> TirCtx {
             }
             NirExprKind::Minus(num) => {
                 let ty = self.get_type_of_expr(ctx, *num)?;
-                if !self.is_type_integer(ctx, ty) {
+                if !ty.is_integer(ctx) {
                     todo!();
                 }
                 Ok(ty)
@@ -701,7 +683,7 @@ impl<'ctx> TirCtx {
             }
             NirExprKind::Deref(e) => {
                 let t = self.get_type_of_expr(ctx, *e)?;
-                if self.is_type_ptr(ctx, t) {
+                if t.as_ptr(ctx).is_some() {
                     match ctx.ctx.interner.get_conc_type(t) {
                         ConcreteType::Ptr(ty) => Ok(*ty),
                         _ => unreachable!(),
@@ -716,11 +698,11 @@ impl<'ctx> TirCtx {
                 // TODO: Implement subscript etc... with
                 // traits for types like Vec
                 let index_ty = self.get_type_of_expr(ctx, *index)?;
-                if !self.is_type_integer(ctx, index_ty) {
+                if !index_ty.is_integer(ctx) {
                     return Err(TcError::Text(format!("Index type must be integer !")));
                 }
                 let t = self.get_type_of_expr(ctx, *value)?;
-                if self.is_type_ptr(ctx, t) {
+                if t.as_ptr(ctx).is_some() {
                     match ctx.ctx.interner.get_conc_type(t) {
                         ConcreteType::Ptr(ty) => Ok(*ty),
                         _ => unreachable!(),
@@ -730,13 +712,6 @@ impl<'ctx> TirCtx {
                 }
             }
             x => todo!("{x:?}"),
-        }
-    }
-
-    pub fn inner_ptr_ty(ctx: &mut TyCtx<'ctx>, ptr: TyId) -> Option<TyId> {
-        match ctx.ctx.interner.get_conc_type(ptr) {
-            ConcreteType::Ptr(x) => Some(*x),
-            _ => None,
         }
     }
 
@@ -840,39 +815,6 @@ impl<'ctx> TirCtx {
         }
     }
 
-    pub fn debug_instrs(ctx: &mut TyCtx<'ctx>) {
-        pub fn aux<'ctx>(ctx: &mut TyCtx<'ctx>, id: ScopeId) {
-            ctx.with_scope_id(id, |ctx| {
-                let instrs = match &ctx.get_last_scope().kind {
-                    ScopeKind::Function(_, _, tir_instrs) => tir_instrs,
-                    _ => &vec![],
-                };
-
-                for instr in instrs.clone() {
-                    println!("{:?}", instr);
-                }
-                if let Some(parent) = ctx.get_last_scope().parent {
-                    aux(ctx, parent);
-                }
-            })
-        }
-        aux(ctx, ScopeId::new(0));
-    }
-
-    pub fn debug_defs(ctx: &mut TyCtx<'ctx>) {
-        pub fn aux<'ctx>(ctx: &mut TyCtx<'ctx>, id: ScopeId) {
-            ctx.with_scope_id(id, |ctx| {
-                for (def, _) in ctx.get_last_scope().definitions.clone() {
-                    println!("[DEFINED] {}", ctx.ctx.interner.get_symbol(def))
-                }
-                if let Some(parent) = ctx.get_last_scope().parent {
-                    aux(ctx, parent);
-                }
-            })
-        }
-        aux(ctx, ctx.current_scope);
-    }
-
     pub fn get_type_size(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> usize {
         let t = ctx.ctx.interner.get_conc_type(ty);
         let alignement = 4;
@@ -888,24 +830,6 @@ impl<'ctx> TirCtx {
                 }
                 size
             }
-        }
-    }
-
-    pub fn is_type_integer(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> bool {
-        let t = ctx.ctx.interner.get_conc_type(ty);
-        match t {
-            ConcreteType::Ptr(_) => true,
-            ConcreteType::Primitive(PrimitiveTy::Void) => false,
-            ConcreteType::Primitive(_) => true,
-            _ => false,
-        }
-    }
-
-    pub fn is_type_ptr(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> bool {
-        let t = ctx.ctx.interner.get_conc_type(ty);
-        match t {
-            ConcreteType::Ptr(_) => true,
-            _ => false,
         }
     }
 
@@ -989,7 +913,7 @@ impl<'ctx> TirCtx {
                     let bool_ty = self.get_primitive_type(ctx, PrimitiveTy::Bool);
                     if ty == bool_ty {
                         return Ok(e);
-                    } else if self.is_type_integer(ctx, ty) {
+                    } else if ty.is_integer(ctx) {
                         return Ok(self.create_expr(ctx, TirExpr::IntCast(ty, e), defer));
                     } else {
                         todo!()
@@ -1014,12 +938,12 @@ impl<'ctx> TirCtx {
                     if !self.type_is_coercible(ctx, var.ty, ty) {
                         return Err(dbg!(TcError::Text(format!("Types are not coercible !"))));
                     }
-                    if self.is_type_ptr(ctx, var.ty) && self.is_type_ptr(ctx, ty) {
+                    if var.ty.as_ptr(ctx).is_some() && ty.as_ptr(ctx).is_some() {
                         let var_expr = self.create_expr(ctx, TirExpr::VarExpr(var_id), defer);
                         return Ok(self.create_expr(ctx, TirExpr::PtrCast(ty, var_expr), defer));
                     }
 
-                    if self.is_type_integer(ctx, var.ty) && self.is_type_integer(ctx, ty) {
+                    if var.ty.is_integer(ctx) && ty.is_integer(ctx) {
                         let var_expr = self.create_expr(ctx, TirExpr::VarExpr(var_id), defer);
                         return Ok(dbg!(self.create_expr(
                             ctx,
@@ -1056,7 +980,7 @@ impl<'ctx> TirCtx {
             NirExprKind::BinOp(NirBinOp { op, left, right }) => {
                 let lt = self.get_type_of_expr(ctx, *left)?;
                 let rt = self.get_type_of_expr(ctx, *right)?;
-                if !self.is_type_integer(ctx, lt) || !self.is_type_integer(ctx, rt) {
+                if !lt.is_integer(ctx) || !rt.is_integer(ctx) {
                     return Err(TcError::Text(format!(
                         "Cannot use binop with non-integer types"
                     )));
@@ -1064,11 +988,11 @@ impl<'ctx> TirCtx {
                 let lt_size = self.get_type_size(ctx, lt);
                 let rt_size = self.get_type_size(ctx, rt);
 
-                let (lt, rt) = if self.is_type_ptr(ctx, lt) {
+                let (lt, rt) = if lt.as_ptr(ctx).is_some() {
                     (lt, self.get_primitive_type(ctx, PrimitiveTy::I64))
-                } else if self.is_type_ptr(ctx, rt) {
+                } else if rt.as_ptr(ctx).is_some() {
                     (self.get_primitive_type(ctx, PrimitiveTy::I64), rt)
-                } else if self.is_type_integer(ctx, lt) && self.is_type_integer(ctx, rt) {
+                } else if lt.is_integer(ctx) && rt.is_integer(ctx) {
                     if lt_size > rt_size {
                         (lt, lt)
                     } else {
@@ -1080,9 +1004,9 @@ impl<'ctx> TirCtx {
 
                 let value_type = if matches!(op, NirBinOpKind::LOr | NirBinOpKind::LAnd) {
                     self.get_primitive_type(ctx, PrimitiveTy::Bool)
-                } else if self.is_type_ptr(ctx, lt) {
+                } else if lt.as_ptr(ctx).is_some() {
                     lt
-                } else if self.is_type_ptr(ctx, rt) {
+                } else if rt.as_ptr(ctx).is_some() {
                     rt
                 } else if lt_size > rt_size {
                     lt
@@ -1159,7 +1083,7 @@ impl<'ctx> TirCtx {
             }
             NirExprKind::Minus(x) => {
                 let e = self.get_expr_with_type(ctx, *x, ty, defer)?;
-                if !self.is_type_integer(ctx, ty) {
+                if !ty.is_integer(ctx) {
                     todo!();
                 }
                 Ok(self.create_expr(ctx, TirExpr::Minus(e), defer))
@@ -1246,11 +1170,18 @@ impl<'ctx> TirCtx {
                 Ok(self.create_expr(ctx, TirExpr::Deref(ptr), defer))
             }
             NirExprKind::Subscript { value, index } => {
+                assert!(
+                    self.get_type_of_expr(ctx, *value)
+                        .unwrap()
+                        .as_ptr(ctx)
+                        .unwrap()
+                        == ty
+                );
                 let value = self.get_expr(ctx, *value, defer)?;
                 let index = self.get_expr(ctx, *index, defer)?;
                 let ptr = self.create_expr(ctx, TirExpr::Subscript { ptr: value, index }, defer);
-                let _e = self.create_expr(ctx, TirExpr::Deref(ptr), defer);
-                todo!()
+                let e = self.create_expr(ctx, TirExpr::Deref(ptr), defer);
+                Ok(e)
             }
             x => todo!("{x:?}"),
         }
@@ -1283,10 +1214,10 @@ impl<'ctx> TirCtx {
                     }
                 }
                 TypeReceiver::Object(t) => {
-                    let inner = Self::inner_ptr_ty(ctx, t).unwrap_or(t);
+                    let inner = t.as_ptr(ctx).unwrap_or(t);
                     let methods = &self.methods[&inner].clone();
                     if !methods.contains_key(&called.called) {
-                        if let Some(inner_inner) = Self::inner_ptr_ty(ctx, inner) {
+                        if let Some(inner_inner) = inner.as_ptr(ctx) {
                             let methods = &self.methods[&inner_inner].clone();
                             if methods.contains_key(&called.called) {
                                 return Ok((methods[&called.called], Some(t)));
@@ -1339,10 +1270,10 @@ impl<'ctx> TirCtx {
                 }
                 Receiver::Object(x) => {
                     let t = self.get_type_of_tir_expr(ctx, x)?;
-                    let inner = Self::inner_ptr_ty(ctx, t).unwrap();
+                    let inner = t.as_ptr(ctx).unwrap();
                     let methods = &self.methods[&inner].clone();
                     if !methods.contains_key(&called.called) {
-                        if let Some(inner_inner) = Self::inner_ptr_ty(ctx, inner) {
+                        if let Some(inner_inner) = inner.as_ptr(ctx) {
                             let methods = &self.methods[&inner_inner].clone();
                             if methods.contains_key(&called.called) {
                                 return Ok((methods[&called.called], Some(x)));
@@ -1414,22 +1345,6 @@ impl<'ctx> TirCtx {
     ) -> Result<TirExprId, TcError> {
         let ty = self.get_type_of_expr(ctx, expr)?;
         self.get_expr_with_type(ctx, expr, ty, defer)
-    }
-
-    pub fn visit_pattern(
-        &mut self,
-        ctx: &mut TyCtx<'ctx>,
-        input: &NirPattern,
-    ) -> Result<Pattern, TcError> {
-        match &input.kind {
-            NirPatternKind::Wildcard => Ok(Pattern::Wildcard),
-            NirPatternKind::Symbol(id) => Ok(Pattern::Symbol(*id)),
-            NirPatternKind::Tuple(nirs) => Ok(Pattern::Tuple(
-                nirs.iter()
-                    .map(|x| self.visit_pattern(ctx, x))
-                    .collect::<Result<Vec<_>, _>>()?,
-            )),
-        }
     }
 
     pub fn declare_pattern(
@@ -1694,19 +1609,6 @@ impl<'ctx> TirCtx {
             }
         }
     }
-
-    // pub fn get_nth_field_of_tuple_type(
-    //     &self,
-    //     ctx: &TyCtx<'ctx>,
-    //     ty: TyId,
-    //     index: usize,
-    // ) -> Option<TyId> {
-    //     let t = ctx.ctx.interner.get_conc_type(ty);
-    //     match t {
-    //         ConcreteType::Tuple(ids) => ids.get(index).copied(),
-    //         _ => None,
-    //     }
-    // }
 
     pub fn concretize_fun_proto(
         &mut self,
