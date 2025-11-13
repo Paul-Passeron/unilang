@@ -49,7 +49,7 @@ impl<'ctx, 'a> Pass<'ctx, ()> for MonoIRPass<'a> {
         self.visit_all_scopes(ctx);
         println!("{}", self.module.print_to_string().to_string());
         if let Err(str) = self.module.verify() {
-            eprintln!("[LLVM ERROR]\n{}", str);
+            eprintln!("[LLVM ERROR]\n{}", str.to_string());
         }
         Ok(())
     }

@@ -18,7 +18,6 @@ pub mod specialized_class;
 pub mod surface_resolution;
 pub mod tir;
 pub mod tir_pass;
-pub mod type_checker;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PrimitiveTy {
