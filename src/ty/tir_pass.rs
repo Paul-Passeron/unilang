@@ -19,7 +19,7 @@ use crate::{
     ty::{
         PrimitiveTy, TcError, TcFunProto, TcParam, TyCtx,
         displays::Displayable,
-        scope::{Class, ClassMember, Definition, Method, Pattern, ScopeKind, TypeExpr, VarDecl},
+        scope::{Class, ClassMember, Definition, Method, ScopeKind, TypeExpr, VarDecl},
         surface_resolution::SurfaceResolutionPassOutput,
         tir::{
             ConcreteType, SCField, Signature, SpecializedClass, TirCtx, TirExpr, TirInstr,
@@ -465,7 +465,7 @@ impl<'ctx> TirCtx {
                 let inner = ctx.ctx.interner.get_variable(id).ty;
                 Ok(self.create_type(ctx, ConcreteType::Ptr(inner)))
             }
-            TirExpr::Deref(_ptr_expr) => todo!(),
+            TirExpr::Deref(e) => Ok(self.get_type_of_tir_expr(ctx, e)?.as_ptr(ctx).unwrap()),
             TirExpr::Minus(x) => self.get_type_of_tir_expr(ctx, x),
             TirExpr::Alloca(ty) => Ok(self.create_type(ctx, ConcreteType::Ptr(ty))),
             TirExpr::Subscript { ptr, .. } => self.get_type_of_tir_expr(ctx, ptr),
