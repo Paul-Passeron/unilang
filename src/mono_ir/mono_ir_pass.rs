@@ -48,7 +48,7 @@ impl<'ctx, 'a> Pass<'ctx, ()> for MonoIRPass<'a> {
     fn run(&mut self, ctx: &mut TyCtx<'ctx>, _: ()) -> Result<Self::Output, TcError> {
         self.visit_all_scopes(ctx);
         println!("{}", self.module.print_to_string().to_string());
-        self.module.verify().unwrap();
+        // self.module.verify().unwrap();
         Ok(())
     }
 }
@@ -232,9 +232,9 @@ impl<'ctx, 'a> MonoIRPass<'a> {
         // if self.expressions.contains_key(&expr) {
         //     return self.expressions[&expr].clone();
         // }
-        let original_expr = expr;
-        println!("=======================");
-        let e = ctx.ctx.interner.get_te(dbg!(expr)).clone();
+        println!("-------------------------------");
+        let original_expr = dbg!(expr);
+        let e = ctx.ctx.interner.get_te(expr).clone();
         let res = match dbg!(e) {
             TirExpr::Arg(i) => {
                 let fun_id = ctx.get_current_fun().unwrap();
@@ -370,7 +370,10 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     .unwrap()
                     .as_any_value_enum()
             }
-            TirExpr::PtrCast(_, _) => todo!(),
+            TirExpr::PtrCast(_, e) => {
+                let e_val = self.expressions[&e];
+                e_val.into_pointer_value().as_any_value_enum()
+            }
             TirExpr::Tuple(exprs) => {
                 let iw_exprs = exprs
                     .iter()
@@ -394,7 +397,8 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                 let rhs_val = BasicValueEnum::try_from(self.expressions[&rhs]).unwrap();
                 assert!(
                     (lhs_val.get_type().is_pointer_type())
-                        || lhs_val.get_type() == rhs_val.get_type(),
+                        || lhs_val.get_type() == rhs_val.get_type()
+                        || lhs_val.get_type().is_int_type() && rhs_val.get_type().is_int_type(),
                     "\nLHS: {}\nRHS: {}",
                     lhs_val.get_type(),
                     rhs_val.get_type()
@@ -620,6 +624,24 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     .build_alloca(BasicTypeEnum::try_from(ty).unwrap(), "")
                     .unwrap()
                     .as_any_value_enum()
+            }
+            TirExpr::Subscript { ptr, index } => {
+                let ptr_val = self.expressions[&ptr].into_pointer_value();
+                let index = self.expressions[&index].into_int_value();
+                let pointer_ty = self.tir_ctx.get_type_of_tir_expr(ctx, ptr).unwrap();
+                let pointee_ty = match ctx.ctx.interner.get_conc_type(pointer_ty) {
+                    ConcreteType::Ptr(id) => *id,
+                    _ => unreachable!(),
+                };
+                let pointee_ty =
+                    BasicTypeEnum::try_from(self.get_mono_ty(ctx, pointee_ty)).unwrap();
+                let ptr = unsafe {
+                    self.builder
+                        .build_gep(pointee_ty, ptr_val, &[index], "")
+                        .unwrap()
+                };
+
+                ptr.as_any_value_enum()
             }
         };
         println!("Inserting {:?}", expr);

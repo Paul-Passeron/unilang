@@ -117,13 +117,19 @@ impl GlobalContext {
             .write_to_file(&mono.module, FileType::Object, Path::new(obj_file.as_str()))
             .unwrap();
 
-        Command::new("gcc")
+        let gcc = Command::new("gcc")
             .arg(obj_file.clone())
             .arg("-o")
             .arg(format!("{}", self.config.output.display()))
             .output()
             .unwrap();
 
+        let mut estr = String::new();
+        for c in gcc.stderr {
+            estr.push(char::from_u32(c as u32).unwrap());
+        }
+
+        eprintln!("{}", estr);
         let _ = std::fs::remove_file(Path::new(obj_file.as_str()));
         Ok(())
     }

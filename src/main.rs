@@ -20,4 +20,5 @@ fn main() {
         }
         _ => (),
     }
+    println!("Compilation done !\n");
 }
