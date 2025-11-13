@@ -1,0 +1,33 @@
+@include std::io
+
+class WithPerfect => {
+    public WithPerfect(x: i32) => {
+        printf("WithPerfect(x: i32)\n");
+    }
+    public WithPerfect(x: u8) => {
+        printf("WithPerfect(x: u8)\n");
+    }
+}
+
+class WithImperfect1 => {
+    public WithImperfect1(x: u8) => {
+        printf("WithImperfect(x: u8)\n");
+    }
+}
+
+class WithImperfect2 => {
+    public WithImperfect2(x: i32) => {
+        printf("WithImperfect(x: i32)\n");
+    }
+}
+
+
+let main(): int => {
+    printf("@as WithPerfect 'a'\t"); @as WithPerfect 'a';
+    printf("@as WithPerfect 5\t"); @as WithPerfect 5;
+    printf("@as WithImperfect1 'a'\t"); @as WithImperfect1 'a';
+    printf("@as WithImperfect1 5\t"); @as WithImperfect1 5;
+    printf("@as WithImperfect2 'a'\t"); @as WithImperfect2 'a';
+    printf("@as WithImperfect2 5\t"); @as WithImperfect2 5;
+    return 0;
+}
