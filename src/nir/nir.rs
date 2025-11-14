@@ -2,9 +2,12 @@ use std::hash::Hash;
 
 use nonempty::NonEmpty;
 
-use crate::common::{
-    global_interner::{ExprId, ItemId, StringLiteral, Symbol},
-    source_location::Span,
+use crate::{
+    common::{
+        global_interner::{ExprId, ItemId, StringLiteral, Symbol},
+        source_location::Span,
+    },
+    ty::TyCtx,
 };
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -357,3 +360,9 @@ pub enum Visibility {
 }
 
 pub struct NirProgram(pub Vec<ItemId>);
+
+impl ExprId {
+    pub fn to_nir<'ctx>(&self, ctx: &'ctx TyCtx<'ctx>) -> &'ctx NirExpr {
+        ctx.ctx.interner.get_expr(*self)
+    }
+}

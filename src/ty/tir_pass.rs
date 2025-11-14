@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use strum::IntoEnumIterator;
+
 use crate::{
     common::{
         global_interner::{
@@ -47,14 +49,103 @@ pub struct SpecInfo {
 }
 
 impl TirCtx {
-    pub fn new<'ctx>(ctx: &TyCtx<'ctx>) -> Self {
-        Self {
+    pub fn new<'ctx>(ctx: &mut TyCtx<'ctx>) -> Self {
+        let mut res = Self {
             methods: HashMap::new(),
             protos: HashMap::new(),
             impls: Self::get_all_impls(ctx),
             class_stack: vec![],
             specs: HashMap::new(),
-        }
+        };
+        PrimitiveTy::iter().for_each(|ty| {
+            let x = res.create_type(ctx, ConcreteType::Primitive(ty));
+            res.create_type(ctx, ConcreteType::Ptr(x));
+        });
+
+        res
+    }
+
+    // Note:
+    // &self even though it is not used
+    // because TirCtx needs to be constructed before
+    // we have these concrete types. So needing to call
+    // these methods from an instance instead of statically
+    // ensures that they actually exist.
+
+    pub fn primitive(&self, ctx: &TyCtx, prim: PrimitiveTy) -> TyId {
+        ctx.ctx
+            .interner
+            .contains_conc_type(&ConcreteType::Primitive(prim))
+            .unwrap()
+    }
+
+    pub fn primitive_ptr(&self, ctx: &TyCtx, prim: PrimitiveTy) -> TyId {
+        ctx.ctx
+            .interner
+            .contains_conc_type(&ConcreteType::Ptr(self.primitive(ctx, prim)))
+            .unwrap()
+    }
+
+    pub fn void_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive(ctx, PrimitiveTy::Void)
+    }
+    pub fn i8_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive(ctx, PrimitiveTy::I8)
+    }
+    pub fn i16_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive(ctx, PrimitiveTy::I16)
+    }
+    pub fn i32_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive(ctx, PrimitiveTy::I32)
+    }
+    pub fn i64_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive(ctx, PrimitiveTy::I64)
+    }
+    pub fn u8_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive(ctx, PrimitiveTy::U8)
+    }
+    pub fn u16_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive(ctx, PrimitiveTy::U16)
+    }
+    pub fn u32_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive(ctx, PrimitiveTy::U32)
+    }
+    pub fn u64_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive(ctx, PrimitiveTy::U64)
+    }
+    pub fn bool_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive(ctx, PrimitiveTy::Bool)
+    }
+
+    pub fn void_ptr_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive_ptr(ctx, PrimitiveTy::Void)
+    }
+    pub fn i8_ptr_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive_ptr(ctx, PrimitiveTy::I8)
+    }
+    pub fn i16_ptr_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive_ptr(ctx, PrimitiveTy::I16)
+    }
+    pub fn i32_ptr_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive_ptr(ctx, PrimitiveTy::I32)
+    }
+    pub fn i64_ptr_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive_ptr(ctx, PrimitiveTy::I64)
+    }
+    pub fn u8_ptr_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive_ptr(ctx, PrimitiveTy::U8)
+    }
+    pub fn u16_ptr_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive_ptr(ctx, PrimitiveTy::U16)
+    }
+    pub fn u32_ptr_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive_ptr(ctx, PrimitiveTy::U32)
+    }
+    pub fn u64_ptr_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive_ptr(ctx, PrimitiveTy::U64)
+    }
+    pub fn bool_ptr_ty(&self, ctx: &TyCtx) -> TyId {
+        self.primitive_ptr(ctx, PrimitiveTy::Bool)
     }
 }
 

@@ -13,6 +13,7 @@ regex = "1.11.2"
 rustc-literal-escaper = "0.0.4"
 inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm20-1"] }
 unescape = "0.1.0"
+strum = {version = "0.27.2", features = ["std", "derive"]}
 
 
 

@@ -18,8 +18,9 @@ pub mod specialized_class;
 pub mod surface_resolution;
 pub mod tir;
 pub mod tir_pass;
+pub mod type_checker;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIter)]
 pub enum PrimitiveTy {
     Void,
     I8,

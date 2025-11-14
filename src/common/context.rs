@@ -82,7 +82,7 @@ impl GlobalContext {
             Ok(resolved) => resolved,
             Err(x) => return Err(CompilerError::TcError(x)),
         };
-        let mut tir_ctx = TirCtx::new(&tc);
+        let mut tir_ctx = TirCtx::new(&mut tc);
         if let Err(err) = tir_ctx.run(&mut tc, resolved) {
             return Err(CompilerError::TcError(err));
         }
