@@ -1,7 +1,7 @@
 use crate::{
     common::global_interner::{ExprId, TyId},
     nir::nir::{NirBinOp, NirBinOpKind, NirExprKind, NirLiteral},
-    ty::{TcError, TyCtx, tir::TirCtx},
+    ty::{TcError, TyCtx, displays::Displayable, tir::TirCtx},
 };
 
 pub struct TypeChecker;
@@ -23,23 +23,61 @@ impl TypeChecker {
         op: NirBinOpKind,
         left: TyId,
         right: TyId,
+        tir: &TirCtx,
         ctx: &TyCtx,
     ) -> Result<TyId, TcError> {
         match op {
             NirBinOpKind::Add | NirBinOpKind::Sub => {
-                // TODO: issue warnings
+                // TODO: issue warnings !
                 if left.is_integer(ctx) && right.is_integer(ctx) {
                     if right.get_size(ctx) > left.get_size(ctx) {
-                        return Ok(right);
+                        Ok(right)
                     } else {
-                        return Ok(left);
+                        Ok(left)
                     }
+                } else if left.is_integer(ctx) && right.as_ptr(ctx).is_some() {
+                    Ok(right)
+                } else if right.is_integer(ctx) && left.as_ptr(ctx).is_some() {
+                    Ok(left)
+                } else if right.as_ptr(ctx).is_some() && left.as_ptr(ctx).is_some() {
+                    Ok(left)
+                } else {
+                    Err(TcError::Text(format!(
+                        "Operation `{}` is not supported yet between types `{}` and `{}`.",
+                        if op == NirBinOpKind::Add { "+" } else { "-" },
+                        left.to_string(ctx),
+                        right.to_string(ctx),
+                    )))
                 }
-                todo!()
             }
-            NirBinOpKind::Mul => todo!(),
-            NirBinOpKind::Div => todo!(),
-            NirBinOpKind::Mod => todo!(),
+            NirBinOpKind::Mul => {
+                if left.is_integer(ctx) && right.is_integer(ctx) {
+                    if right.get_size(ctx) > left.get_size(ctx) {
+                        Ok(right)
+                    } else {
+                        Ok(left)
+                    }
+                } else {
+                    Err(TcError::Text(format!(
+                        "Operation `*` is not supported yet between types `{}` and `{}`.",
+                        left.to_string(ctx),
+                        right.to_string(ctx),
+                    )))
+                }
+            }
+            NirBinOpKind::Div | NirBinOpKind::Mod => {
+                if left.as_ptr(ctx).is_some() && right.as_ptr(ctx).is_some() {
+                    Ok(tir.u64_ty(ctx))
+                } else if !right.is_integer(ctx) {
+                    Err(TcError::Text(format!(
+                        "Operation `{}` needs its right hand side to be of integer type instead of {}.",
+                        if op == NirBinOpKind::Div { "/" } else { "%" },
+                        right.to_string(ctx)
+                    )))
+                } else {
+                    todo!()
+                }
+            }
             NirBinOpKind::Equ => todo!(),
             NirBinOpKind::Dif => todo!(),
             NirBinOpKind::LOr => todo!(),
@@ -65,7 +103,7 @@ impl TypeChecker {
             NirExprKind::BinOp(NirBinOp { op, left, right }) => {
                 let left_ty = Self::get_type_of_expr(tir, ctx, left)?;
                 let right_ty = Self::get_type_of_expr(tir, ctx, right)?;
-                Self::get_type_of_binop(op, left_ty, right_ty, ctx)
+                Self::get_type_of_binop(op, left_ty, right_ty, tir, ctx)
             }
             NirExprKind::UnOp { op, operand } => todo!(),
             NirExprKind::Call(nir_call) => todo!(),
