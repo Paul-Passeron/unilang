@@ -74,21 +74,81 @@ impl TypeChecker {
                         if op == NirBinOpKind::Div { "/" } else { "%" },
                         right.to_string(ctx)
                     )))
+                } else if right.is_integer(ctx) {
+                    if right.get_size(ctx) > left.get_size(ctx) {
+                        Ok(right)
+                    } else {
+                        Ok(left)
+                    }
                 } else {
-                    todo!()
+                    Err(TcError::Text(format!(
+                        "Operation `{}` is not supported yet between types `{}` and `{}`.",
+                        if op == NirBinOpKind::Div { "/" } else { "%" },
+                        left.to_string(ctx),
+                        right.to_string(ctx),
+                    )))
                 }
             }
-            NirBinOpKind::Equ => todo!(),
-            NirBinOpKind::Dif => todo!(),
-            NirBinOpKind::LOr => todo!(),
-            NirBinOpKind::LAnd => todo!(),
-            NirBinOpKind::BOr => todo!(),
-            NirBinOpKind::BAnd => todo!(),
-            NirBinOpKind::BXor => todo!(),
-            NirBinOpKind::Geq => todo!(),
-            NirBinOpKind::Leq => todo!(),
-            NirBinOpKind::Gt => todo!(),
-            NirBinOpKind::Lt => todo!(),
+            NirBinOpKind::Geq
+            | NirBinOpKind::Leq
+            | NirBinOpKind::Gt
+            | NirBinOpKind::Lt
+            | NirBinOpKind::Equ
+            | NirBinOpKind::Dif => {
+                if left.is_integer(ctx) && right.is_integer(ctx) {
+                    Ok(tir.bool_ty(ctx))
+                } else if left.as_ptr(ctx).is_some() && right.as_ptr(ctx).is_some() {
+                    Ok(tir.bool_ty(ctx))
+                } else if right.is_coercible(tir, ctx, left)
+                    && (left.as_ptr(ctx).is_some() || left.is_integer(ctx))
+                {
+                    Ok(tir.bool_ty(ctx))
+                } else {
+                    Err(TcError::Text(format!(
+                        "Operation `{}` is not supported yet between types `{}` and `{}`.",
+                        if op == NirBinOpKind::Equ { "=" } else { "!=" },
+                        left.to_string(ctx),
+                        right.to_string(ctx),
+                    )))
+                }
+            }
+            NirBinOpKind::LOr | NirBinOpKind::LAnd => {
+                let b = tir.bool_ty(ctx);
+                if left == b && right == b {
+                    Ok(b)
+                } else {
+                    Err(TcError::Text(format!(
+                        "Operation `{}` is not supported yet between types `{}` and `{}`.",
+                        if op == NirBinOpKind::LOr { "||" } else { "&&" },
+                        left.to_string(ctx),
+                        right.to_string(ctx),
+                    )))
+                }
+            }
+            NirBinOpKind::BOr | NirBinOpKind::BAnd | NirBinOpKind::BXor => {
+                if (left.is_integer(ctx) || left.as_ptr(ctx).is_some())
+                    && (right.is_integer(ctx) || right.as_ptr(ctx).is_some())
+                {
+                    if right.get_size(ctx) > left.get_size(ctx) {
+                        Ok(right)
+                    } else {
+                        Ok(left)
+                    }
+                } else {
+                    Err(TcError::Text(format!(
+                        "Operation `{}` is not supported yet between types `{}` and `{}`.",
+                        if op == NirBinOpKind::BOr {
+                            "|"
+                        } else if op == NirBinOpKind::BAnd {
+                            "&"
+                        } else {
+                            "^"
+                        },
+                        left.to_string(ctx),
+                        right.to_string(ctx),
+                    )))
+                }
+            }
         }
     }
 
