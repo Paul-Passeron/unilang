@@ -71,6 +71,29 @@ impl TyId {
         }
     }
 
+    pub fn get_size(&self, ctx: &TyCtx) -> usize {
+        let t = self.as_concrete(ctx);
+        let alignement = 4;
+
+        match t {
+            ConcreteType::SpecializedClass(sc_id) => {
+                let sc = sc_id.as_spec_class(ctx);
+                sc.fields.iter().fold(0, |acc, ty| {
+                    let res = acc + ty.ty.get_size(ctx);
+                    let x = res % alignement;
+                    res + if x != 0 { alignement - x } else { 0 }
+                })
+            }
+            ConcreteType::Primitive(p) => p.size(),
+            ConcreteType::Ptr(_) => 4,
+            ConcreteType::Tuple(ids) => ids.iter().fold(0, |acc, ty| {
+                let res = acc + ty.get_size(ctx);
+                let x = res % alignement;
+                res + if x != 0 { alignement - x } else { 0 }
+            }),
+        }
+    }
+
     pub fn is_coercible(&self, tir_ctx: &TirCtx, ctx: &TyCtx, target: TyId) -> bool {
         if *self == target {
             return dbg!(true);
