@@ -19,6 +19,7 @@ pub enum Literal {
     Int(i32),
     Char(char),
     String(String),
+    Bool(bool),
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -295,6 +296,7 @@ impl PrettyPrint for Literal {
             Literal::Int(x) => write!(f, "{}", x),
             Literal::Char(c) => write!(f, "\'{}\'", escape(&c.to_string())),
             Literal::String(s) => write!(f, "\"{}\"", s),
+            Literal::Bool(b) => write!(f, "\"{}\"", b),
         }
     }
 }

@@ -247,6 +247,7 @@ pub enum NirLiteral {
     FloatLiteral(F64),
     StringLiteral(StringLiteral),
     CharLiteral(char),
+    BoolLiteral(bool),
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

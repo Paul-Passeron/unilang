@@ -27,6 +27,7 @@ use crate::{
             ConcreteType, SCField, Signature, SpecializedClass, TirCtx, TirExpr, TirInstr,
             TypedIntLit,
         },
+        type_checker::TypeChecker,
     },
 };
 
@@ -609,195 +610,7 @@ impl<'ctx> TirCtx {
         ctx: &mut TyCtx<'ctx>,
         expr_id: ExprId,
     ) -> Result<TyId, TcError> {
-        let expr = ctx.ctx.interner.get_expr(expr_id).clone();
-        match &expr.kind {
-            NirExprKind::Literal(nir_literal) => match nir_literal {
-                NirLiteral::IntLiteral(_) => Ok(self.get_primitive_type(ctx, PrimitiveTy::I64)),
-                NirLiteral::StringLiteral(_) => {
-                    let ty = self.get_primitive_type(ctx, PrimitiveTy::U8);
-                    Ok(self.get_ptr_to(ctx, ty))
-                }
-                NirLiteral::CharLiteral(_) => Ok(self.get_primitive_type(ctx, PrimitiveTy::U8)),
-                _ => todo!(),
-            },
-            NirExprKind::Named(name) => {
-                if *name == ctx.ctx.interner.insert_symbol(&"true".to_string())
-                    || *name == ctx.ctx.interner.insert_symbol(&"false".to_string())
-                {
-                    return Ok(self.get_primitive_type(ctx, PrimitiveTy::Bool));
-                }
-                let name = name.clone();
-                let def = ctx.get_symbol_def(name);
-                if def.is_none() {
-                    return Err(TcError::NameNotFound(name));
-                }
-                let def = ctx.ctx.interner.get_def(def.unwrap());
-                match def {
-                    Definition::Var(id) => {
-                        let var = ctx.ctx.interner.get_variable(*id);
-                        Ok(var.ty)
-                    }
-                    _ => todo!(),
-                }
-            }
-            NirExprKind::Tuple(exprs) => {
-                let ty = ConcreteType::Tuple(
-                    exprs
-                        .clone()
-                        .iter()
-                        .map(|x| self.get_type_of_expr(ctx, *x))
-                        .collect::<Result<Vec<_>, _>>()?,
-                );
-                Ok(self.create_type(ctx, ty))
-            }
-            NirExprKind::Access { from, field } => {
-                let t = self.get_type_of_expr(ctx, from.clone())?;
-                let mut ty = t.as_concrete(ctx);
-                match field.kind {
-                    FieldAccessKind::Symbol(name) => {
-                        if let ConcreteType::Ptr(inner) = ty {
-                            ty = (*inner).as_concrete(ctx);
-                        }
-                        if let ConcreteType::SpecializedClass(sc_id) = ty {
-                            let sc = ctx.ctx.interner.get_sc(*sc_id);
-                            for f in &sc.fields {
-                                if f.name == name {
-                                    return Ok(f.ty);
-                                }
-                            }
-                            return Err(TcError::Text(format!(
-                                "Field named ??? not found in class ???"
-                            )));
-                        } else {
-                            return Err(TcError::Text(format!(
-                                "No named field in non-class type (get_type_of_expr)",
-                            )));
-                        }
-                    }
-                    FieldAccessKind::Index(i) => {
-                        if let ConcreteType::Tuple(tys) = ty {
-                            if tys.len() < i as usize {
-                                return Err(TcError::Text(format!("Tuple access out of range")));
-                            }
-                            Ok(tys[i as usize])
-                        } else {
-                            return Err(TcError::Text(format!(
-                                "No integer field in non-tuple type"
-                            )));
-                        }
-                    }
-                }
-            }
-            NirExprKind::BinOp(NirBinOp { op, left, right }) => {
-                let lt = self.get_type_of_expr(ctx, *left)?;
-                let rt = self.get_type_of_expr(ctx, *right)?;
-
-                if !lt.is_integer(ctx) || !rt.is_integer(ctx) {
-                    return Err(TcError::Text(format!(
-                        "Cannot use binop with non-integer types"
-                    )));
-                }
-
-                if lt.as_ptr(ctx).is_some() {
-                    Ok(lt)
-                } else if rt.as_ptr(ctx).is_some() {
-                    Ok(rt)
-                } else {
-                    let lt_size = self.get_type_size(ctx, lt);
-                    let rt_size = self.get_type_size(ctx, rt);
-                    let operands_ty = if lt_size > rt_size { lt } else { rt };
-                    match op {
-                        NirBinOpKind::Equ
-                        | NirBinOpKind::Dif
-                        | NirBinOpKind::Geq
-                        | NirBinOpKind::Leq
-                        | NirBinOpKind::Gt
-                        | NirBinOpKind::Lt
-                        | NirBinOpKind::LOr
-                        | NirBinOpKind::LAnd => Ok(self.get_primitive_type(ctx, PrimitiveTy::Bool)),
-                        _ => Ok(operands_ty),
-                    }
-                }
-            }
-            NirExprKind::Call(NirCall {
-                called,
-                generic_args,
-                args,
-                span: _,
-            }) => {
-                assert!(generic_args.len() == 0);
-                let (f_id, self_ty) = self.get_fun_id_and_self_ty(ctx, called)?;
-
-                let sig = self.protos[&f_id].clone();
-
-                if Self::arg_len_mismatch(
-                    args.len()
-                        + match self_ty {
-                            None => 0,
-                            Some(_) => 1,
-                        },
-                    sig.params.len(),
-                    sig.variadic,
-                ) {
-                    return Err(TcError::Text(format!("Arg len mismatch in function call")));
-                }
-
-                Ok(sig.return_ty)
-            }
-            NirExprKind::Minus(num) => {
-                let ty = self.get_type_of_expr(ctx, *num)?;
-                if !ty.is_integer(ctx) {
-                    todo!();
-                }
-                Ok(ty)
-            }
-            NirExprKind::As { ty, expr } => {
-                let target_te = ctx.visit_type(ty)?;
-                let target = self.visit_type(ctx, target_te)?;
-                let expr_ty = self.get_type_of_expr(ctx, *expr)?;
-                if self.type_is_coercible(ctx, expr_ty, target) {
-                    Ok(target)
-                } else {
-                    Err(dbg!(TcError::Text(format!(
-                        "Types are not coercible for @as directive"
-                    ))))
-                }
-            }
-            NirExprKind::SizeOf(_) => {
-                Ok(self.create_type(ctx, ConcreteType::Primitive(PrimitiveTy::U64)))
-            }
-            NirExprKind::Deref(e) => {
-                let t = self.get_type_of_expr(ctx, *e)?;
-                if t.as_ptr(ctx).is_some() {
-                    match t.as_concrete(ctx) {
-                        ConcreteType::Ptr(ty) => Ok(*ty),
-                        _ => unreachable!(),
-                    }
-                } else {
-                    Err(TcError::Text(format!(
-                        "Cannot dereference non-pointer type !"
-                    )))
-                }
-            }
-            NirExprKind::Subscript { value, index } => {
-                // TODO: Implement subscript etc... with
-                // traits for types like Vec
-                let index_ty = self.get_type_of_expr(ctx, *index)?;
-                if !index_ty.is_integer(ctx) {
-                    return Err(TcError::Text(format!("Index type must be integer !")));
-                }
-                let t = self.get_type_of_expr(ctx, *value)?;
-                if t.as_ptr(ctx).is_some() {
-                    match t.as_concrete(ctx) {
-                        ConcreteType::Ptr(ty) => Ok(*ty),
-                        _ => unreachable!(),
-                    }
-                } else {
-                    Err(TcError::Text(format!("Cannot index non-pointer type !")))
-                }
-            }
-            x => todo!("{x:?}"),
-        }
+        TypeChecker::get_type_of_expr(self, ctx, expr_id)
     }
 
     pub fn expr_as_module(
@@ -983,6 +796,21 @@ impl<'ctx> TirCtx {
                         return Ok(self.create_expr(ctx, TirExpr::IntCast(ty.clone(), e), defer));
                     }
                     Ok(e)
+                }
+                NirLiteral::BoolLiteral(b) => {
+                    let res = self.create_expr(
+                        ctx,
+                        match b {
+                            true => TirExpr::True,
+                            false => TirExpr::False,
+                        },
+                        defer,
+                    );
+                    if ty == self.bool_ty(ctx) {
+                        Ok(res)
+                    } else {
+                        todo!()
+                    }
                 }
             },
             NirExprKind::Named(name) => {

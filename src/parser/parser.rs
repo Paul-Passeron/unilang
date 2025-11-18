@@ -997,6 +997,20 @@ impl Parser {
 
                 Ok(Ast::new(Expr::Prefix { op, expr: left }, span))
             }
+            TokenKind::True => {
+                let span = self.next().unwrap().location.clone();
+                Ok(Ast::new(
+                    Expr::Literal(Ast::new(Literal::Bool(true), span.clone())),
+                    span,
+                ))
+            }
+            TokenKind::False => {
+                let span = self.next().unwrap().location.clone();
+                Ok(Ast::new(
+                    Expr::Literal(Ast::new(Literal::Bool(false), span.clone())),
+                    span,
+                ))
+            }
             TokenKind::Identifier(s) => {
                 let span = self.next().unwrap().location.clone();
                 Ok(Ast::new(Expr::Identifier(Ast::new(s, span.clone())), span))

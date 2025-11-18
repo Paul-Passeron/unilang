@@ -12,7 +12,7 @@ use crate::{
     ty::{
         PrimitiveTy, TcFunProto, TcParam, TyCtx,
         displays::Displayable,
-        tir::{TirCtx, TirInstr},
+        tir::{Signature, TirCtx, TirInstr},
     },
 };
 
@@ -215,5 +215,15 @@ impl<'ctx> FunId {
 
     pub fn return_type(&self, tir: &TirCtx) -> TyId {
         tir.protos[self].return_ty
+    }
+
+    pub fn sig(&self, tir: &'ctx TirCtx) -> &'ctx Signature {
+        &tir.protos[self]
+    }
+}
+
+impl<'ctx> VariableId {
+    pub fn get_var(&self, ctx: &'ctx TyCtx<'ctx>) -> &'ctx VarDecl {
+        ctx.ctx.interner.get_variable(*self)
     }
 }

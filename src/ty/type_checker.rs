@@ -4,12 +4,11 @@ use crate::{
         FieldAccess, FieldAccessKind, NirBinOp, NirBinOpKind, NirCall, NirCalled, NirExprKind,
         NirLiteral, NirUnOpKind,
     },
-    parser::ast::Ty,
     ty::{
         TcError, TyCtx,
         displays::Displayable,
-        tir::TirCtx,
-        tir_pass::{Receiver, TypeReceiver},
+        tir::{ArgsMatch, TirCtx},
+        tir_pass::TypeReceiver,
     },
 };
 
@@ -20,13 +19,11 @@ pub struct TypeChecker;
 impl TypeChecker {
     pub fn get_type_of_lit(tir: &TirCtx, ctx: &TyCtx, lit: &NirLiteral) -> TyId {
         match lit {
-            // Defaults to biggest int size, can then be downcasted
-            // with no overhead.
-            // Same thing for signedness
             NirLiteral::IntLiteral(_) => tir.i64_ty(ctx),
             NirLiteral::FloatLiteral(_) => unreachable!("floats are not supported yet"),
             NirLiteral::StringLiteral(_) => tir.u8_ptr_ty(ctx),
             NirLiteral::CharLiteral(_) => tir.u8_ty(ctx),
+            NirLiteral::BoolLiteral(_) => tir.bool_ty(ctx),
         }
     }
 
@@ -164,7 +161,7 @@ impl TypeChecker {
     }
 
     pub fn get_type_of_unop(
-        op: NirUnOpKind,
+        op: &NirUnOpKind,
         ty: TyId,
         tir: &TirCtx,
         ctx: &mut TyCtx,
@@ -297,16 +294,31 @@ impl TypeChecker {
     pub fn get_called_fun(
         tir: &mut TirCtx,
         ctx: &mut TyCtx,
-        called: NirCalled,
-    ) -> Result<FunId, TcError> {
+        called: &NirCalled,
+    ) -> Result<(FunId, Option<TyId>), TcError> {
         if let Some(receiver) = called.receiver {
             let receiver = Self::get_type_receiver(tir, ctx, receiver)?;
-            let (fun_id, _) = Self::get_fun_id_self_ty(tir, ctx, receiver, called.called)?;
-            Ok(fun_id)
+            Self::get_fun_id_self_ty(tir, ctx, receiver, called.called)
         } else {
             // Context is global
-            tir.get_fun_id_from_symbol(ctx, called.called)
+            Ok((tir.get_fun_id_from_symbol(ctx, called.called)?, None))
         }
+    }
+
+    fn get_type_of_named<'ctx>(ctx: &mut TyCtx<'ctx>, name: Symbol) -> Result<TyId, TcError> {
+        if let Some(def) = ctx.get_symbol_def(name) {
+            match def.get_def(ctx) {
+                Definition::Var(id) => {
+                    let var = id.get_var(ctx);
+                    return Ok(var.ty);
+                }
+                _ => (),
+            }
+        }
+        Err(TcError::Text(format!(
+            "Name {} was not declared in the current scope.",
+            name.to_string(ctx),
+        )))
     }
 
     pub fn get_type_of_expr<'ctx>(
@@ -315,46 +327,212 @@ impl TypeChecker {
         expr: ExprId,
     ) -> Result<TyId, TcError> {
         let nir = expr.to_nir(ctx).clone();
-        match nir.kind {
+        match &nir.kind {
             NirExprKind::Literal(lit) => Ok(Self::get_type_of_lit(tir, ctx, &lit)),
             NirExprKind::BinOp(NirBinOp { op, left, right }) => {
-                let left_ty = Self::get_type_of_expr(tir, ctx, left)?;
-                let right_ty = Self::get_type_of_expr(tir, ctx, right)?;
-                Self::get_type_of_binop(op, left_ty, right_ty, tir, ctx)
+                let left_ty = Self::get_type_of_expr(tir, ctx, *left)?;
+                let right_ty = Self::get_type_of_expr(tir, ctx, *right)?;
+                Self::get_type_of_binop(*op, left_ty, right_ty, tir, ctx)
             }
             NirExprKind::UnOp { op, operand } => {
-                let operand_ty = Self::get_type_of_expr(tir, ctx, operand)?;
+                let operand_ty = Self::get_type_of_expr(tir, ctx, *operand)?;
                 Self::get_type_of_unop(op, operand_ty, tir, ctx)
             }
             NirExprKind::Call(NirCall {
                 called,
                 generic_args,
                 args,
-                span,
+                ..
             }) => {
                 // todo: Do something else
                 assert!(generic_args.len() == 0);
-                let fun_id = Self::get_called_fun(tir, ctx, called)?;
+                let (fun_id, self_ty) = Self::get_called_fun(tir, ctx, called)?;
+                let sig = fun_id.sig(tir).clone();
+                let args = args
+                    .iter()
+                    .map(|x| Self::get_type_of_expr(tir, ctx, *x))
+                    .collect::<Result<Vec<_>, _>>()?;
+                match sig.get_match(tir, ctx, &args, self_ty.is_some()) {
+                    ArgsMatch::No => {
+                        return Err(TcError::Text(format!(
+                            "Mismatched arguments in call: Expected ({}) but got ({})",
+                            sig.params
+                                .iter()
+                                .skip(if self_ty.is_some() { 1 } else { 0 })
+                                .map(|x| &x.ty)
+                                .to_string(ctx),
+                            args.iter().to_string(ctx),
+                        )));
+                    }
+                    _ => (),
+                }
+                // TODO: check the args
                 Ok(fun_id.return_type(tir))
             }
-            NirExprKind::Subscript { value, index } => todo!(),
-            NirExprKind::Access { from, field } => todo!(),
-            NirExprKind::Named(one_shot_id) => todo!(),
-            NirExprKind::PostIncr(one_shot_id) => todo!(),
-            NirExprKind::PreIncr(one_shot_id) => todo!(),
-            NirExprKind::PostDecr(one_shot_id) => todo!(),
-            NirExprKind::PreDecr(one_shot_id) => todo!(),
-            NirExprKind::AddrOf(one_shot_id) => todo!(),
-            NirExprKind::Deref(one_shot_id) => todo!(),
-            NirExprKind::SizeOf(nir_type) => todo!(),
-            NirExprKind::StringOf(nir_type) => todo!(),
-            NirExprKind::Minus(one_shot_id) => todo!(),
-            NirExprKind::Not(one_shot_id) => todo!(),
-            NirExprKind::New { ty, expr } => todo!(),
-            NirExprKind::As { ty, expr } => todo!(),
-            NirExprKind::Tuple(one_shot_ids) => todo!(),
-            NirExprKind::Range { start, end } => todo!(),
-            NirExprKind::TodoDir => todo!(),
+            NirExprKind::Subscript { value, index } => {
+                let value_ty = Self::get_type_of_expr(tir, ctx, *value)?;
+                let index_ty = Self::get_type_of_expr(tir, ctx, *index)?;
+                if let Some(inner) = value_ty.as_ptr(ctx) {
+                    if index_ty.is_integer(ctx) {
+                        Ok(inner)
+                    } else {
+                        Err(TcError::Text(format!(
+                            "Type {} can only be indexed by integer types. Got: {}",
+                            value_ty.to_string(ctx),
+                            index_ty.to_string(ctx)
+                        )))
+                    }
+                } else {
+                    Err(TcError::Text(format!(
+                        "Only pointer types can be subscripted for the moment. Got: {}",
+                        value_ty.to_string(ctx),
+                    )))
+                }
+            }
+            NirExprKind::Deref(e) => {
+                let e_ty = Self::get_type_of_expr(tir, ctx, *e)?;
+                e_ty.as_ptr(ctx).ok_or(TcError::Text(format!(
+                    "Only pointer types can be dereferenced for the moment. Got: {}",
+                    e_ty.to_string(ctx)
+                )))
+            }
+            NirExprKind::AddrOf(e) => {
+                let e_ty = Self::get_type_of_expr(tir, ctx, *e)?;
+                Ok(tir.create_type(ctx, ConcreteType::Ptr(e_ty)))
+            }
+            NirExprKind::Access { from, field } => {
+                let from_ty = Self::get_type_of_expr(tir, ctx, *from)?;
+                Self::get_type_of_access(ctx, from_ty, field)
+            }
+            NirExprKind::Named(name) => Self::get_type_of_named(ctx, *name),
+
+            NirExprKind::SizeOf(ty) => {
+                let t_e = ctx.visit_type(&ty)?;
+                tir.visit_type(ctx, t_e)?;
+                Ok(tir.u64_ty(ctx))
+            }
+            NirExprKind::StringOf(ty) => {
+                let t_e = ctx.visit_type(&ty)?;
+                tir.visit_type(ctx, t_e)?;
+                Ok(tir.u8_ptr_ty(ctx))
+            }
+            NirExprKind::Minus(e) => {
+                let e_ty = Self::get_type_of_expr(tir, ctx, *e)?;
+
+                if e_ty.is_integer(ctx) || e_ty.as_ptr(ctx).is_some() {
+                    Ok(e_ty)
+                } else {
+                    Err(TcError::Text(format!(
+                        "The prefix operator '-' is not implemented for type {}",
+                        e_ty.to_string(ctx)
+                    )))
+                }
+            }
+            NirExprKind::Not(e) => {
+                let e_ty = Self::get_type_of_expr(tir, ctx, *e)?;
+                if e_ty.is_integer(ctx) {
+                    Ok(tir.bool_ty(ctx))
+                } else {
+                    Err(TcError::Text(format!(
+                        "The prefix operator '!' is implemented only for type bool. Got: {}",
+                        e_ty.to_string(ctx)
+                    )))
+                }
+            }
+            NirExprKind::New { ty, expr } | NirExprKind::As { ty, expr } => {
+                let target_te = ctx.visit_type(&ty)?;
+                let target = tir.visit_type(ctx, target_te)?;
+                let expr_ty = Self::get_type_of_expr(tir, ctx, *expr)?;
+                if expr_ty.is_coercible(tir, ctx, target) {
+                    Ok(target)
+                } else {
+                    Err(TcError::Text(format!(
+                        "Type {} is not coercible to type {} in @{} directive",
+                        expr_ty.to_string(ctx),
+                        target.to_string(ctx),
+                        if matches!(nir.kind, NirExprKind::New { .. }) {
+                            "new"
+                        } else {
+                            "as"
+                        }
+                    )))
+                }
+            }
+            NirExprKind::Tuple(tys) => {
+                let tys = tys
+                    .iter()
+                    .map(|x| Self::get_type_of_expr(tir, ctx, *x))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                Ok(tir.create_type(ctx, ConcreteType::Tuple(tys)))
+            }
+            NirExprKind::Range { .. } => Err(TcError::Text(format!(
+                "The range expression is not typeable"
+            ))),
+            NirExprKind::PostIncr(_) => Err(TcError::Text(format!(
+                "The post-increment operation is not supported yet"
+            ))),
+            NirExprKind::PreIncr(_) => Err(TcError::Text(format!(
+                "The pre-increment operation is not supported yet"
+            ))),
+            NirExprKind::PostDecr(_) => Err(TcError::Text(format!(
+                "The post-decrement operation is not supported yet"
+            ))),
+            NirExprKind::PreDecr(_) => Err(TcError::Text(format!(
+                "The pre-decrement operation is not supported yet"
+            ))),
+            NirExprKind::TodoDir => Err(TcError::Text(format!(
+                "The TODO directive is not supported yet"
+            ))),
+        }
+    }
+
+    fn get_type_of_access<'ctx>(
+        ctx: &mut TyCtx<'ctx>,
+        from_ty: TyId,
+        field: &FieldAccess,
+    ) -> Result<crate::nir::interner::OneShotId<ConcreteType>, TcError> {
+        let mut from_ty = from_ty;
+        if let Some(inner) = from_ty.as_ptr(ctx)
+            && inner.as_sc(ctx).is_some()
+        {
+            from_ty = inner;
+        }
+        match field.kind {
+            FieldAccessKind::Symbol(field) => {
+                if from_ty.as_sc(ctx).is_some() {
+                    from_ty
+                        .get_named_field(ctx, field)
+                        .ok_or(TcError::Text(format!(
+                            "Cannot access named field {} of type {}.",
+                            field.to_string(ctx),
+                            from_ty.to_string(ctx)
+                        )))
+                } else {
+                    Err(TcError::Text(format!(
+                        "Cannot access named field {} of non-struct-like type {}.",
+                        field.to_string(ctx),
+                        from_ty.to_string(ctx)
+                    )))
+                }
+            }
+            FieldAccessKind::Index(i) => {
+                if from_ty.as_tuple(ctx).is_some() {
+                    from_ty
+                        .get_nth_tuple_field(ctx, i as usize)
+                        .ok_or(TcError::Text(format!(
+                            "Cannot access indexed field {} of type {}.",
+                            i,
+                            from_ty.to_string(ctx)
+                        )))
+                } else {
+                    Err(TcError::Text(format!(
+                        "Cannot access indexed field {} of non-tuple type {}.",
+                        i,
+                        from_ty.to_string(ctx)
+                    )))
+                }
+            }
         }
     }
 }

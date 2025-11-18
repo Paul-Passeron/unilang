@@ -887,6 +887,7 @@ impl<'ctx> NirVisitor<'ctx> {
                 // Should not clone here
                 NirLiteral::StringLiteral(self.ctx.interner.insert_string(&StrLit(x.clone())))
             }
+            Literal::Bool(b) => NirLiteral::BoolLiteral(*b),
         })
     }
 

@@ -5,6 +5,8 @@ use std::{
     marker::PhantomData,
 };
 
+use crate::common::global_interner::VariableId;
+
 pub trait Interner<'ctx, Value> {
     type Id;
     fn contains(&'ctx self, v: &Value) -> Option<Self::Id>;

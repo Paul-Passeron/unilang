@@ -91,6 +91,8 @@ pub fn get_token_rules() -> Vec<(Regex, fn(&str, Span) -> Result<Token, Error>)>
                         "break" => TokenKind::Break,
                         "use" => TokenKind::Use,
                         "static" => TokenKind::Static,
+                        "true" => TokenKind::True,
+                        "false" => TokenKind::False,
                         _ => TokenKind::Identifier(String::from(lexeme)),
                     },
                 })
