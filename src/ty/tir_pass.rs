@@ -1269,7 +1269,7 @@ impl<'ctx> TirCtx {
         }
     }
 
-    fn get_fun_id_and_self_ty(
+    pub fn get_fun_id_and_self_ty(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         called: &NirCalled,

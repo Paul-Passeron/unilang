@@ -9,7 +9,11 @@ use crate::{
         source_location::Span,
     },
     nir::interner::Interner,
-    ty::{PrimitiveTy, TcFunProto, TcParam, tir::TirInstr},
+    ty::{
+        PrimitiveTy, TcFunProto, TcParam, TyCtx,
+        displays::Displayable,
+        tir::{TirCtx, TirInstr},
+    },
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -64,6 +68,15 @@ pub struct Class {
 pub struct Module {
     pub name: Symbol,
     pub scope: ScopeId,
+}
+
+impl ModuleId {
+    pub fn get_module<'ctx>(&self, ctx: &'ctx TyCtx<'ctx>) -> &'ctx Module {
+        ctx.ctx.interner.get_module(*self)
+    }
+    pub fn get_name<'ctx>(&self, ctx: &'ctx TyCtx<'ctx>) -> String {
+        self.get_module(ctx).name.to_string(ctx)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -160,6 +173,12 @@ pub enum Definition {
     Var(VariableId),
 }
 
+impl DefId {
+    pub fn get_def<'ctx>(&self, ctx: &'ctx TyCtx<'ctx>) -> &'ctx Definition {
+        ctx.ctx.interner.get_def(*self)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Scope {
     pub kind: ScopeKind,
@@ -186,5 +205,15 @@ impl Scope {
                 scope.get_definition_for_symbol(symb, interner)
             })
             .flatten()
+    }
+}
+
+impl<'ctx> FunId {
+    pub fn get_fun(&self, ctx: &'ctx TyCtx<'ctx>) -> &'ctx TcFunProto {
+        ctx.ctx.interner.get_fun(*self)
+    }
+
+    pub fn return_type(&self, tir: &TirCtx) -> TyId {
+        tir.protos[self].return_ty
     }
 }
