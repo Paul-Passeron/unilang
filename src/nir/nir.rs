@@ -345,8 +345,6 @@ pub enum NirExprKind {
     Deref(ExprId),
     SizeOf(NirType),
     StringOf(NirType),
-    Minus(ExprId),
-    Not(ExprId),
     New { ty: NirType, expr: ExprId },
     As { ty: NirType, expr: ExprId },
     Tuple(Vec<ExprId>),

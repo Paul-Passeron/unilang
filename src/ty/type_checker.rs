@@ -78,7 +78,7 @@ impl TypeChecker {
                     Ok(tir.u64_ty(ctx))
                 } else if !right.is_integer(ctx) {
                     Err(TcError::Text(format!(
-                        "Operation `{}` needs its right hand side to be of integer type instead of {}.",
+                        "Operation `{}` needs its right hand side to be of integer type instead of `{}`.",
                         if op == NirBinOpKind::Div { "/" } else { "%" },
                         right.to_string(ctx)
                     )))
@@ -172,7 +172,7 @@ impl TypeChecker {
                     Ok(ty)
                 } else {
                     Err(TcError::Text(format!(
-                        "Operation `-` is not supported on type {}",
+                        "Operation `-` is not supported on type `{}`",
                         ty.to_string(ctx)
                     )))
                 }
@@ -182,7 +182,7 @@ impl TypeChecker {
                     Ok(ty)
                 } else {
                     Err(TcError::Text(format!(
-                        "Operation `!` is not supported on type {}",
+                        "Operation `!` is not supported on type `{}`",
                         ty.to_string(ctx)
                     )))
                 }
@@ -192,7 +192,7 @@ impl TypeChecker {
                     Ok(ty)
                 } else {
                     Err(TcError::Text(format!(
-                        "Operation `~` is not supported on type {}",
+                        "Operation `~` is not supported on type `{}`",
                         ty.to_string(ctx)
                     )))
                 }
@@ -202,7 +202,7 @@ impl TypeChecker {
                     Ok(inner_ty)
                 } else {
                     Err(TcError::Text(format!(
-                        "Operation `*` is not supported on type {}",
+                        "Operation `*` is not supported on type `{}`",
                         ty.to_string(ctx)
                     )))
                 }
@@ -264,7 +264,7 @@ impl TypeChecker {
                 let ty = id.as_ptr(ctx).unwrap_or(id);
                 if !tir.methods[&ty].contains_key(&called) {
                     Err(TcError::Text(format!(
-                        "No method named {} for type {}",
+                        "No method named `{}` for type `{}`",
                         called.to_string(ctx),
                         ty.to_string(ctx)
                     )))
@@ -282,7 +282,7 @@ impl TypeChecker {
                 });
                 fun_id
                     .ok_or(TcError::Text(format!(
-                        "No such function {} in module {}",
+                        "No such function `{}` in module `{}`",
                         called.to_string(ctx),
                         id.get_name(ctx)
                     )))
@@ -316,7 +316,7 @@ impl TypeChecker {
             }
         }
         Err(TcError::Text(format!(
-            "Name {} was not declared in the current scope.",
+            "Name `{}` was not declared in the current scope.",
             name.to_string(ctx),
         )))
     }
@@ -377,14 +377,14 @@ impl TypeChecker {
                         Ok(inner)
                     } else {
                         Err(TcError::Text(format!(
-                            "Type {} can only be indexed by integer types. Got: {}",
+                            "Type `{}` can only be indexed by integer types. Got: `{}`",
                             value_ty.to_string(ctx),
                             index_ty.to_string(ctx)
                         )))
                     }
                 } else {
                     Err(TcError::Text(format!(
-                        "Only pointer types can be subscripted for the moment. Got: {}",
+                        "Only pointer types can be subscripted for the moment. Got: `{}`",
                         value_ty.to_string(ctx),
                     )))
                 }
@@ -392,7 +392,7 @@ impl TypeChecker {
             NirExprKind::Deref(e) => {
                 let e_ty = Self::get_type_of_expr(tir, ctx, *e)?;
                 e_ty.as_ptr(ctx).ok_or(TcError::Text(format!(
-                    "Only pointer types can be dereferenced for the moment. Got: {}",
+                    "Only pointer types can be dereferenced for the moment. Got: `{}`",
                     e_ty.to_string(ctx)
                 )))
             }
@@ -416,29 +416,6 @@ impl TypeChecker {
                 tir.visit_type(ctx, t_e)?;
                 Ok(tir.u8_ptr_ty(ctx))
             }
-            NirExprKind::Minus(e) => {
-                let e_ty = Self::get_type_of_expr(tir, ctx, *e)?;
-
-                if e_ty.is_integer(ctx) || e_ty.as_ptr(ctx).is_some() {
-                    Ok(e_ty)
-                } else {
-                    Err(TcError::Text(format!(
-                        "The prefix operator '-' is not implemented for type {}",
-                        e_ty.to_string(ctx)
-                    )))
-                }
-            }
-            NirExprKind::Not(e) => {
-                let e_ty = Self::get_type_of_expr(tir, ctx, *e)?;
-                if e_ty.is_integer(ctx) {
-                    Ok(tir.bool_ty(ctx))
-                } else {
-                    Err(TcError::Text(format!(
-                        "The prefix operator '!' is implemented only for type bool. Got: {}",
-                        e_ty.to_string(ctx)
-                    )))
-                }
-            }
             NirExprKind::New { ty, expr } | NirExprKind::As { ty, expr } => {
                 let target_te = ctx.visit_type(&ty)?;
                 let target = tir.visit_type(ctx, target_te)?;
@@ -447,7 +424,7 @@ impl TypeChecker {
                     Ok(target)
                 } else {
                     Err(TcError::Text(format!(
-                        "Type {} is not coercible to type {} in @{} directive",
+                        "Type `{}` is not coercible to type `{}` in @{} directive",
                         expr_ty.to_string(ctx),
                         target.to_string(ctx),
                         if matches!(nir.kind, NirExprKind::New { .. }) {
@@ -504,13 +481,13 @@ impl TypeChecker {
                     from_ty
                         .get_named_field(ctx, field)
                         .ok_or(TcError::Text(format!(
-                            "Cannot access named field {} of type {}.",
+                            "Cannot access named field `{}` of type `{}`.",
                             field.to_string(ctx),
                             from_ty.to_string(ctx)
                         )))
                 } else {
                     Err(TcError::Text(format!(
-                        "Cannot access named field {} of non-struct-like type {}.",
+                        "Cannot access named field `{}` of non-struct-like type `{}`.",
                         field.to_string(ctx),
                         from_ty.to_string(ctx)
                     )))
@@ -521,13 +498,13 @@ impl TypeChecker {
                     from_ty
                         .get_nth_tuple_field(ctx, i as usize)
                         .ok_or(TcError::Text(format!(
-                            "Cannot access indexed field {} of type {}.",
+                            "Cannot access indexed field {} of type `{}`.",
                             i,
                             from_ty.to_string(ctx)
                         )))
                 } else {
                     Err(TcError::Text(format!(
-                        "Cannot access indexed field {} of non-tuple type {}.",
+                        "Cannot access indexed field {} of non-tuple type `{}`.",
                         i,
                         from_ty.to_string(ctx)
                     )))

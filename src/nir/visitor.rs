@@ -14,7 +14,8 @@ use crate::{
             NirCall, NirCalled, NirClassDef, NirExpr, NirExprKind, NirFunctionDef, NirGenericArg,
             NirImplBlock, NirItem, NirLiteral, NirMember, NirMethod, NirModuleDef, NirPath,
             NirPattern, NirPatternKind, NirProgram, NirStmtKind, NirTraitConstraint, NirTraitDef,
-            NirType, NirTypeBound, NirTypeKind, NirVarDecl, SelfKind, StrLit, Visibility,
+            NirType, NirTypeBound, NirTypeKind, NirUnOpKind, NirVarDecl, SelfKind, StrLit,
+            Visibility,
         },
     },
     parser::ast::{
@@ -934,8 +935,14 @@ impl<'ctx> NirVisitor<'ctx> {
                 PrefixExprKind::Decr => NirExprKind::PreDecr(expr),
                 PrefixExprKind::Address => NirExprKind::AddrOf(expr),
                 PrefixExprKind::Deref => NirExprKind::Deref(expr),
-                PrefixExprKind::Minus => NirExprKind::Minus(expr),
-                PrefixExprKind::Not => NirExprKind::Not(expr),
+                PrefixExprKind::Minus => NirExprKind::UnOp {
+                    op: NirUnOpKind::Minus,
+                    operand: expr,
+                },
+                PrefixExprKind::Not => NirExprKind::UnOp {
+                    op: NirUnOpKind::LNot,
+                    operand: expr,
+                },
             },
             span,
         })

@@ -994,13 +994,6 @@ impl<'ctx> TirCtx {
 
                 Ok(self.create_expr(ctx, TirExpr::Funcall(f_id, args), defer))
             }
-            NirExprKind::Minus(x) => {
-                let e = self.get_expr_with_type(ctx, *x, ty, defer)?;
-                if !ty.is_integer(ctx) {
-                    todo!();
-                }
-                Ok(self.create_expr(ctx, TirExpr::Minus(e), defer))
-            }
             NirExprKind::As {
                 ty: as_ty,
                 expr: inner_expr,

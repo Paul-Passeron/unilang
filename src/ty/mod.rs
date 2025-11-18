@@ -13,6 +13,7 @@ use crate::{
 
 pub mod concrete_type;
 pub mod displays;
+pub mod expr_translator;
 pub mod scope;
 pub mod specialized_class;
 pub mod surface_resolution;
