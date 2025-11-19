@@ -3,7 +3,12 @@ use crate::{
     nir::nir::{
         FieldAccess, NirBinOp, NirCall, NirExprKind, NirLiteral, NirType, NirUnOpKind, StrLit,
     },
-    ty::{TcError, TyCtx, displays::Displayable, tir::TirCtx, type_checker::TypeChecker},
+    ty::{
+        TcError, TyCtx,
+        displays::Displayable,
+        tir::{TirCtx, TypedIntLit},
+        type_checker::TypeChecker,
+    },
 };
 
 use super::tir::TirExpr;
@@ -134,7 +139,25 @@ impl ExprTranslator {
     }
 
     fn literal(tir: &mut TirCtx, ctx: &mut TyCtx, lit: &NirLiteral, defer: bool) -> TirExprId {
-        todo!()
+        match lit {
+            NirLiteral::IntLiteral(i) => tir.create_expr(
+                ctx,
+                TirExpr::TypedIntLit(TypedIntLit::I64(i64::try_from(*i).unwrap())),
+                defer,
+            ),
+            NirLiteral::FloatLiteral(_) => unreachable!("floats are not supported yet"),
+            NirLiteral::StringLiteral(strlit) => {
+                tir.create_expr(ctx, TirExpr::StringLiteral(*strlit), defer)
+            }
+            NirLiteral::CharLiteral(c) => tir.create_expr(
+                ctx,
+                TirExpr::TypedIntLit(TypedIntLit::U8(u8::try_from(*c).unwrap())),
+                defer,
+            ),
+            NirLiteral::BoolLiteral(b) => {
+                tir.create_expr(ctx, if *b { TirExpr::True } else { TirExpr::False }, defer)
+            }
+        }
     }
 
     fn binop(
@@ -162,6 +185,11 @@ impl ExprTranslator {
         call: &NirCall,
         defer: bool,
     ) -> Result<TirExprId, TcError> {
+        let (fun_id, self_ty) = TypeChecker::get_called_fun(tir, ctx, &call.called)?;
+        if let Some(self_ty) = self_ty {
+            let receiver = call.called.receiver.as_ref().unwrap();
+            todo!()
+        }
         todo!()
     }
 
@@ -185,6 +213,15 @@ impl ExprTranslator {
         todo!()
     }
 
+    fn named_ptr(
+        tir: &mut TirCtx,
+        ctx: &mut TyCtx,
+        name: Symbol,
+        defer: bool,
+    ) -> Result<TirExprId, TcError> {
+        todo!()
+    }
+
     fn named(
         tir: &mut TirCtx,
         ctx: &mut TyCtx,
@@ -194,13 +231,25 @@ impl ExprTranslator {
         todo!()
     }
 
+    fn deref_tir(tir: &mut TirCtx, ctx: &mut TyCtx, expr: TirExprId, defer: bool) -> TirExprId {
+        // unsafe to call if the expr is not of ptr type
+        tir.create_expr(ctx, TirExpr::Deref(expr), defer)
+    }
+
     fn deref(
         tir: &mut TirCtx,
         ctx: &mut TyCtx,
-        one_shot_id: ExprId,
+        expr: ExprId,
         defer: bool,
     ) -> Result<TirExprId, TcError> {
-        todo!()
+        let e_ty = TypeChecker::get_type_of_expr(tir, ctx, expr)?;
+        let e = Self::expr(tir, ctx, expr, defer)?;
+        e_ty.as_ptr(ctx)
+            .ok_or(TcError::Text(format!(
+                "Only pointer types can be dereferenced for the moment. Got: `{}`",
+                e_ty.to_string(ctx)
+            )))
+            .map(|_| Self::deref_tir(tir, ctx, e, defer))
     }
 
     fn size_of(
@@ -209,7 +258,14 @@ impl ExprTranslator {
         nir_type: &NirType,
         defer: bool,
     ) -> Result<TirExprId, TcError> {
-        todo!()
+        let te = ctx.visit_type(nir_type)?;
+        let ty = tir.visit_type(ctx, te)?;
+        let size = ty.get_size(ctx);
+        Ok(tir.create_expr(
+            ctx,
+            TirExpr::TypedIntLit(TypedIntLit::U64(size as u64)),
+            defer,
+        ))
     }
 
     fn string_of(
