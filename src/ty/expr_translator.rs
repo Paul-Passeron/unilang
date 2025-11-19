@@ -8,7 +8,7 @@ use crate::{
         TcError, TyCtx,
         displays::Displayable,
         scope::Definition,
-        tir::{TirCtx, TirInstr, TypedIntLit},
+        tir::{ConcreteType, TirCtx, TirInstr, TypedIntLit},
         type_checker::TypeChecker,
     },
 };
@@ -116,7 +116,31 @@ impl ExprTranslator {
             return Ok(expr);
         }
 
-        todo!()
+        if src_ty.is_integer(ctx) && ty.is_integer(ctx) {
+            return Ok(tir.create_expr(ctx, TirExpr::IntCast(ty, expr), defer));
+        }
+
+        if src_ty.as_ptr(ctx).is_some() && ty.as_ptr(ctx).is_some() {
+            return Ok(tir.create_expr(ctx, TirExpr::PtrCast(ty, expr), defer));
+        }
+
+        if src_ty.is_integer(ctx) && ty.as_ptr(ctx).is_some() {
+            return Ok(tir.create_expr(ctx, TirExpr::PtrCast(ty, expr), defer));
+        }
+
+        if src_ty.as_ptr(ctx).is_some() && ty.is_integer(ctx) {
+            return Ok(tir.create_expr(ctx, TirExpr::IntCast(ty, expr), defer));
+        }
+
+        if let Some(sc_id) = ty.as_sc(ctx) {
+            Self::coerce_to_sc(tir, ctx, sc_id, expr, defer)
+        } else {
+            Err(TcError::Text(format!(
+                "Cannot coerce `{}` to `{}`",
+                src_ty.to_string(ctx),
+                ty.to_string(ctx)
+            )))
+        }
     }
 
     pub fn expr_with_type(
@@ -433,6 +457,14 @@ impl ExprTranslator {
             None
         };
         let args = Self::create_call_args(tir, ctx, call, fun_id, self_expr, defer)?;
+        println!(
+            "{}:{}:{} Calling {} with {} args.",
+            file!(),
+            line!(),
+            column!(),
+            fun_id.sig(tir).name.to_string(ctx),
+            args.len()
+        );
         Ok(tir.create_expr(ctx, TirExpr::Funcall(fun_id, args), defer))
     }
 
@@ -697,6 +729,19 @@ impl ExprTranslator {
         Ok(ptr)
     }
 
+    fn coerce_to_sc(
+        tir: &mut TirCtx,
+        ctx: &mut TyCtx,
+        sc_id: SCId,
+        expr: TirExprId,
+        defer: bool,
+    ) -> Result<TirExprId, TcError> {
+        let ty = tir.create_type(ctx, ConcreteType::SpecializedClass(sc_id));
+        let ptr = tir.create_expr(ctx, TirExpr::Alloca(ty), defer);
+        Self::construct_object_at_ptr(tir, ctx, sc_id, vec![expr], ptr, defer)?;
+        Ok(tir.create_expr(ctx, TirExpr::Deref(ptr), defer))
+    }
+
     fn as_dir(
         tir: &mut TirCtx,
         ctx: &mut TyCtx,
@@ -749,17 +794,17 @@ impl ExprTranslator {
                     call_args_len
                 )));
             }
-            let tys = sig
-                .params
-                .iter()
-                .skip(1)
-                .enumerate()
-                .map(|(i, x)| (i < call_args_len).then_some(x.ty));
+            let mut tys = vec![];
+
+            for i in 0..call_args_len {
+                tys.push(sig.params.get(i).map(|x| x.ty))
+            }
 
             self_expr
                 .into_iter()
                 .chain(
-                    tys.zip(call.args.iter())
+                    tys.into_iter()
+                        .zip(call.args.iter())
                         .map(|(ty_opt, expr)| {
                             if let Some(ty) = ty_opt {
                                 Self::expr_with_type(tir, ctx, *expr, ty, defer)
