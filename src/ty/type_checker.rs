@@ -1,18 +1,21 @@
 use crate::{
-    common::global_interner::{DefId, ExprId, FunId, ModuleId, Symbol, TyId},
+    common::global_interner::{DefId, ExprId, FunId, ModuleId, Symbol, TirExprId, TyId},
     nir::nir::{
         FieldAccess, FieldAccessKind, NirBinOp, NirBinOpKind, NirCall, NirCalled, NirExprKind,
         NirLiteral, NirUnOpKind,
     },
     ty::{
-        TcError, TyCtx,
+        PrimitiveTy, TcError, TyCtx,
         displays::Displayable,
-        tir::{ArgsMatch, TirCtx},
+        tir::{ArgsMatch, TirCtx, TypedIntLit},
         tir_pass::TypeReceiver,
     },
 };
 
-use super::{scope::Definition, tir::ConcreteType};
+use super::{
+    scope::Definition,
+    tir::{ConcreteType, TirExpr},
+};
 
 pub struct TypeChecker;
 
@@ -512,6 +515,152 @@ impl TypeChecker {
                     )))
                 }
             }
+        }
+    }
+
+    pub fn get_type_of_tir_expr(
+        tir: &mut TirCtx,
+        ctx: &mut TyCtx,
+        expr: TirExprId,
+    ) -> Result<TyId, TcError> {
+        match expr.get_tir(ctx).clone() {
+            TirExpr::TypedIntLit(x) => match x {
+                TypedIntLit::Ptr(id, _) => {
+                    let ty = ConcreteType::Ptr(id);
+                    Ok(tir.create_type(ctx, ty))
+                }
+                TypedIntLit::I8(_) => {
+                    let ty = ConcreteType::Primitive(PrimitiveTy::I8);
+                    Ok(tir.create_type(ctx, ty))
+                }
+                TypedIntLit::I16(_) => {
+                    let ty = ConcreteType::Primitive(PrimitiveTy::I16);
+                    Ok(tir.create_type(ctx, ty))
+                }
+                TypedIntLit::I32(_) => {
+                    let ty = ConcreteType::Primitive(PrimitiveTy::I32);
+                    Ok(tir.create_type(ctx, ty))
+                }
+                TypedIntLit::I64(_) => {
+                    let ty = ConcreteType::Primitive(PrimitiveTy::I64);
+                    Ok(tir.create_type(ctx, ty))
+                }
+                TypedIntLit::U8(_) => {
+                    let ty = ConcreteType::Primitive(PrimitiveTy::U8);
+                    Ok(tir.create_type(ctx, ty))
+                }
+                TypedIntLit::U16(_) => {
+                    let ty = ConcreteType::Primitive(PrimitiveTy::U16);
+                    Ok(tir.create_type(ctx, ty))
+                }
+                TypedIntLit::U32(_) => {
+                    let ty = ConcreteType::Primitive(PrimitiveTy::U32);
+                    Ok(tir.create_type(ctx, ty))
+                }
+                TypedIntLit::U64(_) => {
+                    let ty = ConcreteType::Primitive(PrimitiveTy::U64);
+                    Ok(tir.create_type(ctx, ty))
+                }
+                TypedIntLit::Bool(_) => {
+                    let ty = ConcreteType::Primitive(PrimitiveTy::Bool);
+                    Ok(tir.create_type(ctx, ty))
+                }
+            },
+            TirExpr::Access(var, field_access_kind) => {
+                let ty = Self::get_type_of_tir_expr(tir, ctx, var)?;
+                tir.get_access_ty(ctx, ty, &field_access_kind)
+            }
+            TirExpr::IntCast(id, _) => Ok(id),
+            TirExpr::Tuple(ids) => {
+                let ty = ConcreteType::Tuple(
+                    ids.iter()
+                        .map(|x| Self::get_type_of_tir_expr(tir, ctx, *x))
+                        .collect::<Result<Vec<_>, _>>()?,
+                );
+                Ok(tir.create_type(ctx, ty))
+            }
+            TirExpr::BinOp { lhs, op, rhs } => match op {
+                NirBinOpKind::Equ
+                | NirBinOpKind::Dif
+                | NirBinOpKind::Geq
+                | NirBinOpKind::Leq
+                | NirBinOpKind::Gt
+                | NirBinOpKind::Lt
+                | NirBinOpKind::LOr
+                | NirBinOpKind::LAnd => Ok(tir.get_primitive_type(ctx, PrimitiveTy::Bool)),
+
+                _ => {
+                    let lt = Self::get_type_of_tir_expr(tir, ctx, lhs)?;
+                    let rt = Self::get_type_of_tir_expr(tir, ctx, rhs)?;
+                    if lt.as_ptr(ctx).is_some() {
+                        Ok(lt)
+                    } else if rt.as_ptr(ctx).is_some() {
+                        Ok(rt)
+                    } else {
+                        Ok(Self::get_type_of_tir_expr(tir, ctx, lhs)?)
+                    }
+                }
+            },
+            TirExpr::Arg(i) => {
+                let fun_id = ctx.get_current_fun().unwrap();
+                let proto = &tir.protos[&fun_id];
+                Ok(proto.params[i].ty)
+            }
+            TirExpr::Funcall(fun_id, _) => Ok(tir.protos[&fun_id].return_ty),
+            TirExpr::PtrCast(id, _) => Ok(tir.get_ptr_to(ctx, id)),
+            TirExpr::StringLiteral(_) => {
+                let ty = tir.get_primitive_type(ctx, PrimitiveTy::U8);
+                Ok(tir.get_ptr_to(ctx, ty))
+            }
+            TirExpr::True | TirExpr::False => Ok(tir.get_primitive_type(ctx, PrimitiveTy::Bool)),
+            TirExpr::PtrAccess(expr, FieldAccessKind::Symbol(field_name)) => {
+                let t = Self::get_type_of_tir_expr(tir, ctx, expr).unwrap();
+                let mut ty = t.as_concrete(ctx);
+                if let ConcreteType::Ptr(x) = ty {
+                    ty = x.as_concrete(ctx);
+                }
+                if let ConcreteType::SpecializedClass(sc_id) = ty {
+                    let sc = ctx.ctx.interner.get_sc(*sc_id);
+                    let field = sc
+                        .fields
+                        .iter()
+                        .find(|elem| elem.name == field_name)
+                        .ok_or(TcError::Text(format!(
+                            "Field named ??? not found in class ???"
+                        )))?;
+                    Ok(tir.create_type(ctx, ConcreteType::Ptr(field.ty)))
+                } else {
+                    return Err(TcError::Text(format!(
+                        "No named field in non-class type (get_type_of_tir_expr)",
+                    )));
+                }
+            }
+            TirExpr::PtrAccess(expr, FieldAccessKind::Index(i)) => {
+                let t = Self::get_type_of_tir_expr(tir, ctx, expr).unwrap();
+                let mut ty = t.as_concrete(ctx);
+                if let ConcreteType::Ptr(x) = ty {
+                    ty = x.as_concrete(ctx);
+                }
+                if let ConcreteType::Tuple(ids) = ty {
+                    if ids.len() <= i as usize {
+                        return Err(TcError::Text(format!("Tuple access out of range")));
+                    }
+                    Ok(tir.create_type(ctx, ConcreteType::Ptr(ids[i as usize])))
+                } else {
+                    return Err(TcError::Text(format!("No index field in non-tuple type")));
+                }
+            }
+            TirExpr::VarPtr(id) => {
+                let inner = ctx.ctx.interner.get_variable(id).ty;
+                Ok(tir.create_type(ctx, ConcreteType::Ptr(inner)))
+            }
+            TirExpr::Deref(e) => Ok(Self::get_type_of_tir_expr(tir, ctx, e)?
+                .as_ptr(ctx)
+                .unwrap()),
+            TirExpr::Malloc(ty) | TirExpr::Alloca(ty) => {
+                Ok(tir.create_type(ctx, ConcreteType::Ptr(ty)))
+            }
+            TirExpr::Subscript { ptr, .. } => Self::get_type_of_tir_expr(tir, ctx, ptr),
         }
     }
 }
