@@ -1,5 +1,5 @@
 use crate::{
-    common::global_interner::{ExprId, Symbol, TirExprId, TyId},
+    common::global_interner::{ExprId, FunId, Symbol, TirExprId, TyId},
     nir::nir::{
         FieldAccess, NirBinOp, NirCall, NirExprKind, NirLiteral, NirType, NirUnOpKind, StrLit,
     },
@@ -186,11 +186,23 @@ impl ExprTranslator {
         defer: bool,
     ) -> Result<TirExprId, TcError> {
         let (fun_id, self_ty) = TypeChecker::get_called_fun(tir, ctx, &call.called)?;
-        if let Some(self_ty) = self_ty {
-            let receiver = call.called.receiver.as_ref().unwrap();
-            todo!()
-        }
-        todo!()
+        let self_expr = if let Some(_) = self_ty {
+            let receiver = call.called.receiver.as_ref().unwrap().clone();
+            let self_expr = if TypeChecker::get_type_of_expr(tir, ctx, receiver)?
+                .as_ptr(ctx)
+                .is_some()
+            {
+                Self::expr(tir, ctx, receiver, defer)
+            } else {
+                Self::expr_as_ptr(tir, ctx, receiver, defer)
+            }?;
+
+            Some(self_expr)
+        } else {
+            None
+        };
+        let args = Self::create_call_args(tir, ctx, call, fun_id, self_expr, defer)?;
+        Ok(tir.create_expr(ctx, TirExpr::Funcall(fun_id, args), defer))
     }
 
     fn subscript(
@@ -308,5 +320,51 @@ impl ExprTranslator {
         defer: bool,
     ) -> Result<TirExprId, TcError> {
         todo!()
+    }
+
+    fn create_call_args(
+        tir: &mut TirCtx,
+        ctx: &mut TyCtx,
+        call: &NirCall,
+        fun_id: FunId,
+        self_expr: Option<TirExprId>,
+        defer: bool,
+    ) -> Result<Vec<TirExprId>, TcError> {
+        let exprs = {
+            let padding = if self_expr.is_some() { 1 } else { 0 };
+            let sig = fun_id.sig(tir).clone();
+            let call_args_len = call.args.len();
+            if !sig.variadic && call_args_len + padding != sig.params.len() {
+                return Err(TcError::Text(format!(
+                    "Function {} expects {} arguments but got {}",
+                    sig.name.to_string(ctx),
+                    sig.params.len(),
+                    call_args_len
+                )));
+            }
+            let tys = sig
+                .params
+                .iter()
+                .skip(1)
+                .enumerate()
+                .map(|(i, x)| (i < call_args_len).then_some(x.ty));
+
+            self_expr
+                .into_iter()
+                .chain(
+                    tys.zip(call.args.iter())
+                        .map(|(ty_opt, expr)| {
+                            if let Some(ty) = ty_opt {
+                                Self::expr_with_type(tir, ctx, *expr, ty, defer)
+                            } else {
+                                Self::expr(tir, ctx, *expr, defer)
+                            }
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_iter(),
+                )
+                .collect::<Vec<_>>()
+        };
+        Ok(exprs)
     }
 }
