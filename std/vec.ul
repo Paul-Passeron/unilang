@@ -26,7 +26,7 @@ class <T> Vec => {
     public append(item: T): void => {
         if self::len >= self::cap => {
             // TODO: fix auto dereferencing for method calls
-            (*self)::grow();
+            self::grow();
         }
         self::items[self::len] => item;
         self::len => self::len + 1;
