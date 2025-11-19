@@ -1,8 +1,12 @@
 use crate::{
     common::global_interner::{ExprId, Symbol, TirExprId, TyId},
-    nir::nir::{FieldAccess, NirBinOp, NirCall, NirExprKind, NirLiteral, NirType, NirUnOpKind},
-    ty::{TcError, TyCtx, tir::TirCtx, type_checker::TypeChecker},
+    nir::nir::{
+        FieldAccess, NirBinOp, NirCall, NirExprKind, NirLiteral, NirType, NirUnOpKind, StrLit,
+    },
+    ty::{TcError, TyCtx, displays::Displayable, tir::TirCtx, type_checker::TypeChecker},
 };
+
+use super::tir::TirExpr;
 
 pub struct ExprTranslator;
 
@@ -90,11 +94,42 @@ impl ExprTranslator {
         defer: bool,
     ) -> Result<TirExprId, TcError> {
         let src_ty = TypeChecker::get_type_of_expr(tir, ctx, expr)?;
+
+        if ty.as_tuple(ctx).is_some() {
+            if let Some(res) = Self::try_as_typed_tuple(tir, ctx, expr, ty, defer) {
+                return Ok(res);
+            }
+        }
+
         let e = Self::expr(tir, ctx, expr, defer)?;
         if src_ty == ty {
             Ok(e)
         } else {
             Self::coerce_expr(tir, ctx, e, ty, defer)
+        }
+    }
+
+    pub fn try_as_typed_tuple(
+        tir: &mut TirCtx,
+        ctx: &mut TyCtx,
+        expr: ExprId,
+        ty: TyId,
+        defer: bool,
+    ) -> Option<TirExprId> {
+        let nir_expr = expr.to_nir(ctx).clone();
+
+        match (nir_expr.kind, ty.as_tuple(ctx)) {
+            (NirExprKind::Tuple(exprs), Some(targets)) if exprs.len() == targets.len() => {
+                let typeds = exprs
+                    .iter()
+                    .zip(targets)
+                    .map(|(e, ty)| Self::expr_with_type(tir, ctx, *e, ty, defer))
+                    .collect::<Result<Vec<_>, _>>();
+                typeds
+                    .ok()
+                    .map(|typeds| tir.create_expr(ctx, TirExpr::Tuple(typeds), defer))
+            }
+            _ => None,
         }
     }
 
@@ -183,7 +218,11 @@ impl ExprTranslator {
         nir_type: &NirType,
         defer: bool,
     ) -> Result<TirExprId, TcError> {
-        todo!()
+        let te = ctx.visit_type(nir_type)?;
+        let ty = tir.visit_type(ctx, te)?;
+        let as_str = ty.to_string(ctx);
+        let symbol = ctx.ctx.interner.insert_string(&StrLit(as_str));
+        Ok(tir.create_expr(ctx, TirExpr::StringLiteral(symbol), defer))
     }
 
     fn new_dir(

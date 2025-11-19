@@ -36,9 +36,9 @@ impl TyId {
         }
     }
 
-    pub fn as_tuple<'ctx>(&self, ctx: &'ctx TyCtx) -> Option<&'ctx [TyId]> {
+    pub fn as_tuple(&self, ctx: &TyCtx) -> Option<Vec<TyId>> {
         match self.as_concrete(ctx) {
-            ConcreteType::Tuple(ids) => Some(&ids[..]),
+            ConcreteType::Tuple(ids) => Some(ids.clone()),
             _ => None,
         }
     }
