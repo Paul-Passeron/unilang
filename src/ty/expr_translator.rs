@@ -111,6 +111,11 @@ impl ExprTranslator {
         ty: TyId,
         defer: bool,
     ) -> Result<TirExprId, TcError> {
+        let src_ty = TypeChecker::get_type_of_tir_expr(tir, ctx, expr)?;
+        if src_ty == ty {
+            return Ok(expr);
+        }
+
         todo!()
     }
 
@@ -416,7 +421,39 @@ impl ExprTranslator {
         ptr: TirExprId,
         defer: bool,
     ) -> Result<(), TcError> {
-        todo!()
+        let tys = args
+            .iter()
+            .map(|x| TypeChecker::get_type_of_tir_expr(tir, ctx, *x))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let constructor = sc
+            .get_matching_constructor(tir, ctx, &tys[..])
+            .ok_or(TcError::Text(format!(
+                "No matching constructor found for class `{}` matching signature ({}).",
+                sc.to_string(ctx),
+                tys.iter().to_string(ctx)
+            )))?;
+
+        let sig = constructor.sig(tir).clone();
+
+        assert!(!sig.variadic);
+
+        let args = Some(ptr)
+            .into_iter()
+            .chain(
+                sig.params
+                    .iter()
+                    .skip(1)
+                    .zip(args)
+                    .map(|(param, arg)| Self::coerce_expr(tir, ctx, arg, param.ty, defer))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter(),
+            )
+            .collect::<Vec<_>>();
+        
+        tir.create_expr(ctx, TirExpr::Funcall(constructor, args), defer);
+        
+        Ok(())
     }
 
     fn unwrap_expr(
@@ -425,7 +462,15 @@ impl ExprTranslator {
         expr: ExprId,
         defer: bool,
     ) -> Result<Vec<TirExprId>, TcError> {
-        todo!()
+        TypeChecker::get_type_of_expr(tir, ctx, expr)?;
+
+        match expr.to_nir(ctx).kind.clone() {
+            NirExprKind::Tuple(exprs) => exprs
+                .into_iter()
+                .map(|x| Self::expr(tir, ctx, x, defer))
+                .collect::<Result<Vec<_>, _>>(),
+            _ => Ok(vec![Self::expr(tir, ctx, expr, defer)?]),
+        }
     }
 
     fn new_dir(

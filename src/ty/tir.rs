@@ -195,3 +195,9 @@ pub struct SpecializedClass {
     pub methods: Vec<FunId>,
     pub constructors: Vec<FunId>,
 }
+
+impl<'ctx> TirExprId {
+    pub fn get_tir(&self, ctx: &'ctx TyCtx<'ctx>) -> &'ctx TirExpr {
+        ctx.ctx.interner.get_te(*self)
+    }
+}
