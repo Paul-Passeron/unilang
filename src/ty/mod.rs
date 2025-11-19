@@ -260,10 +260,6 @@ impl<'ctx> TyCtx<'ctx> {
         res
     }
 
-    fn get_type_string(&self, _ty: &TypeExpr) -> String {
-        todo!()
-    }
-
     pub fn get_last_scope_mut(&mut self) -> &mut Scope {
         self.ctx.interner.get_scope_mut(self.current_scope)
     }

@@ -13,9 +13,8 @@ use crate::{
     nir::{
         interner::ConstructibleId,
         nir::{
-            FieldAccess, FieldAccessKind, NirBinOp, NirBinOpKind, NirCall, NirCalled, NirExprKind,
-            NirFunctionDef, NirItem, NirLiteral, NirMethod, NirModuleDef, NirPattern,
-            NirPatternKind, NirStmt, NirStmtKind, NirVarDecl,
+            FieldAccessKind, NirExprKind, NirFunctionDef, NirItem, NirMethod, NirModuleDef,
+            NirPattern, NirPatternKind, NirStmt, NirStmtKind, NirVarDecl,
         },
     },
     ty::{
@@ -24,19 +23,10 @@ use crate::{
         expr_translator::ExprTranslator,
         scope::{Class, ClassMember, Definition, Method, ScopeKind, TypeExpr, VarDecl},
         surface_resolution::SurfaceResolutionPassOutput,
-        tir::{
-            ConcreteType, SCField, Signature, SpecializedClass, TirCtx, TirExpr, TirInstr,
-            TypedIntLit,
-        },
+        tir::{ConcreteType, SCField, Signature, SpecializedClass, TirCtx, TirExpr, TirInstr},
         type_checker::TypeChecker,
     },
 };
-
-#[derive(Debug)]
-pub enum Receiver {
-    Module(ModuleId),
-    Object(TirExprId),
-}
 
 #[derive(Debug)]
 pub enum TypeReceiver {
@@ -475,90 +465,6 @@ impl<'ctx> TirCtx {
         TypeChecker::get_type_of_expr(self, ctx, expr_id)
     }
 
-    pub fn expr_as_module(
-        &mut self,
-        ctx: &mut TyCtx<'ctx>,
-        expr: ExprId,
-    ) -> Result<ModuleId, TcError> {
-        let nir = ctx.ctx.interner.get_expr(expr).clone();
-        match &nir.kind {
-            NirExprKind::Access {
-                from,
-                field:
-                    FieldAccess {
-                        kind: FieldAccessKind::Symbol(field),
-                        ..
-                    },
-            } => {
-                let from_module = self.expr_as_module(ctx, *from)?;
-                let m = ctx.ctx.interner.get_module(from_module);
-                let scope = m.scope.clone();
-                let def_id = ctx.get_symbol_def_in_scope(scope, *field);
-
-                if def_id.is_none() {
-                    return Err(TcError::NameNotFound(*field));
-                }
-
-                let def_id = def_id.unwrap();
-
-                let def = ctx.ctx.interner.get_def(def_id);
-
-                match &def {
-                    Definition::Module(id) => Ok(*id),
-                    _ => Err(TcError::NotAModule(expr)),
-                }
-            }
-            NirExprKind::Named(name) => {
-                let def_id = ctx.get_symbol_def(*name);
-
-                if def_id.is_none() {
-                    return Err(TcError::NameNotFound(*name));
-                }
-
-                let def_id = def_id.unwrap();
-
-                let def = ctx.ctx.interner.get_def(def_id);
-
-                match &def {
-                    Definition::Module(id) => Ok(*id),
-                    _ => Err(TcError::NotAModule(expr)),
-                }
-            }
-            _ => Err(TcError::NotAModule(expr)),
-        }
-    }
-
-    pub fn expr_as_receiver(
-        &mut self,
-        ctx: &mut TyCtx<'ctx>,
-        expr: ExprId,
-        defer: bool,
-    ) -> Result<Receiver, TcError> {
-        if let Ok(id) = self.expr_as_module(ctx, expr) {
-            return Ok(Receiver::Module(id));
-        }
-        self.get_expr_ptr(ctx, expr, defer).map(Receiver::Object)
-    }
-
-    pub fn expr_ty_as_receiver(
-        &mut self,
-        ctx: &mut TyCtx<'ctx>,
-        expr: ExprId,
-    ) -> Result<TypeReceiver, TcError> {
-        if let Ok(id) = self.expr_as_module(ctx, expr) {
-            return Ok(TypeReceiver::Module(id));
-        }
-        self.get_type_of_expr(ctx, expr).map(TypeReceiver::Object)
-    }
-
-    pub fn arg_len_mismatch(src: usize, target: usize, variadic: bool) -> bool {
-        if variadic {
-            src < target
-        } else {
-            src != target
-        }
-    }
-
     pub fn get_fun_id_from_symbol(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
@@ -575,24 +481,6 @@ impl<'ctx> TirCtx {
         }
     }
 
-    pub fn get_type_size(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> usize {
-        let t = (ty).as_concrete(ctx);
-        let alignement = 4;
-        match t {
-            ConcreteType::SpecializedClass(_) => todo!(),
-            ConcreteType::Primitive(primitive_ty) => primitive_ty.size(),
-            ConcreteType::Ptr(_) => 4,
-            ConcreteType::Tuple(ids) => {
-                let mut size = 0;
-                for id in ids.clone() {
-                    size += self.get_type_size(ctx, id);
-                    size += alignement - size % alignement;
-                }
-                size
-            }
-        }
-    }
-
     pub fn get_expr_with_type(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
@@ -601,156 +489,6 @@ impl<'ctx> TirCtx {
         defer: bool,
     ) -> Result<TirExprId, TcError> {
         ExprTranslator::expr_with_type(self, ctx, expr, ty, defer)
-    }
-
-    pub fn get_fun_id_and_self_ty(
-        &mut self,
-        ctx: &mut TyCtx<'ctx>,
-        called: &NirCalled,
-    ) -> Result<(FunId, Option<TyId>), TcError> {
-        if called.receiver.is_some() {
-            let receiver = self.expr_ty_as_receiver(ctx, called.receiver.unwrap())?;
-            match receiver {
-                TypeReceiver::Module(id) => {
-                    let m = ctx.ctx.interner.get_module(id);
-                    let s = m.scope;
-                    let def_id = ctx.get_symbol_def_in_scope(s, called.called);
-                    if def_id.is_none() {
-                        return Err(TcError::Text(format!("No such function in module")));
-                    }
-                    let def_id = def_id.unwrap();
-                    let def = ctx.ctx.interner.get_def(def_id);
-                    match &def {
-                        Definition::Function(fun_id) => {
-                            return Ok((*fun_id, None));
-                        }
-                        _ => {
-                            return Err(TcError::Text(format!("No such function in module")));
-                        }
-                    }
-                }
-                TypeReceiver::Object(t) => {
-                    let inner = t.as_ptr(ctx).unwrap_or(t);
-                    let methods = &self.methods[&inner].clone();
-                    if !methods.contains_key(&called.called) {
-                        if let Some(inner_inner) = inner.as_ptr(ctx) {
-                            let methods = &self.methods[&inner_inner].clone();
-                            if methods.contains_key(&called.called) {
-                                return Ok((methods[&called.called], Some(t)));
-                            }
-                        }
-                        return Err(TcError::Text(format!(
-                            "No method named {:?} in class {:?}",
-                            called.called, inner
-                        )));
-                    }
-                    return Ok((methods[&called.called], Some(t)));
-                }
-            }
-        }
-        return Ok((self.get_fun_id_from_symbol(ctx, called.called)?, None));
-    }
-
-    fn get_fun_id_and_self_arg(
-        &mut self,
-        ctx: &mut TyCtx<'ctx>,
-        called: &NirCalled,
-        defer: bool,
-    ) -> Result<(FunId, Option<TirExprId>), TcError> {
-        if called.receiver.is_some() {
-            let receiver = self.expr_as_receiver(ctx, called.receiver.unwrap(), defer)?;
-            match receiver {
-                Receiver::Module(id) => {
-                    let m = ctx.ctx.interner.get_module(id);
-                    let s = m.scope;
-                    let def_id = ctx.get_symbol_def_in_scope(s, called.called);
-                    if def_id.is_none() {
-                        return Err(TcError::Text(format!(
-                            "No such function {:?} in module",
-                            called.called
-                        )));
-                    }
-                    let def_id = def_id.unwrap();
-                    let def = ctx.ctx.interner.get_def(def_id);
-                    match &def {
-                        Definition::Function(fun_id) => {
-                            return Ok((*fun_id, None));
-                        }
-                        _ => {
-                            return Err(TcError::Text(format!(
-                                "No such function {:?} in module {:?}",
-                                called.called, m.name
-                            )));
-                        }
-                    }
-                }
-                Receiver::Object(x) => {
-                    let t = self.get_type_of_tir_expr(ctx, x)?;
-                    let inner = t.as_ptr(ctx).unwrap();
-                    let methods = &self.methods[&inner].clone();
-                    if !methods.contains_key(&called.called) {
-                        if let Some(inner_inner) = inner.as_ptr(ctx) {
-                            let methods = &self.methods[&inner_inner].clone();
-                            if methods.contains_key(&called.called) {
-                                return Ok((methods[&called.called], Some(x)));
-                            }
-                        }
-                        return Err(TcError::Text(format!(
-                            "No method {:?} in class {:?} (get_expr_with_type)",
-                            called.called, inner
-                        )));
-                    }
-                    return Ok((methods[&called.called], Some(x)));
-                }
-            }
-        }
-        Ok((self.get_fun_id_from_symbol(ctx, called.called)?, None))
-    }
-
-    pub fn get_access(
-        &mut self,
-        ctx: &mut TyCtx<'ctx>,
-        expr: TirExprId,
-        access: FieldAccessKind,
-        defer: bool,
-    ) -> Result<TirExprId, TcError> {
-        match access {
-            FieldAccessKind::Symbol(name) => {
-                let t = self.get_type_of_tir_expr(ctx, expr)?;
-                let mut ty = t.as_concrete(ctx);
-                if let ConcreteType::Ptr(inner) = ty {
-                    ty = (*inner).as_concrete(ctx);
-                };
-                if let ConcreteType::SpecializedClass(sc_id) = ty {
-                    let sc = ctx.ctx.interner.get_sc(*sc_id);
-                    for f in &sc.fields {
-                        if f.name == name {
-                            return Ok(self.create_expr(ctx, TirExpr::Access(expr, access), defer));
-                        }
-                    }
-                    return Err(TcError::Text(format!(
-                        "Field named {:?} not found in class {:?}",
-                        name, sc.name
-                    )));
-                } else {
-                    return Err(TcError::Text(format!(
-                        "No named field in non-class type (get-access)",
-                    )));
-                }
-            }
-            FieldAccessKind::Index(i) => {
-                let ty = self.get_type_of_tir_expr(ctx, expr)?;
-                let t = (ty).as_concrete(ctx);
-                if let ConcreteType::Tuple(tys) = t {
-                    if tys.len() <= i as usize {
-                        return Err(TcError::Text(format!("Tuple access out of range")));
-                    }
-                    Ok(self.create_expr(ctx, TirExpr::Access(expr, access), defer))
-                } else {
-                    return Err(TcError::Text(format!("No integer field in non-tuple type")));
-                }
-            }
-        }
     }
 
     pub fn get_expr(

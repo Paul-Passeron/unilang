@@ -100,19 +100,6 @@ pub enum ScopeKind {
     Spec(SCId),
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub enum Pattern {
-    Wildcard,
-    Symbol(Symbol),
-    Tuple(Vec<Pattern>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum VarExpr {
-    Expr(Option<TirExprId>),
-    Param(usize), // nth function parameter
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VarDecl {
     pub name: Symbol,

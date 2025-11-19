@@ -5,7 +5,7 @@ use crate::{
         DefId, FunId, ImplBlockId, SCId, ScopeId, StringLiteral, Symbol, TirExprId, TyId,
         VariableId,
     },
-    nir::nir::{FieldAccessKind, NirBinOpKind, Visibility},
+    nir::nir::{FieldAccessKind, NirBinOpKind},
     ty::{PrimitiveTy, TyCtx, displays::Displayable, tir_pass::SpecInfo},
 };
 
@@ -82,13 +82,6 @@ pub enum TirInstr {
     If(ScopeId),
     While(ScopeId),
     Block(ScopeId),
-}
-#[derive(Debug)]
-pub enum TirItem {
-    Fundef {
-        sig: Signature,
-        body: Option<Vec<TirInstr>>,
-    },
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -176,14 +169,6 @@ impl Signature {
             ArgsMatch::Casts(casts)
         }
     }
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct TirMethod {
-    pub is_static: bool,
-    pub vis: Visibility,
-    pub sig: Signature,
-    pub body: Option<Vec<TirInstr>>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
