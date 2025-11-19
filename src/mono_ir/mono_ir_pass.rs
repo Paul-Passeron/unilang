@@ -231,9 +231,9 @@ impl<'ctx, 'a> MonoIRPass<'a> {
     }
 
     fn calculate(&mut self, ctx: &mut TyCtx<'ctx>, expr: TirExprId) -> AnyValueEnum<'a> {
-        let original_expr = dbg!(expr);
+        let original_expr = expr;
         let e = ctx.ctx.interner.get_te(expr).clone();
-        let res = match dbg!(e) {
+        let res = match e {
             TirExpr::Arg(i) => {
                 let fun_id = ctx.get_current_fun().unwrap();
                 let (fn_val, _) = self.funs[&fun_id].clone();
