@@ -194,7 +194,166 @@ impl ExprTranslator {
         binop: &NirBinOp,
         defer: bool,
     ) -> Result<TirExprId, TcError> {
-        todo!()
+        let left_ty = TypeChecker::get_type_of_expr(tir, ctx, binop.left)?;
+        let right_ty = TypeChecker::get_type_of_expr(tir, ctx, binop.right)?;
+
+        match binop.op {
+            NirBinOpKind::Add | NirBinOpKind::Sub => {
+                // Determine the target type for both operands
+                let (target_left_ty, target_right_ty) =
+                    if left_ty.is_integer(ctx) && right_ty.is_integer(ctx) {
+                        // Both integers: use the larger type for both
+                        let target = if right_ty.get_size(ctx) > left_ty.get_size(ctx) {
+                            right_ty
+                        } else {
+                            left_ty
+                        };
+                        (target, target)
+                    } else if left_ty.as_ptr(ctx).is_some() && right_ty.is_integer(ctx) {
+                        // Pointer + integer: keep pointer as-is, coerce integer to i64
+                        (left_ty, tir.i64_ty(ctx))
+                    } else if left_ty.is_integer(ctx) && right_ty.as_ptr(ctx).is_some() {
+                        // Integer + pointer: coerce integer to i64, keep pointer as-is
+                        (tir.i64_ty(ctx), right_ty)
+                    } else if left_ty.as_ptr(ctx).is_some() && right_ty.as_ptr(ctx).is_some() {
+                        // Pointer + pointer: keep both as-is
+                        (left_ty, right_ty)
+                    } else {
+                        return Err(TcError::Text(format!(
+                            "Addition not supported between types `{}` and `{}`",
+                            left_ty.to_string(ctx),
+                            right_ty.to_string(ctx)
+                        )));
+                    };
+
+                let lhs = Self::expr_with_type(tir, ctx, binop.left, target_left_ty, defer)?;
+                let rhs = Self::expr_with_type(tir, ctx, binop.right, target_right_ty, defer)?;
+
+                Ok(tir.create_expr(
+                    ctx,
+                    TirExpr::BinOp {
+                        lhs,
+                        rhs,
+                        op: binop.op,
+                    },
+                    defer,
+                ))
+            }
+            NirBinOpKind::Mul => {
+                // Both operands must be integers
+                if !left_ty.is_integer(ctx) || !right_ty.is_integer(ctx) {
+                    return Err(TcError::Text(format!(
+                        "Multiplication requires both operands to be integers, got `{}` and `{}`",
+                        left_ty.to_string(ctx),
+                        right_ty.to_string(ctx)
+                    )));
+                }
+
+                // Use the larger type for both operands
+                let target = if right_ty.get_size(ctx) > left_ty.get_size(ctx) {
+                    right_ty
+                } else {
+                    left_ty
+                };
+
+                let lhs = Self::expr_with_type(tir, ctx, binop.left, target, defer)?;
+                let rhs = Self::expr_with_type(tir, ctx, binop.right, target, defer)?;
+
+                Ok(tir.create_expr(
+                    ctx,
+                    TirExpr::BinOp {
+                        lhs,
+                        rhs,
+                        op: binop.op,
+                    },
+                    defer,
+                ))
+            }
+
+            NirBinOpKind::Div | NirBinOpKind::Mod => {
+                // Both operands must be integers
+                if !(left_ty.is_integer(ctx) || left_ty.as_ptr(ctx).is_some())
+                    || !right_ty.is_integer(ctx)
+                {
+                    return Err(TcError::Text(format!(
+                        "Multiplication requires both operands to be integers, got `{}` and `{}`",
+                        left_ty.to_string(ctx),
+                        right_ty.to_string(ctx)
+                    )));
+                }
+
+                // Use the larger type for both operands or u64 if ptr / int
+                let target = if left_ty.as_ptr(ctx).is_some() {
+                    tir.u64_ty(ctx)
+                } else {
+                    if right_ty.get_size(ctx) > left_ty.get_size(ctx) {
+                        right_ty
+                    } else {
+                        left_ty
+                    }
+                };
+
+                let lhs = Self::expr_with_type(tir, ctx, binop.left, target, defer)?;
+                let rhs = Self::expr_with_type(tir, ctx, binop.right, target, defer)?;
+
+                Ok(tir.create_expr(
+                    ctx,
+                    TirExpr::BinOp {
+                        lhs,
+                        rhs,
+                        op: binop.op,
+                    },
+                    defer,
+                ))
+            }
+
+            NirBinOpKind::Equ
+            | NirBinOpKind::Dif
+            | NirBinOpKind::Geq
+            | NirBinOpKind::Leq
+            | NirBinOpKind::Gt
+            | NirBinOpKind::Lt => {
+                let (target_left_ty, target_right_ty) =
+                    if left_ty.as_ptr(ctx).is_some() || right_ty.as_ptr(ctx).is_some() {
+                        // If either is a pointer, coerce both to pointer type
+                        let ptr_ty = left_ty
+                            .as_ptr(ctx)
+                            .map(|_| left_ty)
+                            .or_else(|| right_ty.as_ptr(ctx).map(|_| right_ty))
+                            .unwrap();
+                        (ptr_ty, ptr_ty)
+                    } else if left_ty.is_integer(ctx) && right_ty.is_integer(ctx) {
+                        // Both integers: use the larger type for both
+                        let target = if right_ty.get_size(ctx) > left_ty.get_size(ctx) {
+                            right_ty
+                        } else {
+                            left_ty
+                        };
+                        (target, target)
+                    } else {
+                        return Err(TcError::Text(format!(
+                            "Comparison not supported between types `{}` and `{}`",
+                            left_ty.to_string(ctx),
+                            right_ty.to_string(ctx)
+                        )));
+                    };
+
+                let lhs = Self::expr_with_type(tir, ctx, binop.left, target_left_ty, defer)?;
+                let rhs = Self::expr_with_type(tir, ctx, binop.right, target_right_ty, defer)?;
+
+                Ok(tir.create_expr(
+                    ctx,
+                    TirExpr::BinOp {
+                        lhs,
+                        rhs,
+                        op: binop.op,
+                    },
+                    defer,
+                ))
+            }
+
+            _ => todo!("Other binary operations not yet implemented"),
+        }
     }
 
     fn unop(
@@ -245,7 +404,7 @@ impl ExprTranslator {
                 Self::deref(tir, ctx, operand, defer)
             }
             NirUnOpKind::AddrOf => {
-                // AddrOf is handled in the main expr function, but also here for consistency
+                // AddrOf is also handled in the main expr function, but also here for consistency
                 Self::lvalue_ptr(tir, ctx, operand, defer)
             }
         }
