@@ -1,7 +1,8 @@
 use crate::{
     common::global_interner::{ExprId, FunId, SCId, Symbol, TirExprId, TyId, VariableId},
     nir::nir::{
-        FieldAccess, NirBinOp, NirCall, NirExprKind, NirLiteral, NirType, NirUnOpKind, StrLit,
+        FieldAccess, FieldAccessKind, NirBinOp, NirCall, NirExprKind, NirLiteral, NirType,
+        NirUnOpKind, StrLit,
     },
     ty::{
         TcError, TyCtx,
@@ -33,7 +34,8 @@ impl ExprTranslator {
             NirExprKind::UnOp { op, operand } => Self::unop(tir, ctx, op, operand, defer),
             NirExprKind::Call(call) => Self::call(tir, ctx, &call, defer),
             NirExprKind::Subscript { value, index } => {
-                Self::subscript(tir, ctx, value, index, defer)
+                let ptr = Self::subscript(tir, ctx, value, index, defer)?;
+                Ok(Self::deref_tir(tir, ctx, ptr, defer))
             }
             NirExprKind::Access { from, field } => Self::access(tir, ctx, from, field, defer),
             NirExprKind::Named(name) => Self::named(tir, ctx, name, defer),
@@ -79,7 +81,27 @@ impl ExprTranslator {
         expr: ExprId,
         defer: bool,
     ) -> Result<TirExprId, TcError> {
-        todo!()
+        // Make sure that the expression type checks
+        TypeChecker::get_type_of_expr(tir, ctx, expr)?;
+
+        let nir_expr = expr.to_nir(ctx).clone();
+
+        match nir_expr.kind {
+            NirExprKind::Named(name) => Self::named_ptr(tir, ctx, name, defer),
+            NirExprKind::Access { from, field } => {
+                let from_expr = Self::lvalue_ptr(tir, ctx, from, defer)?;
+                let lval = tir.create_expr(ctx, TirExpr::PtrAccess(from_expr, field.kind), defer);
+                Ok(lval)
+            }
+            NirExprKind::Deref(e) => Ok(Self::expr(tir, ctx, e, defer)?),
+            NirExprKind::Subscript { value, index } => {
+                Self::subscript(tir, ctx, value, index, defer)
+            }
+            _ => Err(TcError::Text(format!(
+                "The expression {:?} cannot be used as a lvalue",
+                nir_expr
+            ))),
+        }
     }
 
     pub fn coerce_expr(
@@ -243,12 +265,69 @@ impl ExprTranslator {
         field: FieldAccess,
         defer: bool,
     ) -> Result<TirExprId, TcError> {
-        todo!()
+        let from_ty = TypeChecker::get_type_of_expr(tir, ctx, from)?;
+        let from_expr = Self::expr(tir, ctx, from, defer)?;
+
+        match field.kind {
+            FieldAccessKind::Symbol(field_name) => {
+                let mut dereferenced = false;
+                let ty = from_ty.as_ptr(ctx).unwrap_or_else(|| {
+                    dereferenced = true;
+                    from_ty
+                });
+                if let Some(scid) = ty.as_sc(ctx) {
+                    scid.as_spec_class(ctx)
+                        .fields
+                        .iter()
+                        .find(|field| field.name == field_name)
+                        .ok_or(TcError::Text(format!(
+                            "Cannot access named field `{}` of type `{}`.",
+                            field_name.to_string(ctx),
+                            from_ty.to_string(ctx)
+                        )))
+                        .map(|_| ())?;
+
+                    let accessed = if dereferenced {
+                        TirExpr::Deref(tir.create_expr(
+                            ctx,
+                            TirExpr::PtrAccess(from_expr, field.kind),
+                            defer,
+                        ))
+                    } else {
+                        TirExpr::Access(from_expr, field.kind)
+                    };
+
+                    Ok(tir.create_expr(ctx, accessed, defer))
+                } else {
+                    Err(TcError::Text(format!(
+                        "Cannot access named field `{}` of non-struct-like type `{}`.",
+                        field_name.to_string(ctx),
+                        from_ty.to_string(ctx)
+                    )))
+                }
+            }
+            FieldAccessKind::Index(i) => {
+                if let Some(fields) = from_ty.as_tuple(ctx) {
+                    fields.get(i as usize).ok_or(TcError::Text(format!(
+                        "Cannot access indexed field {} of type `{}`.",
+                        i,
+                        from_ty.to_string(ctx)
+                    )))?;
+                    Ok(tir.create_expr(ctx, TirExpr::Access(from_expr, field.kind), defer))
+                } else {
+                    Err(TcError::Text(format!(
+                        "Cannot access indexed field {} of non-tuple type `{}`.",
+                        i,
+                        from_ty.to_string(ctx)
+                    )))
+                }
+            }
+        }
     }
 
     fn get_var_id(ctx: &mut TyCtx, name: Symbol) -> Result<VariableId, TcError> {
         let err = TcError::Text(format!(
-            "Name {} was not declared in the current context",
+            "Name `{}` was not declared in the current context",
             name.to_string(ctx)
         ));
         let def_id = ctx.get_symbol_def(name);
