@@ -1090,7 +1090,7 @@ impl Parser {
                         let end = e.loc().end();
 
                         Ok(Ast::new(
-                            Expr::AsDir { ty: t, expr: e },
+                            Expr::NewDir { ty: t, expr: e },
                             start.span_to(&end),
                         ))
                     }
