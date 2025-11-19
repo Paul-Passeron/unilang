@@ -90,7 +90,6 @@ impl ExprTranslator {
             NirExprKind::Named(name) => Self::named_ptr(tir, ctx, name, defer),
             NirExprKind::Access { from, field } => {
                 let from_expr = Self::lvalue_ptr(tir, ctx, from, defer)?;
-                dbg!(2);
                 let lval = tir.create_expr(ctx, TirExpr::PtrAccess(from_expr, field.kind), defer);
                 Ok(lval)
             }
@@ -152,7 +151,6 @@ impl ExprTranslator {
         defer: bool,
     ) -> Result<TirExprId, TcError> {
         let src_ty = TypeChecker::get_type_of_expr(tir, ctx, expr)?;
-
         if ty.as_tuple(ctx).is_some() {
             if let Some(res) = Self::try_as_typed_tuple(tir, ctx, expr, ty, defer) {
                 return Ok(res);
@@ -458,14 +456,7 @@ impl ExprTranslator {
             None
         };
         let args = Self::create_call_args(tir, ctx, call, fun_id, self_expr, defer)?;
-        println!(
-            "{}:{}:{} Calling {} with {} args.",
-            file!(),
-            line!(),
-            column!(),
-            fun_id.sig(tir).name.to_string(ctx),
-            args.len()
-        );
+
         Ok(tir.create_expr(ctx, TirExpr::Funcall(fun_id, args), defer))
     }
 
@@ -486,7 +477,7 @@ impl ExprTranslator {
         }
 
         let index_ty = TypeChecker::get_type_of_expr(tir, ctx, index)?;
-        if index_ty.is_integer(ctx) {
+        if !index_ty.is_integer(ctx) {
             return Err(TcError::Text(format!(
                 "Cannot subscript with non-integer index type `{}`",
                 index_ty.to_string(ctx)
@@ -529,12 +520,6 @@ impl ExprTranslator {
                         .map(|_| ())?;
 
                     let accessed = if dereferenced {
-                        println!(
-                            "Callign Deref(PtrAccess({}, {}))",
-                            from_ty.to_string(ctx),
-                            field_name.to_string(ctx)
-                        );
-
                         TirExpr::Deref(tir.create_expr(
                             ctx,
                             TirExpr::PtrAccess(from_expr, field.kind),

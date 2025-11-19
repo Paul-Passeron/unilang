@@ -96,14 +96,14 @@ impl TyId {
 
     pub fn is_coercible(&self, tir_ctx: &TirCtx, ctx: &TyCtx, target: TyId) -> bool {
         if *self == target {
-            return dbg!(true);
+            return true;
         }
         if self.is_integer(ctx) && target.is_integer(ctx) {
-            return dbg!(true);
+            return true;
         }
 
         if self.as_ptr(ctx).is_some() && target.as_ptr(ctx).is_some() {
-            return dbg!(true);
+            return true;
         }
 
         if let Some(sc_id) = target.as_sc(ctx) {
