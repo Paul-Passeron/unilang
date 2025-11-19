@@ -226,16 +226,6 @@ impl ExprTranslator {
         todo!()
     }
 
-    fn named_ptr(
-        tir: &mut TirCtx,
-        ctx: &mut TyCtx,
-        name: Symbol,
-        defer: bool,
-    ) -> Result<TirExprId, TcError> {
-        let var_id = Self::get_var_id(ctx, name)?;
-        Ok(tir.create_expr(ctx, TirExpr::VarPtr(var_id), defer))
-    }
-
     fn get_var_id(ctx: &mut TyCtx, name: Symbol) -> Result<VariableId, TcError> {
         let err = TcError::Text(format!(
             "Name {} was not declared in the current context",
@@ -249,6 +239,16 @@ impl ExprTranslator {
         }
     }
 
+    fn named_ptr(
+        tir: &mut TirCtx,
+        ctx: &mut TyCtx,
+        name: Symbol,
+        defer: bool,
+    ) -> Result<TirExprId, TcError> {
+        let var_id = Self::get_var_id(ctx, name)?;
+        Ok(tir.create_expr(ctx, TirExpr::VarPtr(var_id), defer))
+    }
+
     fn named(
         tir: &mut TirCtx,
         ctx: &mut TyCtx,
@@ -256,7 +256,7 @@ impl ExprTranslator {
         defer: bool,
     ) -> Result<TirExprId, TcError> {
         let named = Self::named_ptr(tir, ctx, name, defer)?;
-        Ok(tir.create_expr(ctx, TirExpr::Deref(named), defer))
+        Ok(Self::deref_tir(tir, ctx, named, defer))
     }
 
     fn deref_tir(tir: &mut TirCtx, ctx: &mut TyCtx, expr: TirExprId, defer: bool) -> TirExprId {
