@@ -7,7 +7,7 @@ use crate::{
         TcError, TyCtx,
         displays::Displayable,
         scope::Definition,
-        tir::{TirCtx, TypedIntLit},
+        tir::{TirCtx, TirInstr, TypedIntLit},
         type_checker::TypeChecker,
     },
 };
@@ -213,7 +213,27 @@ impl ExprTranslator {
         index: ExprId,
         defer: bool,
     ) -> Result<TirExprId, TcError> {
-        todo!()
+        let value_ty = TypeChecker::get_type_of_expr(tir, ctx, value)?;
+
+        if value_ty.as_ptr(ctx).is_none() {
+            return Err(TcError::Text(format!(
+                "Cannot subscript non-pointer type `{}`",
+                value_ty.to_string(ctx)
+            )));
+        }
+
+        let index_ty = TypeChecker::get_type_of_expr(tir, ctx, index)?;
+        if index_ty.is_integer(ctx) {
+            return Err(TcError::Text(format!(
+                "Cannot subscript with non-integer index type `{}`",
+                index_ty.to_string(ctx)
+            )));
+        }
+
+        let ptr = Self::expr(tir, ctx, value, defer)?;
+        let index = Self::expr(tir, ctx, index, defer)?;
+
+        Ok(tir.create_expr(ctx, TirExpr::Subscript { ptr, index }, defer))
     }
 
     fn access(
@@ -259,8 +279,8 @@ impl ExprTranslator {
         Ok(Self::deref_tir(tir, ctx, named, defer))
     }
 
+    // Warning: unsafe to call if the expr is not of ptr type
     fn deref_tir(tir: &mut TirCtx, ctx: &mut TyCtx, expr: TirExprId, defer: bool) -> TirExprId {
-        // unsafe to call if the expr is not of ptr type
         tir.create_expr(ctx, TirExpr::Deref(expr), defer)
     }
 
@@ -309,14 +329,23 @@ impl ExprTranslator {
         Ok(tir.create_expr(ctx, TirExpr::StringLiteral(symbol), defer))
     }
 
-    fn construct_object(
+    fn construct_object_at_ptr(
         tir: &mut TirCtx,
         ctx: &mut TyCtx,
         sc: SCId,
         args: Vec<TirExprId>,
         ptr: TirExprId,
         defer: bool,
-    ) -> Result<TirExprId, TcError> {
+    ) -> Result<(), TcError> {
+        todo!()
+    }
+
+    fn unwrap_expr(
+        tir: &mut TirCtx,
+        ctx: &mut TyCtx,
+        expr: ExprId,
+        defer: bool,
+    ) -> Result<Vec<TirExprId>, TcError> {
         todo!()
     }
 
@@ -329,7 +358,16 @@ impl ExprTranslator {
     ) -> Result<TirExprId, TcError> {
         // Create a malloced ptr
         // construct the object with it
-        todo!()
+        let ptr = tir.create_expr(ctx, TirExpr::Malloc(ty), defer);
+        if let Some(sc_id) = ty.as_sc(ctx) {
+            let unwrapped = Self::unwrap_expr(tir, ctx, expr, defer)?;
+            Self::construct_object_at_ptr(tir, ctx, sc_id, unwrapped, ptr, defer)?;
+        } else {
+            let tir_expr = Self::expr(tir, ctx, expr, defer)?;
+            let value = Self::coerce_expr(tir, ctx, tir_expr, ty, defer)?;
+            ctx.push_instr(TirInstr::Assign(ptr, value), defer);
+        }
+        Ok(ptr)
     }
 
     fn as_dir(
@@ -340,7 +378,15 @@ impl ExprTranslator {
         defer: bool,
     ) -> Result<TirExprId, TcError> {
         // Construct the object directly, no malloc
-        todo!()
+        if let Some(sc_id) = ty.as_sc(ctx) {
+            let ptr = tir.create_expr(ctx, TirExpr::Alloca(ty), defer);
+            let unwrapped = Self::unwrap_expr(tir, ctx, expr, defer)?;
+            Self::construct_object_at_ptr(tir, ctx, sc_id, unwrapped, ptr, defer)?;
+            Ok(tir.create_expr(ctx, TirExpr::Deref(ptr), defer))
+        } else {
+            let tir_expr = Self::expr(tir, ctx, expr, defer)?;
+            Ok(Self::coerce_expr(tir, ctx, tir_expr, ty, defer)?)
+        }
     }
 
     fn tuple(

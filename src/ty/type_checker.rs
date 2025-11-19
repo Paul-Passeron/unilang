@@ -420,18 +420,20 @@ impl TypeChecker {
                 let target_te = ctx.visit_type(&ty)?;
                 let target = tir.visit_type(ctx, target_te)?;
                 let expr_ty = Self::get_type_of_expr(tir, ctx, *expr)?;
+                let is_new = matches!(nir.kind, NirExprKind::New { .. });
+
                 if expr_ty.is_coercible(tir, ctx, target) {
-                    Ok(target)
+                    Ok(if is_new {
+                        tir.create_type(ctx, ConcreteType::Ptr(target))
+                    } else {
+                        target
+                    })
                 } else {
                     Err(TcError::Text(format!(
                         "Type `{}` is not coercible to type `{}` in @{} directive",
                         expr_ty.to_string(ctx),
                         target.to_string(ctx),
-                        if matches!(nir.kind, NirExprKind::New { .. }) {
-                            "new"
-                        } else {
-                            "as"
-                        }
+                        if is_new { "new" } else { "as" }
                     )))
                 }
             }
