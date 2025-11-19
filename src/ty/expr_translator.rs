@@ -1,11 +1,12 @@
 use crate::{
-    common::global_interner::{ExprId, FunId, Symbol, TirExprId, TyId},
+    common::global_interner::{ExprId, FunId, Symbol, TirExprId, TyId, VariableId},
     nir::nir::{
         FieldAccess, NirBinOp, NirCall, NirExprKind, NirLiteral, NirType, NirUnOpKind, StrLit,
     },
     ty::{
         TcError, TyCtx,
         displays::Displayable,
+        scope::Definition,
         tir::{TirCtx, TypedIntLit},
         type_checker::TypeChecker,
     },
@@ -231,7 +232,21 @@ impl ExprTranslator {
         name: Symbol,
         defer: bool,
     ) -> Result<TirExprId, TcError> {
-        todo!()
+        let var_id = Self::get_var_id(ctx, name)?;
+        Ok(tir.create_expr(ctx, TirExpr::VarPtr(var_id), defer))
+    }
+
+    fn get_var_id(ctx: &mut TyCtx, name: Symbol) -> Result<VariableId, TcError> {
+        let err = TcError::Text(format!(
+            "Name {} was not declared in the current context",
+            name.to_string(ctx)
+        ));
+        let def_id = ctx.get_symbol_def(name);
+        let def = def_id.ok_or(err.clone())?;
+        match def.get_def(ctx) {
+            Definition::Var(var_id) => Ok(*var_id),
+            _ => Err(err),
+        }
     }
 
     fn named(
@@ -240,7 +255,8 @@ impl ExprTranslator {
         name: Symbol,
         defer: bool,
     ) -> Result<TirExprId, TcError> {
-        todo!()
+        let named = Self::named_ptr(tir, ctx, name, defer)?;
+        Ok(tir.create_expr(ctx, TirExpr::Deref(named), defer))
     }
 
     fn deref_tir(tir: &mut TirCtx, ctx: &mut TyCtx, expr: TirExprId, defer: bool) -> TirExprId {
@@ -319,7 +335,11 @@ impl ExprTranslator {
         exprs: &[ExprId],
         defer: bool,
     ) -> Result<TirExprId, TcError> {
-        todo!()
+        let tirs = exprs
+            .iter()
+            .map(|x| Self::expr(tir, ctx, *x, defer))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(tir.create_expr(ctx, TirExpr::Tuple(tirs), defer))
     }
 
     fn create_call_args(
