@@ -37,7 +37,7 @@ impl ExprTranslator {
             }
             NirExprKind::Access { from, field } => Self::access(tir, ctx, from, field, defer),
             NirExprKind::Named(name) => Self::named(tir, ctx, name, defer),
-            NirExprKind::AddrOf(to_ref) => Self::expr_as_ptr(tir, ctx, to_ref, defer),
+            NirExprKind::AddrOf(to_ref) => Self::lvalue_ptr(tir, ctx, to_ref, defer),
             NirExprKind::Deref(one_shot_id) => Self::deref(tir, ctx, one_shot_id, defer),
             NirExprKind::SizeOf(nir_type) => Self::size_of(tir, ctx, &nir_type, defer),
             NirExprKind::StringOf(nir_type) => Self::string_of(tir, ctx, &nir_type, defer),
@@ -73,7 +73,7 @@ impl ExprTranslator {
         }
     }
 
-    pub fn expr_as_ptr(
+    pub fn lvalue_ptr(
         tir: &mut TirCtx,
         ctx: &mut TyCtx,
         expr: ExprId,
@@ -195,7 +195,7 @@ impl ExprTranslator {
             {
                 Self::expr(tir, ctx, receiver, defer)
             } else {
-                Self::expr_as_ptr(tir, ctx, receiver, defer)
+                Self::lvalue_ptr(tir, ctx, receiver, defer)
             }?;
 
             Some(self_expr)
