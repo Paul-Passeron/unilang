@@ -90,6 +90,7 @@ impl ExprTranslator {
             NirExprKind::Named(name) => Self::named_ptr(tir, ctx, name, defer),
             NirExprKind::Access { from, field } => {
                 let from_expr = Self::lvalue_ptr(tir, ctx, from, defer)?;
+                dbg!(2);
                 let lval = tir.create_expr(ctx, TirExpr::PtrAccess(from_expr, field.kind), defer);
                 Ok(lval)
             }
@@ -510,9 +511,9 @@ impl ExprTranslator {
 
         match field.kind {
             FieldAccessKind::Symbol(field_name) => {
-                let mut dereferenced = false;
+                let mut dereferenced = true;
                 let ty = from_ty.as_ptr(ctx).unwrap_or_else(|| {
-                    dereferenced = true;
+                    dereferenced = false;
                     from_ty
                 });
                 if let Some(scid) = ty.as_sc(ctx) {
@@ -528,6 +529,12 @@ impl ExprTranslator {
                         .map(|_| ())?;
 
                     let accessed = if dereferenced {
+                        println!(
+                            "Callign Deref(PtrAccess({}, {}))",
+                            from_ty.to_string(ctx),
+                            field_name.to_string(ctx)
+                        );
+
                         TirExpr::Deref(tir.create_expr(
                             ctx,
                             TirExpr::PtrAccess(from_expr, field.kind),
