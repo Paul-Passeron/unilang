@@ -463,10 +463,6 @@ impl<'ctx> TirCtx {
                 let ty = self.get_type_of_tir_expr(ctx, var)?;
                 self.get_access_ty(ctx, ty, &field_access_kind)
             }
-            TirExpr::VarExpr(id) => {
-                let var = ctx.ctx.interner.get_variable(id);
-                Ok(var.ty)
-            }
             TirExpr::IntCast(id, _) => Ok(id),
             TirExpr::Tuple(ids) => {
                 let ty = ConcreteType::Tuple(
@@ -552,8 +548,9 @@ impl<'ctx> TirCtx {
                 Ok(self.create_type(ctx, ConcreteType::Ptr(inner)))
             }
             TirExpr::Deref(e) => Ok(self.get_type_of_tir_expr(ctx, e)?.as_ptr(ctx).unwrap()),
-            TirExpr::Minus(x) => self.get_type_of_tir_expr(ctx, x),
-            TirExpr::Alloca(ty) => Ok(self.create_type(ctx, ConcreteType::Ptr(ty))),
+            TirExpr::Malloc(ty) | TirExpr::Alloca(ty) => {
+                Ok(self.create_type(ctx, ConcreteType::Ptr(ty)))
+            }
             TirExpr::Subscript { ptr, .. } => self.get_type_of_tir_expr(ctx, ptr),
         }
     }
@@ -846,18 +843,21 @@ impl<'ctx> TirCtx {
                     };
                     let var = ctx.ctx.interner.get_variable(var_id).clone();
                     if var.ty == ty {
-                        return Ok(self.create_expr(ctx, TirExpr::VarExpr(var_id), defer));
+                        let ptr = self.create_expr(ctx, TirExpr::VarPtr(var_id), defer);
+                        return Ok(self.create_expr(ctx, TirExpr::Deref(ptr), defer));
                     }
                     if !self.type_is_coercible(ctx, var.ty, ty) {
                         return Err(dbg!(TcError::Text(format!("Types are not coercible !"))));
                     }
                     if var.ty.as_ptr(ctx).is_some() && ty.as_ptr(ctx).is_some() {
-                        let var_expr = self.create_expr(ctx, TirExpr::VarExpr(var_id), defer);
+                        let var_ptr = self.create_expr(ctx, TirExpr::VarPtr(var_id), defer);
+                        let var_expr = self.create_expr(ctx, TirExpr::Deref(var_ptr), defer);
                         return Ok(self.create_expr(ctx, TirExpr::PtrCast(ty, var_expr), defer));
                     }
 
                     if var.ty.is_integer(ctx) && ty.is_integer(ctx) {
-                        let var_expr = self.create_expr(ctx, TirExpr::VarExpr(var_id), defer);
+                        let var_ptr = self.create_expr(ctx, TirExpr::VarPtr(var_id), defer);
+                        let var_expr = self.create_expr(ctx, TirExpr::Deref(var_ptr), defer);
                         return Ok(dbg!(self.create_expr(
                             ctx,
                             TirExpr::IntCast(ty, var_expr),

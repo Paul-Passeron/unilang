@@ -42,11 +42,6 @@ pub enum TirExpr {
     // like '->' in C
     PtrAccess(TirExprId, FieldAccessKind),
 
-    // Context: let var: type;
-
-    // The value contained in var
-    VarExpr(VariableId),
-
     // The ptr to var (&var) in C
     VarPtr(VariableId),
 
@@ -65,10 +60,11 @@ pub enum TirExpr {
     StringLiteral(StringLiteral),
     True,
     False,
-    Minus(TirExprId),
 
-    // Allocates a ptr to TyId
+    // Allocates a stack ptr to TyId
     Alloca(TyId),
+    // Allocates a heap ptr to TyId
+    Malloc(TyId),
 
     Subscript {
         ptr: TirExprId,

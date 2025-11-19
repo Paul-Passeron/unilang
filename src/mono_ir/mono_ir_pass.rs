@@ -349,11 +349,6 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     unreachable!()
                 }
             }
-            TirExpr::VarExpr(var_id) => {
-                let (var_ty, var_ptr) = self.vars[&var_id];
-                let value = self.builder.build_load(var_ty, var_ptr, "").unwrap();
-                value.as_any_value_enum()
-            }
             TirExpr::IntCast(int_ty, expr_id) => {
                 let ty = self.get_mono_ty(ctx, int_ty);
 
@@ -609,13 +604,14 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     .unwrap()
                     .as_any_value_enum()
             }
-            TirExpr::Minus(x) => {
-                let original = self.expressions[&x].into_int_value();
+            TirExpr::Malloc(ty) => {
+                let ty = self.get_mono_ty(ctx, ty);
                 self.builder
-                    .build_int_neg(original, "")
+                    .build_malloc(BasicTypeEnum::try_from(ty).unwrap(), "")
                     .unwrap()
                     .as_any_value_enum()
             }
+
             TirExpr::Alloca(ty) => {
                 let ty = self.get_mono_ty(ctx, ty);
                 self.builder

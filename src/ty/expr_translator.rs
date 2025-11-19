@@ -1,5 +1,5 @@
 use crate::{
-    common::global_interner::{ExprId, FunId, Symbol, TirExprId, TyId, VariableId},
+    common::global_interner::{ExprId, FunId, SCId, Symbol, TirExprId, TyId, VariableId},
     nir::nir::{
         FieldAccess, NirBinOp, NirCall, NirExprKind, NirLiteral, NirType, NirUnOpKind, StrLit,
     },
@@ -309,6 +309,17 @@ impl ExprTranslator {
         Ok(tir.create_expr(ctx, TirExpr::StringLiteral(symbol), defer))
     }
 
+    fn construct_object(
+        tir: &mut TirCtx,
+        ctx: &mut TyCtx,
+        sc: SCId,
+        args: Vec<TirExprId>,
+        ptr: TirExprId,
+        defer: bool,
+    ) -> Result<TirExprId, TcError> {
+        todo!()
+    }
+
     fn new_dir(
         tir: &mut TirCtx,
         ctx: &mut TyCtx,
@@ -316,6 +327,8 @@ impl ExprTranslator {
         expr: ExprId,
         defer: bool,
     ) -> Result<TirExprId, TcError> {
+        // Create a malloced ptr
+        // construct the object with it
         todo!()
     }
 
@@ -326,6 +339,7 @@ impl ExprTranslator {
         expr: ExprId,
         defer: bool,
     ) -> Result<TirExprId, TcError> {
+        // Construct the object directly, no malloc
         todo!()
     }
 
