@@ -26,6 +26,7 @@ use crate::{
         PrimitiveTy, TcError, TyCtx,
         scope::ScopeKind,
         tir::{ConcreteType, SCField, TirCtx, TirExpr, TirInstr, TypedIntLit},
+        type_checker::TypeChecker,
     },
 };
 
@@ -363,9 +364,20 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                     .unwrap()
                     .as_any_value_enum()
             }
-            TirExpr::PtrCast(_, e) => {
+            TirExpr::PtrCast(ty, e) => {
                 let e_val = self.expressions[&e];
-                e_val.into_pointer_value().as_any_value_enum()
+                if TypeChecker::get_type_of_tir_expr(self.tir_ctx, ctx, e)
+                    .unwrap()
+                    .is_integer(ctx)
+                {
+                    let ptr_ty = self.get_mono_ty(ctx, ty);
+                    self.builder
+                        .build_int_to_ptr(e_val.into_int_value(), ptr_ty.into_pointer_type(), "")
+                        .unwrap()
+                        .as_any_value_enum()
+                } else {
+                    e_val.into_pointer_value().as_any_value_enum()
+                }
             }
             TirExpr::Tuple(exprs) => {
                 let iw_exprs = exprs
