@@ -1,8 +1,8 @@
 use crate::{
     common::global_interner::{ExprId, FunId, SCId, Symbol, TirExprId, TyId, VariableId},
     nir::nir::{
-        FieldAccess, FieldAccessKind, NirBinOp, NirCall, NirExprKind, NirLiteral, NirType,
-        NirUnOpKind, StrLit,
+        FieldAccess, FieldAccessKind, NirBinOp, NirBinOpKind, NirCall, NirExprKind, NirLiteral,
+        NirType, NirUnOpKind, StrLit,
     },
     ty::{
         TcError, TyCtx,
@@ -204,7 +204,51 @@ impl ExprTranslator {
         operand: ExprId,
         defer: bool,
     ) -> Result<TirExprId, TcError> {
-        todo!()
+        // Get the operand type for validation and to create appropriate literals
+        let operand_ty = TypeChecker::get_type_of_expr(tir, ctx, operand)?;
+
+        match op {
+            NirUnOpKind::Minus => {
+                let operand_expr = Self::expr(tir, ctx, operand, defer)?;
+                let zero = tir.create_expr(ctx, TirExpr::TypedIntLit(TypedIntLit::I64(0)), defer);
+                let zero = Self::coerce_expr(tir, ctx, zero, operand_ty, defer)?;
+                Ok(tir.create_expr(
+                    ctx,
+                    TirExpr::BinOp {
+                        lhs: zero,
+                        rhs: operand_expr,
+                        op: NirBinOpKind::Sub,
+                    },
+                    defer,
+                ))
+            }
+            NirUnOpKind::LNot => {
+                let operand_expr = Self::expr(tir, ctx, operand, defer)?;
+                let operand_expr =
+                    Self::coerce_expr(tir, ctx, operand_expr, tir.bool_ty(ctx), defer)?;
+                let false_val = tir.create_expr(ctx, TirExpr::False, defer);
+                Ok(tir.create_expr(
+                    ctx,
+                    TirExpr::BinOp {
+                        lhs: operand_expr,
+                        rhs: false_val,
+                        op: NirBinOpKind::Equ,
+                    },
+                    defer,
+                ))
+            }
+            NirUnOpKind::BNot => Err(TcError::Text(
+                "Bitwise not operation not supported in the compiler yet".to_string(),
+            )),
+            NirUnOpKind::Deref => {
+                // Deref is handled in the main expr function, but also here for consistency
+                Self::deref(tir, ctx, operand, defer)
+            }
+            NirUnOpKind::AddrOf => {
+                // AddrOf is handled in the main expr function, but also here for consistency
+                Self::lvalue_ptr(tir, ctx, operand, defer)
+            }
+        }
     }
 
     fn call(
@@ -450,9 +494,9 @@ impl ExprTranslator {
                     .into_iter(),
             )
             .collect::<Vec<_>>();
-        
+
         tir.create_expr(ctx, TirExpr::Funcall(constructor, args), defer);
-        
+
         Ok(())
     }
 
