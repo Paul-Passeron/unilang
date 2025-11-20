@@ -1,0 +1,13 @@
+@include std::io
+@include std::alloc
+
+let main(): int => {
+    let x: int * => @new int 12345;
+    defer {
+        free(x);
+        printf("x was freed !\n");
+    }
+    printf("Here is the malloced ptr: %p\n", x);
+    printf("Here is the the value: %d\n", *x);
+    return 0;
+}
