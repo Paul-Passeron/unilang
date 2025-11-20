@@ -1,0 +1,19 @@
+@include std::io
+
+class A => {
+    public x: int;
+    public A() => { self::x => 8; }
+}
+
+impl A => {
+    public method(): int => {
+        printf("Hello from impl !\n");
+        return self::x + 1;
+    }
+}
+
+let main(): int => {
+    let a => @as A();
+    a::method();
+    return 0;
+}
