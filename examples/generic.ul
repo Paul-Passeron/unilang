@@ -12,6 +12,10 @@ class <T> Box => {
     public set(x: T): void => {
         *(self::data) => x;
     }
+
+    public drop(): void => {
+        free(self::data);
+    }
 }
 
 let main(): int => {
@@ -27,5 +31,12 @@ let main(): int => {
     printf("%d\n", *b2::data);
     printf("%p\n", b2::data);
 
+    let b3 => @as Box<Box<int>> b;
+    printf("%d\n", *b3::data::data);
+    printf("%p\n", b3::data);
+
+    b::drop();
+    b2::drop();
+    b3::drop();
     return 0;
 }
