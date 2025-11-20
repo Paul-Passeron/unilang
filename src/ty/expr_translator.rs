@@ -728,7 +728,7 @@ impl ExprTranslator {
         expr: TirExprId,
         defer: bool,
     ) -> Result<TirExprId, TcError> {
-        let ty = tir.create_type(ctx, ConcreteType::SpecializedClass(sc_id));
+        let ty = tir.create_type(ctx, ConcreteType::SpecializedClass(sc_id))?;
         let ptr = tir.create_expr(ctx, TirExpr::Alloca(ty), defer);
         Self::construct_object_at_ptr(tir, ctx, sc_id, vec![expr], ptr, defer)?;
         Ok(tir.create_expr(ctx, TirExpr::Deref(ptr), defer))

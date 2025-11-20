@@ -1,7 +1,8 @@
 use crate::{
-    common::global_interner::{SCId, Symbol, TyId},
+    common::global_interner::{SCId, Symbol, TyId, TypeExprId},
     ty::{
         PrimitiveTy, TyCtx,
+        scope::TemplateArgument,
         tir::{ConcreteType, TirCtx},
     },
 };
@@ -111,6 +112,22 @@ impl TyId {
             return sc_id.get_matching_constructor(tir_ctx, ctx, args).is_some();
         }
 
+        todo!()
+    }
+
+    // returns None, if no match and Some(vec of bindings) for the templates if yes
+    pub fn matches_expr(
+        &self,
+        tir: &mut TirCtx,
+        ctx: &mut TyCtx,
+        expr: TypeExprId,
+        templates: Vec<TemplateArgument>,
+    ) -> Option<Vec<TyId>> {
+        if templates.len() == 0 {
+            return tir
+                .visit_type(ctx, expr)
+                .map_or(None, |x| (x == *self).then_some(vec![]));
+        }
         todo!()
     }
 }

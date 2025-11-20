@@ -50,8 +50,18 @@ impl TirCtx {
             specs: HashMap::new(),
         };
         PrimitiveTy::iter().for_each(|ty| {
+            let x = res
+                .create_type_pro(ctx, ConcreteType::Primitive(ty), false)
+                .unwrap();
+            res.create_type_pro(ctx, ConcreteType::Ptr(x), false)
+                .unwrap();
+        });
+
+        PrimitiveTy::iter().for_each(|ty| {
             let x = res.create_type(ctx, ConcreteType::Primitive(ty));
-            res.create_type(ctx, ConcreteType::Ptr(x));
+            if let Ok(x) = x {
+                let _ = res.create_type(ctx, ConcreteType::Ptr(x));
+            };
         });
 
         res
@@ -68,7 +78,7 @@ impl TirCtx {
         ctx.ctx
             .interner
             .contains_conc_type(&ConcreteType::Primitive(prim))
-            .unwrap()
+            .expect(format!("Primitive type {} not found.", prim.get_name()).as_str())
     }
 
     pub fn primitive_ptr(&self, ctx: &TyCtx, prim: PrimitiveTy) -> TyId {
@@ -207,6 +217,8 @@ impl<'ctx> TirCtx {
         };
 
         let sc_id = ctx.ctx.interner.insert_sc(c);
+        let ty = self.create_type(ctx, ConcreteType::SpecializedClass(sc_id))?;
+        self.specs.insert(spec_info.clone(), ty);
 
         let ty = ctx.with_scope(ScopeKind::Spec(sc_id), |ctx| {
             for (i, arg) in spec_info.args.iter().enumerate() {
@@ -230,12 +242,6 @@ impl<'ctx> TirCtx {
                 )
                 .try_collect()?;
             ctx.ctx.interner.get_sc_mut(sc_id).fields = fields;
-
-            let ty = self.create_type(ctx, ConcreteType::SpecializedClass(sc_id));
-
-            self.specs.insert(spec_info, ty);
-
-            assert!(self.impls.len() == 0);
 
             self.class_stack.push(sc_id);
             self.methods.insert(ty, HashMap::new());
@@ -299,7 +305,7 @@ impl<'ctx> TirCtx {
             TypeExpr::Instantiation { template, args } => self.instantiate(ctx, *template, args),
             TypeExpr::Ptr(id) => {
                 let ty = ConcreteType::Ptr(self.visit_type(ctx, *id)?);
-                Ok(self.create_type(ctx, ty))
+                self.create_type(ctx, ty)
             }
             TypeExpr::Tuple(ids) => {
                 let tys = ids
@@ -308,11 +314,11 @@ impl<'ctx> TirCtx {
                     .map(|id| self.visit_type(ctx, *id))
                     .collect::<Result<Vec<_>, _>>()?;
                 let ty = ConcreteType::Tuple(tys);
-                Ok(self.create_type(ctx, ty))
+                self.create_type(ctx, ty)
             }
             TypeExpr::Primitive(primitive_ty) => {
                 let ty = ConcreteType::Primitive(*primitive_ty);
-                Ok(self.create_type(ctx, ty))
+                self.create_type(ctx, ty)
             }
             TypeExpr::Concrete(id) => Ok(*id),
         }
@@ -399,6 +405,7 @@ impl<'ctx> TirCtx {
 
     pub fn get_primitive_type(&mut self, ctx: &mut TyCtx<'ctx>, prim: PrimitiveTy) -> TyId {
         self.create_type(ctx, ConcreteType::Primitive(prim))
+            .unwrap()
     }
 
     #[inline(always)]
@@ -454,7 +461,7 @@ impl<'ctx> TirCtx {
     }
 
     pub fn get_ptr_to(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> TyId {
-        self.create_type(ctx, ConcreteType::Ptr(ty))
+        self.create_type(ctx, ConcreteType::Ptr(ty)).unwrap()
     }
 
     pub fn get_type_of_expr(
@@ -755,12 +762,44 @@ impl<'ctx> TirCtx {
         Ok(())
     }
 
-    pub fn create_type(&mut self, ctx: &mut TyCtx<'ctx>, ty: ConcreteType) -> TyId {
+    pub fn apply_impl_to_type(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        bindings: Vec<TyId>,
+        impl_block_id: ImplBlockId,
+    ) -> Result<(), TcError> {
+        todo!()
+    }
+
+    pub fn create_type_pro(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        ty: ConcreteType,
+        check_impls: bool,
+    ) -> Result<TyId, TcError> {
         let res = ctx.ctx.interner.insert_conc_type(ty);
         if !self.methods.contains_key(&res) {
             self.methods.insert(res, HashMap::new());
+            if check_impls {
+                for id in self.impls.clone() {
+                    let impl_block = id.get_block(ctx).clone();
+                    if let Some(bindings) =
+                        res.matches_expr(self, ctx, impl_block.for_ty, impl_block.templates)
+                    {
+                        self.apply_impl_to_type(ctx, bindings, id)?;
+                    }
+                }
+            }
         }
-        res
+        Ok(res)
+    }
+
+    pub fn create_type(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        ty: ConcreteType,
+    ) -> Result<TyId, TcError> {
+        self.create_type_pro(ctx, ty, true)
     }
 
     pub fn concretize_constructor(
@@ -769,8 +808,8 @@ impl<'ctx> TirCtx {
         input: &NirMethod,
     ) -> Result<FunId, TcError> {
         let current_class = self.class_stack.last().unwrap();
-        let self_ty = self.create_type(ctx, ConcreteType::SpecializedClass(*current_class));
-        let self_ptr_ty = self.create_type(ctx, ConcreteType::Ptr(self_ty));
+        let self_ty = self.create_type(ctx, ConcreteType::SpecializedClass(*current_class))?;
+        let self_ptr_ty = self.create_type(ctx, ConcreteType::Ptr(self_ty))?;
 
         let self_symbol = ctx.ctx.interner.insert_symbol(&"self".to_string());
 
@@ -831,8 +870,8 @@ impl<'ctx> TirCtx {
         input: &NirMethod,
     ) -> Result<FunId, TcError> {
         let current_class = self.class_stack.last().unwrap();
-        let self_ty = self.create_type(ctx, ConcreteType::SpecializedClass(*current_class));
-        let self_ptr_ty = self.create_type(ctx, ConcreteType::Ptr(self_ty));
+        let self_ty = self.create_type(ctx, ConcreteType::SpecializedClass(*current_class))?;
+        let self_ptr_ty = self.create_type(ctx, ConcreteType::Ptr(self_ty))?;
 
         let self_symbol = ctx.ctx.interner.insert_symbol(&"self".to_string());
 
@@ -903,8 +942,8 @@ impl<'ctx> TirCtx {
         item: ItemId,
     ) -> Result<(), TcError> {
         let current_class = self.class_stack.last().unwrap();
-        let self_ty = self.create_type(ctx, ConcreteType::SpecializedClass(*current_class));
-        let self_ptr_ty = self.create_type(ctx, ConcreteType::Ptr(self_ty));
+        let self_ty = self.create_type(ctx, ConcreteType::SpecializedClass(*current_class))?;
+        let self_ptr_ty = self.create_type(ctx, ConcreteType::Ptr(self_ty))?;
 
         let self_symbol = ctx.ctx.interner.insert_symbol(&"self".to_string());
 
@@ -966,8 +1005,8 @@ impl<'ctx> TirCtx {
         item: ItemId,
     ) -> Result<(), TcError> {
         let current_class = self.class_stack.last().unwrap();
-        let self_ty = self.create_type(ctx, ConcreteType::SpecializedClass(*current_class));
-        let self_ptr_ty = self.create_type(ctx, ConcreteType::Ptr(self_ty));
+        let self_ty = self.create_type(ctx, ConcreteType::SpecializedClass(*current_class))?;
+        let self_ptr_ty = self.create_type(ctx, ConcreteType::Ptr(self_ty))?;
 
         let self_symbol = ctx.ctx.interner.insert_symbol(&"self".to_string());
 
@@ -1084,10 +1123,12 @@ impl<'ctx> TirCtx {
             let nir = ctx.ctx.interner.get_item(item).clone();
             match nir {
                 NirItem::Function(fdef) => self.visit_fundef(ctx, &fdef),
-                NirItem::Alias(_, _) => Ok(()),
                 NirItem::Module(def) => self.visit_module(ctx, &def),
+                NirItem::Alias(_, _) => Ok(()),
                 NirItem::Class(_) => Ok(()),
-                _ => todo!(),
+                NirItem::Impl(_) => Ok(()),
+                NirItem::Trait(_) => Ok(()),
+                NirItem::Method(_) => Ok(()),
             }
         })
     }

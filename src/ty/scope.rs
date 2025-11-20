@@ -149,6 +149,12 @@ pub struct ImplBlock {
     pub kind: ImplKind,
 }
 
+impl<'ctx> ImplBlockId {
+    pub fn get_block(&self, ctx: &'ctx TyCtx<'ctx>) -> &'ctx ImplBlock {
+        ctx.ctx.interner.get_imp(*self)
+    }
+}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Definition {
     Class(ClassId),

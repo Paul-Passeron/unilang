@@ -401,7 +401,7 @@ impl TypeChecker {
             }
             NirExprKind::AddrOf(e) => {
                 let e_ty = Self::get_type_of_expr(tir, ctx, *e)?;
-                Ok(tir.create_type(ctx, ConcreteType::Ptr(e_ty)))
+                tir.create_type(ctx, ConcreteType::Ptr(e_ty))
             }
             NirExprKind::Access { from, field } => {
                 let from_ty = Self::get_type_of_expr(tir, ctx, *from)?;
@@ -426,11 +426,11 @@ impl TypeChecker {
                 let is_new = matches!(nir.kind, NirExprKind::New { .. });
 
                 if expr_ty.is_coercible(tir, ctx, target) {
-                    Ok(if is_new {
+                    if is_new {
                         tir.create_type(ctx, ConcreteType::Ptr(target))
                     } else {
-                        target
-                    })
+                        Ok(target)
+                    }
                 } else {
                     Err(TcError::Text(format!(
                         "Type `{}` is not coercible to type `{}` in @{} directive",
@@ -446,7 +446,7 @@ impl TypeChecker {
                     .map(|x| Self::get_type_of_expr(tir, ctx, *x))
                     .collect::<Result<Vec<_>, _>>()?;
 
-                Ok(tir.create_type(ctx, ConcreteType::Tuple(tys)))
+                tir.create_type(ctx, ConcreteType::Tuple(tys))
             }
             NirExprKind::Range { .. } => Err(TcError::Text(format!(
                 "The range expression is not typeable"
@@ -527,43 +527,43 @@ impl TypeChecker {
             TirExpr::TypedIntLit(x) => match x {
                 TypedIntLit::Ptr(id, _) => {
                     let ty = ConcreteType::Ptr(id);
-                    Ok(tir.create_type(ctx, ty))
+                    tir.create_type(ctx, ty)
                 }
                 TypedIntLit::I8(_) => {
                     let ty = ConcreteType::Primitive(PrimitiveTy::I8);
-                    Ok(tir.create_type(ctx, ty))
+                    tir.create_type(ctx, ty)
                 }
                 TypedIntLit::I16(_) => {
                     let ty = ConcreteType::Primitive(PrimitiveTy::I16);
-                    Ok(tir.create_type(ctx, ty))
+                    tir.create_type(ctx, ty)
                 }
                 TypedIntLit::I32(_) => {
                     let ty = ConcreteType::Primitive(PrimitiveTy::I32);
-                    Ok(tir.create_type(ctx, ty))
+                    tir.create_type(ctx, ty)
                 }
                 TypedIntLit::I64(_) => {
                     let ty = ConcreteType::Primitive(PrimitiveTy::I64);
-                    Ok(tir.create_type(ctx, ty))
+                    tir.create_type(ctx, ty)
                 }
                 TypedIntLit::U8(_) => {
                     let ty = ConcreteType::Primitive(PrimitiveTy::U8);
-                    Ok(tir.create_type(ctx, ty))
+                    tir.create_type(ctx, ty)
                 }
                 TypedIntLit::U16(_) => {
                     let ty = ConcreteType::Primitive(PrimitiveTy::U16);
-                    Ok(tir.create_type(ctx, ty))
+                    tir.create_type(ctx, ty)
                 }
                 TypedIntLit::U32(_) => {
                     let ty = ConcreteType::Primitive(PrimitiveTy::U32);
-                    Ok(tir.create_type(ctx, ty))
+                    tir.create_type(ctx, ty)
                 }
                 TypedIntLit::U64(_) => {
                     let ty = ConcreteType::Primitive(PrimitiveTy::U64);
-                    Ok(tir.create_type(ctx, ty))
+                    tir.create_type(ctx, ty)
                 }
                 TypedIntLit::Bool(_) => {
                     let ty = ConcreteType::Primitive(PrimitiveTy::Bool);
-                    Ok(tir.create_type(ctx, ty))
+                    tir.create_type(ctx, ty)
                 }
             },
             TirExpr::Access(var, field_access_kind) => {
@@ -577,7 +577,7 @@ impl TypeChecker {
                         .map(|x| Self::get_type_of_tir_expr(tir, ctx, *x))
                         .collect::<Result<Vec<_>, _>>()?,
                 );
-                Ok(tir.create_type(ctx, ty))
+                tir.create_type(ctx, ty)
             }
             TirExpr::BinOp { lhs, op, rhs } => match op {
                 NirBinOpKind::Equ
@@ -628,7 +628,7 @@ impl TypeChecker {
                         .ok_or(TcError::Text(format!(
                             "Field named ??? not found in class ???"
                         )))?;
-                    Ok(tir.create_type(ctx, ConcreteType::Ptr(field.ty)))
+                    tir.create_type(ctx, ConcreteType::Ptr(field.ty))
                 } else {
                     return Err(TcError::Text(format!(
                         "No named field in non-class type (get_type_of_tir_expr)",
@@ -645,20 +645,20 @@ impl TypeChecker {
                     if ids.len() <= i as usize {
                         return Err(TcError::Text(format!("Tuple access out of range")));
                     }
-                    Ok(tir.create_type(ctx, ConcreteType::Ptr(ids[i as usize])))
+                    tir.create_type(ctx, ConcreteType::Ptr(ids[i as usize]))
                 } else {
                     return Err(TcError::Text(format!("No index field in non-tuple type")));
                 }
             }
             TirExpr::VarPtr(id) => {
                 let inner = ctx.ctx.interner.get_variable(id).ty;
-                Ok(tir.create_type(ctx, ConcreteType::Ptr(inner)))
+                tir.create_type(ctx, ConcreteType::Ptr(inner))
             }
             TirExpr::Deref(e) => Ok(Self::get_type_of_tir_expr(tir, ctx, e)?
                 .as_ptr(ctx)
                 .unwrap()),
             TirExpr::Malloc(ty) | TirExpr::Alloca(ty) => {
-                Ok(tir.create_type(ctx, ConcreteType::Ptr(ty)))
+                tir.create_type(ctx, ConcreteType::Ptr(ty))
             }
             TirExpr::Subscript { ptr, .. } => Self::get_type_of_tir_expr(tir, ctx, ptr),
         }
