@@ -132,17 +132,30 @@ impl<'ctx> TyCtx<'ctx> {
     }
 
     pub fn enter_scope(&mut self, kind: ScopeKind) -> ScopeId {
-        let parent = self.current_scope;
-        let scope = Scope {
-            kind,
-            parent: Some(parent),
-            children: Vec::new(),
-            definitions: Vec::new(),
+        let mut should_register = false;
+        let id = if let Some(id) = self.ctx.interner.contains_scopekind(&kind) {
+            id
+        } else {
+            should_register = true;
+            let parent = self.current_scope;
+            let scope = Scope {
+                kind,
+                parent: Some(parent),
+                children: Vec::new(),
+                definitions: Vec::new(),
+            };
+
+            self.ctx.interner.insert_scope(scope)
         };
-        let id = self.ctx.interner.insert_scope(scope);
-        // register in parent
-        let parent_mut = self.ctx.interner.get_scope_mut(parent);
-        parent_mut.children.push(id);
+        if should_register {
+            let parent = self.current_scope;
+
+            // register in parent
+            let parent_mut = self.ctx.interner.get_scope_mut(parent);
+            parent_mut.children.push(id);
+            self.current_scope = id;
+            self.defer_stack.push(vec![Vec::new()]);
+        }
         self.current_scope = id;
         self.defer_stack.push(vec![Vec::new()]);
         id
@@ -153,7 +166,7 @@ impl<'ctx> TyCtx<'ctx> {
         while let Some(mut last) = stack.pop() {
             while let Some(instr_block) = last.pop() {
                 for instr in instr_block {
-                    self.push_instr(dbg!(instr), false);
+                    self.push_instr(instr, false);
                 }
             }
         }
@@ -204,6 +217,10 @@ impl<'ctx> TyCtx<'ctx> {
 
     pub fn push_def(&mut self, symb: Symbol, def: DefId) {
         self.get_last_scope_mut().definitions.push((symb, def));
+    }
+
+    pub fn pop_def(&mut self) {
+        let _ = self.get_last_scope_mut().definitions.pop();
     }
 
     pub fn get_scope(&self, id: ScopeId) -> &Scope {

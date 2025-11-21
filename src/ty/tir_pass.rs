@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use strum::IntoEnumIterator;
 
@@ -48,6 +48,9 @@ impl TirCtx {
             impls: Self::get_all_impls(ctx),
             class_stack: vec![],
             specs: HashMap::new(),
+            sc_scopes: HashMap::new(),
+            impl_methods: HashMap::new(),
+            impl_checked: HashSet::new(),
         };
         PrimitiveTy::iter().for_each(|ty| {
             let x = res
@@ -55,13 +58,6 @@ impl TirCtx {
                 .unwrap();
             res.create_type_pro(ctx, ConcreteType::Ptr(x), false)
                 .unwrap();
-        });
-
-        PrimitiveTy::iter().for_each(|ty| {
-            let x = res.create_type(ctx, ConcreteType::Primitive(ty));
-            if let Ok(x) = x {
-                let _ = res.create_type(ctx, ConcreteType::Ptr(x));
-            };
         });
 
         res
@@ -217,10 +213,34 @@ impl<'ctx> TirCtx {
         };
 
         let sc_id = ctx.ctx.interner.insert_sc(c);
-        let ty = self.create_type(ctx, ConcreteType::SpecializedClass(sc_id))?;
+        let ty = self.create_type_pro(ctx, ConcreteType::SpecializedClass(sc_id), false)?;
         self.specs.insert(spec_info.clone(), ty);
 
-        let ty = ctx.with_scope(ScopeKind::Spec(sc_id), |ctx| {
+        ctx.defer_stack.clear();
+        ctx.defer_stack.push(vec![]);
+        let old_current = ctx.current_scope;
+        ctx.current_scope = ctx
+            .ctx
+            .interner
+            .scope_interner()
+            .iter()
+            .find(|x| {
+                ctx.get_scope(*x)
+                    .kind_matches(&ScopeKind::Class(class_id, ItemId::new(0)))
+            })
+            .unwrap();
+        ctx.current_scope = ctx.get_scope(ctx.current_scope).parent.unwrap();
+
+        let id = ctx.with_scope(ScopeKind::Spec(sc_id), |ctx| {
+            self.sc_scopes.insert(sc_id, ctx.current_scope);
+            ctx.current_scope
+        });
+        let ty = self.create_type_pro(ctx, ConcreteType::SpecializedClass(sc_id), true)?;
+        let old_defer_stack = ctx.defer_stack.clone();
+
+        let ty = ctx.with_scope_id(id, |ctx| {
+            self.sc_scopes.insert(sc_id, ctx.current_scope);
+
             for (i, arg) in spec_info.args.iter().enumerate() {
                 let te = ctx.ctx.interner.insert_type_expr(TypeExpr::Concrete(*arg));
                 let def_id = ctx.ctx.interner.insert_def(Definition::Type(te));
@@ -244,7 +264,9 @@ impl<'ctx> TirCtx {
             ctx.ctx.interner.get_sc_mut(sc_id).fields = fields;
 
             self.class_stack.push(sc_id);
-            self.methods.insert(ty, HashMap::new());
+            if !self.methods.contains_key(&ty) {
+                self.methods.insert(ty, HashMap::new());
+            }
 
             for Method { id: method_id, .. } in &methods {
                 if let Some(method_ast) = match ctx.ctx.interner.get_item(*method_id) {
@@ -268,7 +290,7 @@ impl<'ctx> TirCtx {
                     NirItem::Method(ast) => (ast.name != name).then_some(ast.clone()),
                     _ => unreachable!(),
                 } {
-                    self.visit_method(ctx, &method_ast, *method_id)?;
+                    self.visit_method(ctx, &method_ast, *method_id, None)?;
                 } else {
                     let ast = match ctx.ctx.interner.get_item(*method_id) {
                         NirItem::Method(ast) => ast.clone(),
@@ -282,10 +304,30 @@ impl<'ctx> TirCtx {
                     )?;
                 }
             }
+
+            let l = self.impl_methods[&ty].len();
+            let impl_methods = self
+                .impl_methods
+                .get_mut(&ty)
+                .unwrap()
+                .drain(0..l)
+                .collect::<Vec<_>>();
+
+            for (bindings, method_id) in impl_methods {
+                let ast = match ctx.ctx.interner.get_item(method_id) {
+                    NirItem::Method(ast) => ast.clone(),
+                    _ => unreachable!(),
+                };
+
+                self.visit_method(ctx, &ast, method_id, Some(bindings))?;
+            }
             Ok(ty)
         })?;
 
         self.class_stack.pop();
+
+        ctx.defer_stack = old_defer_stack;
+        ctx.current_scope = old_current;
 
         Ok(ty)
     }
@@ -765,10 +807,144 @@ impl<'ctx> TirCtx {
     pub fn apply_impl_to_type(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
+        ty: TyId,
         bindings: Vec<TyId>,
-        impl_block_id: ImplBlockId,
+        id: ImplBlockId,
     ) -> Result<(), TcError> {
-        todo!()
+        let impl_block = id.get_block(ctx).clone();
+        if bindings.len() != impl_block.templates.len() {
+            return Err(TcError::Text(format!(
+                "Impl block for `{}` could not be applied to type as templates do not match got: {}, expected: {}.",
+                ty.to_string(ctx),
+                bindings.len(),
+                impl_block.templates.len(),
+            )));
+        }
+
+        let sc_id = ty
+            .as_sc(ctx)
+            .expect("Todo: impl blocks for non sc types are not supported yet");
+
+        let scope_id = self.sc_scopes[&sc_id];
+
+        let named_bindings = bindings
+            .iter()
+            .zip(impl_block.templates)
+            .map(|(b, t)| (t.name, *b))
+            .collect();
+
+        ctx.with_scope_id(scope_id, |ctx| {
+            for Method {
+                id: method_id,
+                name,
+                ..
+            } in &impl_block.methods
+            {
+                let fun_id =
+                    self.concretize_method_for_impl(ctx, ty, &named_bindings, *method_id)?;
+
+                ctx.ctx.interner.get_sc_mut(sc_id).methods.push(fun_id);
+                self.methods.get_mut(&ty).unwrap().insert(*name, fun_id);
+                self.impl_methods
+                    .get_mut(&ty)
+                    .unwrap()
+                    .push((named_bindings.clone(), *method_id));
+            }
+            Ok::<_, TcError>(())
+        })?;
+
+        Ok(())
+    }
+
+    fn concretize_method_for_impl(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        self_ty: TyId,
+        bindings: &Vec<(Symbol, TyId)>,
+
+        id: ItemId,
+    ) -> Result<FunId, TcError> {
+        for arg in bindings {
+            let te = ctx.ctx.interner.insert_type_expr(TypeExpr::Concrete(arg.1));
+            let def_id = ctx.ctx.interner.insert_def(Definition::Type(te));
+            ctx.push_def(arg.0, def_id);
+        }
+
+        let old_def_len = ctx.get_last_scope_mut().definitions.len();
+
+        let input = match ctx.ctx.interner.get_item(id) {
+            NirItem::Method(ast) => ast.clone(),
+            _ => unreachable!(),
+        };
+
+        let self_ptr_ty = self.create_type(ctx, ConcreteType::Ptr(self_ty))?;
+
+        let self_symbol = ctx.ctx.interner.insert_symbol(&"self".to_string());
+
+        let ty = ctx
+            .ctx
+            .interner
+            .insert_type_expr(TypeExpr::Concrete(self_ptr_ty));
+
+        let mut params = vec![TcParam {
+            name: self_symbol,
+            ty: ty,
+        }];
+
+        input.args.iter().try_for_each(|arg| {
+            ctx.visit_type(&arg.ty)
+                .map(|ty| params.push(TcParam { name: arg.name, ty }))
+        })?;
+
+        let return_ty = match &input.return_ty {
+            Some(ty) => ctx.visit_type(ty),
+            None => Ok(ctx
+                .ctx
+                .interner
+                .insert_type_expr(TypeExpr::Primitive(PrimitiveTy::Void))),
+        }?;
+
+        let fun_id = ctx.ctx.interner.insert_fun(TcFunProto {
+            name: input.name,
+            params,
+            return_ty,
+            variadic: false,
+        });
+
+        self.methods
+            .get_mut(&self_ty)
+            .unwrap()
+            .insert(input.name, fun_id);
+        let fun = ctx.ctx.interner.get_fun(fun_id).clone();
+
+        let params = fun
+            .params
+            .iter()
+            .map(|param| {
+                self.visit_type(ctx, param.ty).map(|ty| SCField {
+                    name: param.name,
+                    ty,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let return_ty = self.visit_type(ctx, fun.return_ty)?;
+
+        let sig = Signature {
+            name: fun.name,
+            params,
+            return_ty,
+            variadic: fun.variadic,
+        };
+
+        self.protos.insert(fun_id, sig);
+
+        assert!(old_def_len == ctx.get_last_scope_mut().definitions.len());
+
+        for _ in bindings {
+            ctx.pop_def();
+        }
+
+        Ok(fun_id)
     }
 
     pub fn create_type_pro(
@@ -777,16 +953,19 @@ impl<'ctx> TirCtx {
         ty: ConcreteType,
         check_impls: bool,
     ) -> Result<TyId, TcError> {
-        let res = ctx.ctx.interner.insert_conc_type(ty);
+        let res = ctx.ctx.interner.insert_conc_type(ty.clone());
         if !self.methods.contains_key(&res) {
             self.methods.insert(res, HashMap::new());
-            if check_impls {
+        }
+        if check_impls && matches!(ty, ConcreteType::SpecializedClass(_)) {
+            if self.impl_checked.insert(res) {
+                self.impl_methods.insert(res, Vec::new());
                 for id in self.impls.clone() {
                     let impl_block = id.get_block(ctx).clone();
                     if let Some(bindings) =
                         res.matches_expr(self, ctx, impl_block.for_ty, impl_block.templates)
                     {
-                        self.apply_impl_to_type(ctx, bindings, id)?;
+                        self.apply_impl_to_type(ctx, res, bindings, id)?;
                     }
                 }
             }
@@ -839,7 +1018,6 @@ impl<'ctx> TirCtx {
             return_ty,
             variadic: false,
         });
-
         let return_ty = self.visit_type(ctx, return_ty)?;
         let fun = ctx.ctx.interner.get_fun(fun_id).clone();
 
@@ -1003,6 +1181,7 @@ impl<'ctx> TirCtx {
         ctx: &mut TyCtx<'ctx>,
         input: &NirMethod,
         item: ItemId,
+        bindings: Option<Vec<(Symbol, TyId)>>,
     ) -> Result<(), TcError> {
         let current_class = self.class_stack.last().unwrap();
         let self_ty = self.create_type(ctx, ConcreteType::SpecializedClass(*current_class))?;
@@ -1013,45 +1192,47 @@ impl<'ctx> TirCtx {
         let fun_id = self.methods[&self_ty][&input.name];
 
         let res = ctx.with_scope(ScopeKind::Function(fun_id, item, vec![]), |ctx| {
-            if input.body.is_some() {
-                // Self parameter
-                {
-                    let self_var_id = ctx.ctx.interner.insert_variable(VarDecl {
-                        name: self_symbol,
-                        ty: self_ptr_ty,
-                    });
-                    ctx.push_instr(TirInstr::VarDecl(self_var_id), false);
-                    let self_value = self.create_expr(ctx, TirExpr::Arg(0), false);
-                    ctx.push_instr(TirInstr::VarAssign(self_var_id, self_value), false);
-                    let self_def = ctx.ctx.interner.insert_def(Definition::Var(self_var_id));
-                    ctx.push_def(self_symbol, self_def);
-                }
-
-                // Other parameters
-                {
-                    input
-                        .args
-                        .clone()
-                        .iter()
-                        .enumerate()
-                        .try_for_each(|(i, param)| {
-                            let ty_id = ctx.visit_type(&param.ty)?;
-                            let concrete_ty = self.visit_type(ctx, ty_id)?;
-
-                            let var_id = ctx.ctx.interner.insert_variable(VarDecl {
-                                name: param.name,
-                                ty: concrete_ty,
-                            });
-                            ctx.push_instr(TirInstr::VarDecl(var_id), false);
-                            // Offset by 1 because of `self` parameter
-                            let e = self.create_expr(ctx, TirExpr::Arg(i + 1), false);
-                            ctx.push_instr(TirInstr::VarAssign(var_id, e), false);
-                            let def = ctx.ctx.interner.insert_def(Definition::Var(var_id));
-                            ctx.push_def(param.name, def);
-                            Ok(())
-                        })?;
+            if let Some(bs) = bindings {
+                for (name, ty) in bs {
+                    let te = ctx.ctx.interner.insert_type_expr(TypeExpr::Concrete(ty));
+                    let def_id = ctx.ctx.interner.insert_def(Definition::Type(te));
+                    ctx.push_def(name, def_id);
                 }
             }
+
+            // Self parameter
+            let self_var_id = ctx.ctx.interner.insert_variable(VarDecl {
+                name: self_symbol,
+                ty: self_ptr_ty,
+            });
+            ctx.push_instr(TirInstr::VarDecl(self_var_id), false);
+            let self_value = self.create_expr(ctx, TirExpr::Arg(0), false);
+            ctx.push_instr(TirInstr::VarAssign(self_var_id, self_value), false);
+            let self_def = ctx.ctx.interner.insert_def(Definition::Var(self_var_id));
+            ctx.push_def(self_symbol, self_def);
+
+            // Other parameters
+            input
+                .args
+                .clone()
+                .iter()
+                .enumerate()
+                .try_for_each(|(i, param)| {
+                    let ty_id = ctx.visit_type(&param.ty)?;
+                    let concrete_ty = self.visit_type(ctx, ty_id)?;
+
+                    let var_id = ctx.ctx.interner.insert_variable(VarDecl {
+                        name: param.name,
+                        ty: concrete_ty,
+                    });
+                    ctx.push_instr(TirInstr::VarDecl(var_id), false);
+                    // Offset by 1 because of `self` parameter
+                    let e = self.create_expr(ctx, TirExpr::Arg(i + 1), false);
+                    ctx.push_instr(TirInstr::VarAssign(var_id, e), false);
+                    let def = ctx.ctx.interner.insert_def(Definition::Var(var_id));
+                    ctx.push_def(param.name, def);
+                    Ok(())
+                })?;
 
             input.body.as_ref().iter().try_for_each(|body| {
                 body.iter()
@@ -1158,6 +1339,13 @@ impl<'ctx> Pass<'ctx, SurfaceResolutionPassOutput<'ctx>> for TirCtx {
         }
 
         visit_all_fundefs(self, ctx, ScopeId::new(0))?;
+
+        // PrimitiveTy::iter().for_each(|ty| {
+        //     let x = self.create_type(ctx, ConcreteType::Primitive(ty));
+        //     if let Ok(x) = x {
+        //         let _ = self.create_type(ctx, ConcreteType::Ptr(x));
+        //     };
+        // });
 
         for (scope, item) in input {
             self.visit_item(ctx, scope, item)?;

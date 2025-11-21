@@ -131,7 +131,6 @@ impl<'ctx> SurfaceResolution {
             let mut errors = vec![];
             for (_, id) in ctx.backpatching.clone() {
                 let symb = self.print_unresolved(ctx, id);
-                println!("[Error]: Unresolved symbol {}", symb);
                 let s = ctx.ctx.interner.insert_symbol(&symb);
                 errors.push(TcError::NameNotFound(s))
             }

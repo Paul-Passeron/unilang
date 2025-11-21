@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     common::global_interner::{
-        DefId, FunId, ImplBlockId, SCId, ScopeId, StringLiteral, Symbol, TirExprId, TyId,
+        DefId, FunId, ImplBlockId, ItemId, SCId, ScopeId, StringLiteral, Symbol, TirExprId, TyId,
         VariableId,
     },
     nir::nir::{FieldAccessKind, NirBinOpKind},
@@ -11,10 +11,13 @@ use crate::{
 
 pub struct TirCtx {
     pub methods: HashMap<TyId, HashMap<Symbol, FunId>>,
+    pub impl_methods: HashMap<TyId, Vec<(Vec<(Symbol, TyId)>, ItemId)>>,
+    pub impl_checked: HashSet<TyId>,
     pub protos: HashMap<FunId, Signature>,
     pub impls: Vec<ImplBlockId>,
     pub class_stack: Vec<SCId>,
     pub specs: HashMap<SpecInfo, TyId>,
+    pub sc_scopes: HashMap<SCId, ScopeId>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

@@ -11,7 +11,7 @@ pub trait Interner<'ctx, Value> {
     fn insert(&'ctx mut self, v: Value) -> Self::Id;
     fn get(&'ctx self, id: Self::Id) -> &'ctx Value;
     fn get_mut(&'ctx mut self, id: Self::Id) -> &'ctx mut Value;
-    fn len(&'ctx self) -> usize;
+    fn len(&self) -> usize;
     fn clear(&mut self);
 }
 
@@ -64,13 +64,72 @@ impl<'ctx, Id: ConstructibleId, Value: Hash + Eq + Clone> Interner<'ctx, Value>
         self.map.get_mut(&id).unwrap()
     }
 
-    fn len(&'ctx self) -> usize {
+    fn len(&self) -> usize {
         self.map.len()
     }
 
     fn clear(&mut self) {
         self.map.clear();
         self.last_id = 0;
+    }
+}
+
+pub struct InternerIterator<'a, T, Value>
+where
+    T: Interner<'a, Value>,
+{
+    interner: &'a T,
+    current: u32,
+    _phantom: PhantomData<Value>,
+}
+
+impl<'a, Value, T> InternerIterator<'a, T, Value>
+where
+    T: Interner<'a, Value>,
+{
+    pub fn new(from: &'a T) -> Self {
+        Self {
+            interner: from,
+            current: 0,
+            _phantom: PhantomData::default(),
+        }
+    }
+}
+
+impl<'a, Value, T> Iterator for InternerIterator<'a, T, Value>
+where
+    T: Interner<'a, Value>,
+    T::Id: ConstructibleId,
+{
+    type Item = T::Id;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.interner.len() > self.current as usize {
+            let res = Some(T::Id::new(self.current));
+            self.current += 1;
+            res
+        } else {
+            None
+        }
+    }
+}
+
+impl<Value> OneShotInterner<Value>
+where
+    Value: Debug,
+{
+    pub fn iter<'a>(&'a self) -> InternerIterator<'a, Self, Value> {
+        InternerIterator::new(self)
+    }
+}
+
+impl<Value, Id> HashInterner<Id, Value>
+where
+    Value: Debug + Clone + Hash + Eq,
+    Id: ConstructibleId,
+{
+    pub fn iter<'a>(&'a self) -> InternerIterator<'a, Self, Value> {
+        InternerIterator::new(self)
     }
 }
 
@@ -150,7 +209,7 @@ where
         &mut self.0[id.0 as usize]
     }
 
-    fn len(&'ctx self) -> usize {
+    fn len(&self) -> usize {
         self.0.len()
     }
 

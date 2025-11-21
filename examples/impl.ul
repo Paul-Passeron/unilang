@@ -3,6 +3,9 @@
 class A => {
     public x: int;
     public A() => { self::x => 8; }
+    public normal(): void => {
+        printf("Normal method\n");
+    }
 }
 
 impl A => {

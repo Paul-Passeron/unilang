@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use inkwell::{
     AddressSpace, IntPredicate,
@@ -41,6 +41,7 @@ pub struct MonoIRPass<'a> {
     pub tys: HashMap<TyId, AnyTypeEnum<'a>>,
     pub funs: HashMap<FunId, (FunctionValue<'a>, ScopeId)>,
     pub strlits: HashMap<StringLiteral, GlobalValue<'a>>,
+    pub visited: HashSet<FunId>,
 }
 
 impl<'ctx, 'a> Pass<'ctx, ()> for MonoIRPass<'a> {
@@ -49,8 +50,8 @@ impl<'ctx, 'a> Pass<'ctx, ()> for MonoIRPass<'a> {
     fn run(&mut self, ctx: &mut TyCtx<'ctx>, _: ()) -> Result<Self::Output, TcError> {
         self.visit_all_scopes(ctx);
         if let Err(str) = self.module.verify() {
-            eprintln!("[LLVM ERROR]\n{}", str.to_string());
             println!("{}", self.module.print_to_string().to_string());
+            eprintln!("[LLVM ERROR]\n{}", str.to_string());
         }
         Ok(())
     }
@@ -72,12 +73,13 @@ impl<'ctx, 'a> MonoIRPass<'a> {
             tys: HashMap::new(),
             funs: HashMap::new(),
             strlits: HashMap::new(),
+            visited: HashSet::new(),
         }
     }
 
     pub fn visit_all_scopes(&mut self, ctx: &mut TyCtx<'ctx>) {
         fn aux<'ctx>(this: &mut MonoIRPass, ctx: &mut TyCtx<'ctx>) {
-            if matches!(&ctx.get_last_scope().kind, ScopeKind::Function(_, _, _)) {
+            if let ScopeKind::Function(_, _, _) = &ctx.get_last_scope().kind {
                 this.declare_fundef(ctx);
             }
 
@@ -100,6 +102,9 @@ impl<'ctx, 'a> MonoIRPass<'a> {
     }
 
     fn visit_fundef(&mut self, ctx: &mut TyCtx<'ctx>, id: FunId) {
+        if !self.visited.insert(id) {
+            return;
+        }
         let (fn_val, scope_id) = self.funs[&id].clone();
         ctx.with_scope_id(scope_id, |ctx| {
             let (_, instrs) = match &ctx.ctx.interner.get_scope(ctx.current_scope).kind {

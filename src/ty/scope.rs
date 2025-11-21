@@ -79,7 +79,7 @@ impl ModuleId {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub enum ScopeKind {
     Global,
     Module(ModuleId, ItemId),
@@ -172,7 +172,7 @@ impl DefId {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub struct Scope {
     pub kind: ScopeKind,
     pub parent: Option<ScopeId>,
@@ -180,7 +180,60 @@ pub struct Scope {
     pub definitions: Vec<(Symbol, DefId)>,
 }
 
+impl PartialEq for ScopeKind {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (ScopeKind::Function(id1, _, _), ScopeKind::Function(id2, _, _)) if id1 == id2 => true,
+            (ScopeKind::Spec(id1), ScopeKind::Spec(id2)) if id1 == id2 => true,
+            (ScopeKind::Class(id1, _), ScopeKind::Class(id2, _)) if id1 == id2 => true,
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq for Scope {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind
+            && self.parent == other.parent
+            && self.children == other.children
+            && self.definitions == other.definitions
+    }
+}
+
+impl ScopeKind {
+    pub fn as_int(&self) -> usize {
+        match self {
+            ScopeKind::Global => 0,
+            ScopeKind::Module(_, _) => 1,
+            ScopeKind::Class(_, _) => 2,
+            ScopeKind::Function(_, _, _) => 2,
+            ScopeKind::Trait(_, _) => 2,
+            ScopeKind::Block(_) => 3,
+            ScopeKind::Impl(_, _) => 2,
+            ScopeKind::If { .. } => 3,
+            ScopeKind::Then(_) => 3,
+            ScopeKind::Else(_) => 3,
+            ScopeKind::While => 3,
+            ScopeKind::WhileCond(_) => 3,
+            ScopeKind::WhileLoop(_, _) => 3,
+            ScopeKind::Spec(_) => 2,
+        }
+    }
+}
+
+impl PartialOrd for ScopeKind {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.as_int().partial_cmp(&other.as_int())
+    }
+}
+
+impl Eq for Scope {}
+
 impl Scope {
+    pub fn kind_matches(&self, kind: &ScopeKind) -> bool {
+        self.kind.eq(kind)
+    }
+
     pub fn get_definition_for_symbol(
         &self,
         symb: Symbol,

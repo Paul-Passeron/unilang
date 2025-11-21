@@ -553,13 +553,14 @@ impl<'ctx> NirVisitor<'ctx> {
                      is_static,
                      fundef,
                  }| {
-                    self.visit_proto_as_method(
+                    // self.visit_proto_as_method(
+                    self.visit_method_decl(
                         match access_spec.as_ref() {
                             AccessSpec::Public => Visibility::Public,
                             AccessSpec::Private => Visibility::Private,
                         },
                         *is_static,
-                        &fundef.as_ref().proto,
+                        fundef,
                     )
                 },
             )

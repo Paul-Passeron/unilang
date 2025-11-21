@@ -6,7 +6,8 @@ use crate::{
     ty::{
         TcFunProto,
         scope::{
-            Class, Definition, ImplBlock, Module, Scope, Trait, TypeExpr, Unresolved, VarDecl,
+            Class, Definition, ImplBlock, Module, Scope, ScopeKind, Trait, TypeExpr, Unresolved,
+            VarDecl,
         },
         tir::{ConcreteType, SpecializedClass, TirExpr},
     },
@@ -24,7 +25,7 @@ pub type ItemInterner = HashInterner<ItemId, NirItem>;
 pub type ExprId = OneShotId<NirExpr>;
 pub type ExprInterner = HashInterner<ExprId, NirExpr>;
 
-pub type ScopeInterner = OneShotInterner<Scope>;
+pub type ScopeInterner = HashInterner<ScopeId, Scope>;
 pub type ScopeId = OneShotId<Scope>;
 
 pub type ModuleInterner = OneShotInterner<Module>;
@@ -70,7 +71,7 @@ pub struct GlobalInterner {
     item: ItemInterner,
     expr: ExprInterner,
     scope: ScopeInterner,
-    fun: FunInterner,
+    pub fun: FunInterner,
     class: ClassInterner,
     module: ModuleInterner,
     variable: VariableInterner,
@@ -281,6 +282,15 @@ impl GlobalInterner {
     pub fn contains_scope(&self, value: &Scope) -> Option<ScopeId> {
         self.scope.contains(value)
     }
+    pub fn contains_scopekind(&self, value: &ScopeKind) -> Option<ScopeId> {
+        for id in self.scope.iter() {
+            if self.get_scope(id).kind_matches(value) {
+                return Some(id);
+            }
+        }
+        None
+    }
+
     pub fn contains_fun(&self, value: &TcFunProto) -> Option<FunId> {
         self.fun.contains(value)
     }
@@ -374,7 +384,7 @@ impl GlobalInterner {
         self.symbol.contains(value).unwrap()
     }
 
-    pub fn scope_interner(&self) -> &OneShotInterner<Scope> {
+    pub fn scope_interner(&self) -> &ScopeInterner {
         &self.scope
     }
 }

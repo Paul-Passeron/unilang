@@ -266,11 +266,14 @@ impl TypeChecker {
             TypeReceiver::Object(id) => {
                 let ty = id.as_ptr(ctx).unwrap_or(id);
                 if !tir.methods[&ty].contains_key(&called) {
-                    Err(TcError::Text(format!(
-                        "No method named `{}` for type `{}`",
+                    let err = Err(TcError::Text(format!(
+                        "No method named `{}` for type `{}` (id = {})",
                         called.to_string(ctx),
-                        ty.to_string(ctx)
-                    )))
+                        ty.to_string(ctx),
+                        ty.0
+                    )));
+                    err.clone().unwrap();
+                    err
                 } else {
                     Ok((tir.methods[&ty][&called].clone(), Some(ty)))
                 }
