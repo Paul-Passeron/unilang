@@ -60,3 +60,46 @@ let main(): int => {
     return 0;
 }
 ```
+
+### Impls
+```unilang
+@include std::io
+
+class <T> A => {
+    public x: T;
+    public A(x: T) => {
+        self::x => x;
+    }
+}
+
+class B => {
+    public padding: int;
+    public B() => {
+        self::padding => 0;
+    }
+}
+
+impl A<int> => {
+    public from_int(y: int): int => {
+        return self::x + y;
+    }
+}
+
+impl A<B> => {
+    public from_B(y: int): int => {
+        return y * y;
+    }
+}
+
+let main(): int => {
+    let ai => @as A<int> 45;
+    let ab => @as A<B> (@as B ());
+    let i => ai::from_int(24);
+    let j => ab::from_B(24);
+
+    printf("i = %d\n", i);
+    printf("j = %d\n", j);
+
+    return 0;
+}
+```
