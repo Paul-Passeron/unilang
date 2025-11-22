@@ -530,6 +530,7 @@ impl<'ctx> TirCtx {
         }
     }
 
+    #[inline(always)]
     pub fn get_expr_with_type(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
@@ -540,6 +541,7 @@ impl<'ctx> TirCtx {
         ExprTranslator::expr_with_type(self, ctx, expr, ty, defer)
     }
 
+    #[inline(always)]
     pub fn get_expr(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
@@ -1128,42 +1130,38 @@ impl<'ctx> TirCtx {
         let res = ctx.with_scope(ScopeKind::Function(fun_id, item, vec![]), |ctx| {
             if input.body.is_some() {
                 // Self parameter
-                {
-                    let self_var_id = ctx.ctx.interner.insert_variable(VarDecl {
-                        name: self_symbol,
-                        ty: self_ptr_ty,
-                    });
-                    ctx.push_instr(TirInstr::VarDecl(self_var_id), false);
-                    let self_value = self.create_expr(ctx, TirExpr::Arg(0), false);
-                    ctx.push_instr(TirInstr::VarAssign(self_var_id, self_value), false);
-                    let self_def = ctx.ctx.interner.insert_def(Definition::Var(self_var_id));
-                    ctx.push_def(self_symbol, self_def);
-                }
+                let self_var_id = ctx.ctx.interner.insert_variable(VarDecl {
+                    name: self_symbol,
+                    ty: self_ptr_ty,
+                });
+                ctx.push_instr(TirInstr::VarDecl(self_var_id), false);
+                let self_value = self.create_expr(ctx, TirExpr::Arg(0), false);
+                ctx.push_instr(TirInstr::VarAssign(self_var_id, self_value), false);
+                let self_def = ctx.ctx.interner.insert_def(Definition::Var(self_var_id));
+                ctx.push_def(self_symbol, self_def);
 
                 // Other parameters
-                {
-                    input
-                        .args
-                        .clone()
-                        .iter()
-                        .enumerate()
-                        .try_for_each(|(i, param)| {
-                            let ty_id = ctx.visit_type(&param.ty)?;
-                            let concrete_ty = self.visit_type(ctx, ty_id)?;
+                input
+                    .args
+                    .clone()
+                    .iter()
+                    .enumerate()
+                    .try_for_each(|(i, param)| {
+                        let ty_id = ctx.visit_type(&param.ty)?;
+                        let concrete_ty = self.visit_type(ctx, ty_id)?;
 
-                            let var_id = ctx.ctx.interner.insert_variable(VarDecl {
-                                name: param.name,
-                                ty: concrete_ty,
-                            });
-                            ctx.push_instr(TirInstr::VarDecl(var_id), false);
-                            // Offset by 1 because of `self` parameter
-                            let e = self.create_expr(ctx, TirExpr::Arg(i + 1), false);
-                            ctx.push_instr(TirInstr::VarAssign(var_id, e), false);
-                            let def = ctx.ctx.interner.insert_def(Definition::Var(var_id));
-                            ctx.push_def(param.name, def);
-                            Ok(())
-                        })?;
-                }
+                        let var_id = ctx.ctx.interner.insert_variable(VarDecl {
+                            name: param.name,
+                            ty: concrete_ty,
+                        });
+                        ctx.push_instr(TirInstr::VarDecl(var_id), false);
+                        // Offset by 1 because of `self` parameter
+                        let e = self.create_expr(ctx, TirExpr::Arg(i + 1), false);
+                        ctx.push_instr(TirInstr::VarAssign(var_id, e), false);
+                        let def = ctx.ctx.interner.insert_def(Definition::Var(var_id));
+                        ctx.push_def(param.name, def);
+                        Ok(())
+                    })?;
             }
 
             input.body.as_ref().iter().try_for_each(|body| {

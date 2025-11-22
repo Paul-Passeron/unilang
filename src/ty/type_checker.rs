@@ -619,8 +619,14 @@ impl TypeChecker {
             TirExpr::PtrAccess(expr, FieldAccessKind::Symbol(field_name)) => {
                 let t = Self::get_type_of_tir_expr(tir, ctx, expr).unwrap();
                 let mut ty = t.as_concrete(ctx);
+
                 if let ConcreteType::Ptr(x) = ty {
                     ty = x.as_concrete(ctx);
+                } else {
+                    return Err(TcError::Text(format!(
+                        "Expected ptr type for PtrAccess but got {}",
+                        t.to_string(ctx),
+                    )));
                 }
                 if let ConcreteType::SpecializedClass(sc_id) = ty {
                     let sc = ctx.ctx.interner.get_sc(*sc_id);
@@ -634,7 +640,8 @@ impl TypeChecker {
                     tir.create_type(ctx, ConcreteType::Ptr(field.ty))
                 } else {
                     return Err(TcError::Text(format!(
-                        "No named field in non-class type (get_type_of_tir_expr)",
+                        "No named field in non-class type `{}` (get_type_of_tir_expr)",
+                        t.as_ptr(ctx).unwrap().to_string(ctx)
                     )));
                 }
             }

@@ -97,6 +97,23 @@ impl ExprTranslator {
             NirExprKind::Subscript { value, index } => {
                 Self::subscript(tir, ctx, value, index, defer)
             }
+            NirExprKind::As { ty, expr } => {
+                let te = ctx.visit_type(&ty)?;
+                let ty_id = tir.visit_type(ctx, te)?;
+                if let Ok(as_dir) = Self::as_dir_ptr(tir, ctx, ty_id, expr, defer) {
+                    Ok(as_dir)
+                } else {
+                    let as_dir = Self::as_dir(tir, ctx, ty_id, expr, defer)?;
+                    let alloca = tir.create_expr(ctx, TirExpr::Alloca(ty_id), defer);
+                    ctx.push_instr(TirInstr::Assign(alloca, as_dir), defer);
+                    Ok(alloca)
+                }
+            }
+            NirExprKind::New { ty, expr } => {
+                let te = ctx.visit_type(&ty)?;
+                let ty_id = tir.visit_type(ctx, te)?;
+                Self::new_dir(tir, ctx, ty_id, expr, defer)
+            }
             _ => Err(TcError::Text(format!(
                 "The expression {:?} cannot be used as a lvalue",
                 nir_expr
@@ -734,7 +751,7 @@ impl ExprTranslator {
         Ok(tir.create_expr(ctx, TirExpr::Deref(ptr), defer))
     }
 
-    fn as_dir(
+    fn as_dir_ptr(
         tir: &mut TirCtx,
         ctx: &mut TyCtx,
         ty: TyId,
@@ -746,10 +763,28 @@ impl ExprTranslator {
             let ptr = tir.create_expr(ctx, TirExpr::Alloca(ty), defer);
             let unwrapped = Self::unwrap_expr(tir, ctx, expr, defer)?;
             Self::construct_object_at_ptr(tir, ctx, sc_id, unwrapped, ptr, defer)?;
-            Ok(tir.create_expr(ctx, TirExpr::Deref(ptr), defer))
+            Ok(ptr)
+        } else {
+            Err(TcError::Text(format!(
+                "Cannot coerce to pointer type {}",
+                ty.to_string(ctx)
+            )))
+        }
+    }
+
+    fn as_dir(
+        tir: &mut TirCtx,
+        ctx: &mut TyCtx,
+        ty: TyId,
+        expr: ExprId,
+        defer: bool,
+    ) -> Result<TirExprId, TcError> {
+        if ty.as_sc(ctx).is_some() {
+            let ptr = Self::as_dir_ptr(tir, ctx, ty, expr, defer)?;
+            Ok(Self::deref_tir(tir, ctx, ptr, defer))
         } else {
             let tir_expr = Self::expr(tir, ctx, expr, defer)?;
-            Ok(Self::coerce_expr(tir, ctx, tir_expr, ty, defer)?)
+            Self::coerce_expr(tir, ctx, tir_expr, ty, defer)
         }
     }
 
