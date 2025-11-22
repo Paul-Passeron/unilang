@@ -92,10 +92,8 @@ impl A<B> => {
 }
 
 let main(): int => {
-    let ai => @as A<int> 45;
-    let ab => @as A<B> (@as B ());
-    let i => ai::from_int(24);
-    let j => ab::from_B(24);
+    let i => (@as A<int> 45)::from_int(24);
+    let j => (@as A<B> (@as B ()))::from_B(24);
 
     printf("i = %d\n", i);
     printf("j = %d\n", j);
