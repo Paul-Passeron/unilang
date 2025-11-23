@@ -1,0 +1,24 @@
+@include std::io
+
+interface Test T: Test => {
+    b(): void;
+}
+
+class <T> A => {
+    public method(): void => {
+        printf("Hello from method\n");
+    }
+}
+
+impl Test for A<int> => {
+    public b(): void => {
+        printf("Hello from b\n");
+    }
+}
+
+let main(): int => {
+    let a: A<int>;
+    a::method();
+    a::b();
+    return 0;
+}
