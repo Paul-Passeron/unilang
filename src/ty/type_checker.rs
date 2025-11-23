@@ -332,11 +332,6 @@ impl TypeChecker {
         } else {
             visited.insert(ty, HashSet::from_iter(once(inter)));
         }
-        println!(
-            "Checking if `{}` implements trait `{}`",
-            ty.to_string(ctx),
-            tr.name.to_string(ctx)
-        );
         assert!(tr.types.is_empty());
 
         for constr in tr.for_ty.constraints {
@@ -346,8 +341,15 @@ impl TypeChecker {
             };
             Self::type_impl_trait_aux(tir, ctx, id, ty, visited)?;
         }
-
-        todo!()
+        if tir.ty_implements[&ty].contains(&inter) {
+            Ok(())
+        } else {
+            Err(TcError::Text(format!(
+                "Type `{}` does not implement trait `{}`",
+                ty.to_string(ctx),
+                tr.name.to_string(ctx)
+            )))
+        }
     }
 
     pub fn get_called_fun(

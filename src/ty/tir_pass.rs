@@ -51,6 +51,7 @@ impl TirCtx {
             sc_scopes: HashMap::new(),
             impl_methods: HashMap::new(),
             impl_checked: HashSet::new(),
+            ty_implements: HashMap::new(),
         };
         PrimitiveTy::iter().for_each(|ty| {
             let x = res
@@ -956,25 +957,39 @@ impl<'ctx> TirCtx {
         if !self.methods.contains_key(&res) {
             self.methods.insert(res, HashMap::new());
         }
+        if !self.ty_implements.contains_key(&res) {
+            self.ty_implements.insert(res, HashSet::new());
+        }
+
         if check_impls && matches!(ty, ConcreteType::SpecializedClass(_)) {
             if self.impl_checked.insert(res) {
                 self.impl_methods.insert(res, Vec::new());
                 for id in self.impls.clone() {
                     let impl_block = id.get_block(ctx).clone();
-                    match impl_block.kind {
+                    let impl_trait = match impl_block.kind {
                         ImplKind::WithTrait { impl_trait, .. } => {
                             let trait_id = match impl_trait.get_def(ctx) {
                                 Definition::Trait(id) => *id,
                                 _ => unreachable!(),
                             };
-                            TypeChecker::type_impl_trait(self, ctx, trait_id, res)?;
+                            Some(trait_id)
                         }
-                        ImplKind::NoTrait => (),
+                        ImplKind::NoTrait => None,
+                    };
+                    if let Some(id) = impl_trait
+                        && self.ty_implements[&res].contains(&id)
+                    {
+                        continue;
                     }
                     if let Some(bindings) =
                         res.matches_expr(self, ctx, impl_block.for_ty, impl_block.templates)
                     {
                         self.apply_impl_to_type(ctx, res, bindings, id)?;
+
+                        // Todo: check if contract is fulfilled (the trait is actually implemented)
+                        if let Some(tra) = impl_trait {
+                            self.ty_implements.get_mut(&res).unwrap().insert(tra);
+                        }
                     }
                 }
             }
