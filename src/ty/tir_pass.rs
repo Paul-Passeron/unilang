@@ -21,7 +21,7 @@ use crate::{
         PrimitiveTy, TcError, TcFunProto, TcParam, TyCtx,
         displays::Displayable,
         expr_translator::ExprTranslator,
-        scope::{Class, ClassMember, Definition, Method, ScopeKind, TypeExpr, VarDecl},
+        scope::{Class, ClassMember, Definition, ImplKind, Method, ScopeKind, TypeExpr, VarDecl},
         surface_resolution::SurfaceResolutionPassOutput,
         tir::{ConcreteType, SCField, Signature, SpecializedClass, TirCtx, TirExpr, TirInstr},
         type_checker::TypeChecker,
@@ -203,6 +203,17 @@ impl<'ctx> TirCtx {
 
         assert!(templates.len() == args.len());
 
+        for (temp, arg) in templates.iter().zip(args) {
+            let ty = self.visit_type(ctx, *arg)?;
+            for constraint in &temp.constraints {
+                let trait_id = match constraint.get_def(ctx) {
+                    Definition::Trait(id) => *id,
+                    _ => unreachable!(),
+                };
+                TypeChecker::type_impl_trait(self, ctx, trait_id, ty)?;
+            }
+        }
+
         let c = SpecializedClass {
             original: template,
             name,
@@ -305,22 +316,6 @@ impl<'ctx> TirCtx {
                 }
             }
 
-            // let l = self.impl_methods[&ty].len();
-            // let impl_methods = self
-            //     .impl_methods
-            //     .get_mut(&ty)
-            //     .unwrap()
-            //     .drain(0..l)
-            //     .collect::<Vec<_>>();
-
-            // for (bindings, method_id) in impl_methods {
-            //     let ast = match ctx.ctx.interner.get_item(method_id) {
-            //         NirItem::Method(ast) => ast.clone(),
-            //         _ => unreachable!(),
-            //     };
-
-            //     self.visit_method(ctx, &ast, method_id, Some(bindings))?;
-            // }
             Ok(ty)
         })?;
 
@@ -966,6 +961,16 @@ impl<'ctx> TirCtx {
                 self.impl_methods.insert(res, Vec::new());
                 for id in self.impls.clone() {
                     let impl_block = id.get_block(ctx).clone();
+                    match impl_block.kind {
+                        ImplKind::WithTrait { impl_trait, .. } => {
+                            let trait_id = match impl_trait.get_def(ctx) {
+                                Definition::Trait(id) => *id,
+                                _ => unreachable!(),
+                            };
+                            TypeChecker::type_impl_trait(self, ctx, trait_id, res)?;
+                        }
+                        ImplKind::NoTrait => (),
+                    }
                     if let Some(bindings) =
                         res.matches_expr(self, ctx, impl_block.for_ty, impl_block.templates)
                     {

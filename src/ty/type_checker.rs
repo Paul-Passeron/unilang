@@ -1,5 +1,10 @@
+use std::{
+    collections::{HashMap, HashSet},
+    iter::once,
+};
+
 use crate::{
-    common::global_interner::{DefId, ExprId, FunId, ModuleId, Symbol, TirExprId, TyId},
+    common::global_interner::{DefId, ExprId, FunId, ModuleId, Symbol, TirExprId, TraitId, TyId},
     nir::nir::{
         FieldAccess, FieldAccessKind, NirBinOp, NirBinOpKind, NirCall, NirCalled, NirExprKind,
         NirLiteral, NirUnOpKind,
@@ -295,6 +300,54 @@ impl TypeChecker {
                     .map(|id| (id, None))
             }
         }
+    }
+
+    pub fn type_impl_trait(
+        tir: &mut TirCtx,
+        ctx: &mut TyCtx,
+        inter: TraitId,
+        ty: TyId,
+    ) -> Result<(), TcError> {
+        Self::type_impl_trait_aux(tir, ctx, inter, ty, &mut HashMap::new())
+    }
+
+    pub fn type_impl_trait_aux(
+        tir: &mut TirCtx,
+        ctx: &mut TyCtx,
+        inter: TraitId,
+        ty: TyId,
+        visited: &mut HashMap<TyId, HashSet<TraitId>>,
+    ) -> Result<(), TcError> {
+        let tr = ctx.ctx.interner.get_tr(inter).clone();
+        if visited.contains_key(&ty) {
+            if !visited.get_mut(&ty).unwrap().insert(inter) {
+                return Err(TcError::Text(format!(
+                    "Cyclic interface dependency found (`{}` impl `{}` needs to check that `{}` impl `{}`.",
+                    ty.to_string(ctx),
+                    tr.name.to_string(ctx),
+                    ty.to_string(ctx),
+                    tr.name.to_string(ctx)
+                )));
+            }
+        } else {
+            visited.insert(ty, HashSet::from_iter(once(inter)));
+        }
+        println!(
+            "Checking if `{}` implements trait `{}`",
+            ty.to_string(ctx),
+            tr.name.to_string(ctx)
+        );
+        assert!(tr.types.is_empty());
+
+        for constr in tr.for_ty.constraints {
+            let id = match constr.get_def(ctx) {
+                Definition::Trait(id) => *id,
+                _ => unreachable!(),
+            };
+            Self::type_impl_trait_aux(tir, ctx, id, ty, visited)?;
+        }
+
+        todo!()
     }
 
     pub fn get_called_fun(
