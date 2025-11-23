@@ -1,13 +1,13 @@
 use crate::{
     common::global_interner::{ExprId, FunId, SCId, Symbol, TirExprId, TyId, VariableId},
     nir::nir::{
-        FieldAccess, FieldAccessKind, NirBinOp, NirBinOpKind, NirCall, NirExprKind, NirLiteral,
-        NirType, NirUnOpKind, StrLit,
+        FieldAccess, FieldAccessKind, NirBinOp, NirBinOpKind, NirCall, NirExprKind, NirItem,
+        NirLiteral, NirType, NirUnOpKind, StrLit,
     },
     ty::{
         TcError, TyCtx,
         displays::Displayable,
-        scope::Definition,
+        scope::{Definition, ScopeKind, TypeExpr},
         tir::{ConcreteType, TirCtx, TirInstr, TypedIntLit},
         type_checker::TypeChecker,
     },
@@ -450,6 +450,58 @@ impl ExprTranslator {
         }
     }
 
+    pub fn update_implementations(
+        tir: &mut TirCtx,
+        ctx: &mut TyCtx,
+        ty: TyId,
+    ) -> Result<(), TcError> {
+        let old_scope = ctx.current_scope;
+
+        let ty_expr = ctx.ctx.interner.insert_type_expr(TypeExpr::Concrete(ty));
+        tir.visit_type(ctx, ty_expr)?;
+        let l = tir.impl_methods[&ty].len();
+        let mut pushed = false;
+        if l > 0 {
+            let old_defer_stack = ctx.defer_stack.clone();
+
+            let id = if let Some(sc_id) = ty.as_sc(ctx) {
+                tir.class_stack.push(sc_id);
+                pushed = true;
+                ctx.with_scope(ScopeKind::Spec(sc_id), |ctx| ctx.current_scope)
+            } else {
+                todo!()
+            };
+
+            ctx.current_scope = id;
+            ctx.defer_stack.clear();
+
+            ctx.with_scope_id(id, |ctx| {
+                let impl_methods = tir
+                    .impl_methods
+                    .get_mut(&ty)
+                    .unwrap()
+                    .drain(0..l)
+                    .collect::<Vec<_>>();
+                for (bindings, method_id) in impl_methods {
+                    let ast = match ctx.ctx.interner.get_item(method_id) {
+                        NirItem::Method(ast) => ast.clone(),
+                        _ => unreachable!(),
+                    };
+
+                    tir.visit_method(ctx, &ast, method_id, Some(bindings))?;
+                }
+                Ok(())
+            })?;
+            ctx.current_scope = old_scope;
+            ctx.defer_stack = old_defer_stack;
+        }
+        if pushed {
+            tir.class_stack.pop();
+        }
+
+        Ok(())
+    }
+
     fn call(
         tir: &mut TirCtx,
         ctx: &mut TyCtx,
@@ -457,8 +509,10 @@ impl ExprTranslator {
         defer: bool,
     ) -> Result<TirExprId, TcError> {
         let (fun_id, self_ty) = TypeChecker::get_called_fun(tir, ctx, &call.called)?;
-        let self_expr = if let Some(_) = self_ty {
+        let self_expr = if let Some(self_ty) = self_ty {
+            Self::update_implementations(tir, ctx, self_ty)?;
             let receiver = call.called.receiver.as_ref().unwrap().clone();
+
             let self_expr = if TypeChecker::get_type_of_expr(tir, ctx, receiver)?
                 .as_ptr(ctx)
                 .is_some()

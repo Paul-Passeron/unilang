@@ -31,6 +31,7 @@ use crate::{
 #[derive(Debug)]
 pub enum TypeReceiver {
     Module(ModuleId),
+    Type(TyId),
     Object(TyId),
 }
 
@@ -305,22 +306,22 @@ impl<'ctx> TirCtx {
                 }
             }
 
-            let l = self.impl_methods[&ty].len();
-            let impl_methods = self
-                .impl_methods
-                .get_mut(&ty)
-                .unwrap()
-                .drain(0..l)
-                .collect::<Vec<_>>();
+            // let l = self.impl_methods[&ty].len();
+            // let impl_methods = self
+            //     .impl_methods
+            //     .get_mut(&ty)
+            //     .unwrap()
+            //     .drain(0..l)
+            //     .collect::<Vec<_>>();
 
-            for (bindings, method_id) in impl_methods {
-                let ast = match ctx.ctx.interner.get_item(method_id) {
-                    NirItem::Method(ast) => ast.clone(),
-                    _ => unreachable!(),
-                };
+            // for (bindings, method_id) in impl_methods {
+            //     let ast = match ctx.ctx.interner.get_item(method_id) {
+            //         NirItem::Method(ast) => ast.clone(),
+            //         _ => unreachable!(),
+            //     };
 
-                self.visit_method(ctx, &ast, method_id, Some(bindings))?;
-            }
+            //     self.visit_method(ctx, &ast, method_id, Some(bindings))?;
+            // }
             Ok(ty)
         })?;
 
@@ -328,6 +329,8 @@ impl<'ctx> TirCtx {
 
         ctx.defer_stack = old_defer_stack;
         ctx.current_scope = old_current;
+
+        ExprTranslator::update_implementations(self, ctx, ty)?;
 
         Ok(ty)
     }

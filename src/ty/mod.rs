@@ -116,7 +116,7 @@ impl<'ctx> TyCtx<'ctx> {
                 | ScopeKind::WhileLoop(_, tir_instrs)
                 | ScopeKind::WhileCond(tir_instrs)
                 | ScopeKind::Function(_, _, tir_instrs) => tir_instrs.push(instr),
-                _ => unreachable!(),
+                _ => unreachable!("{:?}", scope.kind),
             }
         }
     }
