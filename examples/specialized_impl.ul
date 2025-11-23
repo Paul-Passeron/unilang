@@ -41,9 +41,6 @@ let main(): int => {
     let i => (@as A<int>(45))::from_int(24);
     let j => (@as A<B>(@as B()))::from_B(24);
     let k => (@as C<A<B>>())::call_from_B(@as A<B>(@as B()));
-    // TODO: enforce interface constraints so that the next line fails at compile
-    // time not because "No method named `from_B` for type `A<i32>`" but because
-    // "type `A<i32>` does not implement FromB interface needed to specialize `C<A<i32>>`"
     // let l => (@as C<A<int>>())::call_from_B(@as A<int>(5));
     printf("i = %d\n", i);
     printf("j = %d\n", j);
