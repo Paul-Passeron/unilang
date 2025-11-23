@@ -2,7 +2,10 @@ use std::fmt;
 
 use crate::{
     common::global_interner::{SCId, Symbol, TyId},
-    ty::{PrimitiveTy, TyCtx, tir::ConcreteType},
+    ty::{
+        PrimitiveTy, TyCtx,
+        tir::{ConcreteType, Signature},
+    },
 };
 
 pub trait Displayable {
@@ -91,5 +94,16 @@ impl Displayable for TyId {
                 format!("({})", ids.iter().to_string(ctx))
             }
         }
+    }
+}
+
+impl Displayable for Signature {
+    fn to_string(&self, ctx: &TyCtx) -> String {
+        format!(
+            "{}({}) -> {}",
+            self.name.to_string(ctx),
+            self.params.iter().map(|x| &x.ty).to_string(ctx),
+            self.return_ty.to_string(ctx)
+        )
     }
 }
