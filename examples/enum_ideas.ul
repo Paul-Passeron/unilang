@@ -1,0 +1,22 @@
+interface Droppable T => {
+    drop(): void;
+}
+
+interface NoDrop => {}
+
+enum <T> Option => {
+    Some: T;
+    None;
+}
+
+impl Droppable for <T: Droppable> Option<T> => {
+    public drop(): void => {
+        // pattern matching ?
+        match self => {
+            | Some(x) => x::drop();
+            | None => {}
+        }
+    }
+}
+
+impl NoDrop for <T: NoDrop> Option<T> => {}
