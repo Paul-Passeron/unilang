@@ -472,6 +472,7 @@ impl ExprTranslator {
         } else {
             None
         };
+
         let args = Self::create_call_args(tir, ctx, call, fun_id, self_expr, defer)?;
 
         Ok(tir.create_expr(ctx, TirExpr::Funcall(fun_id, args), defer))
@@ -824,7 +825,7 @@ impl ExprTranslator {
             let mut tys = vec![];
 
             for i in 0..call_args_len {
-                tys.push(sig.params.get(i).map(|x| x.ty))
+                tys.push(sig.params.get(i + padding).map(|x| x.ty))
             }
 
             self_expr
