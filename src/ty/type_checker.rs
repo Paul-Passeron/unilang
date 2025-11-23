@@ -294,7 +294,6 @@ impl TypeChecker {
                     )))
                     .map(|id| (id, None))
             }
-            TypeReceiver::Type(one_shot_id) => todo!(),
         }
     }
 

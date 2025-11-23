@@ -31,7 +31,6 @@ use crate::{
 #[derive(Debug)]
 pub enum TypeReceiver {
     Module(ModuleId),
-    Type(TyId),
     Object(TyId),
 }
 
