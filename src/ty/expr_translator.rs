@@ -7,7 +7,7 @@ use crate::{
     ty::{
         TcError, TyCtx,
         displays::Displayable,
-        scope::{Definition, ScopeKind, TypeExpr},
+        scope::{Definition, ScopeKind},
         tir::{ConcreteType, TirCtx, TirInstr, TypedIntLit},
         type_checker::TypeChecker,
     },
@@ -457,8 +457,7 @@ impl ExprTranslator {
     ) -> Result<(), TcError> {
         let old_scope = ctx.current_scope;
 
-        let ty_expr = ctx.ctx.interner.insert_type_expr(TypeExpr::Concrete(ty));
-        tir.visit_type(ctx, ty_expr)?;
+        tir.create_type_pro(ctx, ty.as_concrete(ctx).clone(), true)?;
         let l = tir.impl_methods[&ty].len();
         let mut pushed = false;
         if l > 0 {

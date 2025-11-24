@@ -59,7 +59,6 @@ pub struct TyCtx<'ctx> {
 
 #[derive(Clone, Debug)]
 pub enum TcError {
-    NameNotFound(Symbol),
     Aggregate(Vec<TcError>),
     BadReturnType(TyId, TyId),
     Text(String),

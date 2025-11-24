@@ -55,11 +55,8 @@ impl TirCtx {
             check_impls: false,
         };
         PrimitiveTy::iter().for_each(|ty| {
-            let x = res
-                .create_type_pro(ctx, ConcreteType::Primitive(ty), false)
-                .unwrap();
-            res.create_type_pro(ctx, ConcreteType::Ptr(x), false)
-                .unwrap();
+            let x = res.create_type(ctx, ConcreteType::Primitive(ty)).unwrap();
+            res.create_type(ctx, ConcreteType::Ptr(x)).unwrap();
         });
 
         res
@@ -523,12 +520,18 @@ impl<'ctx> TirCtx {
     ) -> Result<FunId, TcError> {
         let function = ctx.get_symbol_def(s);
         if function.is_none() {
-            return Err(TcError::NameNotFound(s));
+            return Err(TcError::Text(format!(
+                "Could not find symbol {} in current scope.",
+                s.to_string(ctx),
+            )));
         }
         let def = ctx.ctx.interner.get_def(function.unwrap());
         match def {
             Definition::Function(id) => Ok(*id),
-            _ => Err(TcError::NameNotFound(s)),
+            _ => Err(TcError::Text(format!(
+                "Could not find symbol {} in current scope.",
+                s.to_string(ctx),
+            ))),
         }
     }
 

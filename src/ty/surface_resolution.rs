@@ -18,6 +18,7 @@ use crate::{
     },
     ty::{
         TcError, TcFunProto, TcParam,
+        displays::Displayable,
         scope::{
             Class, ClassMember, Definition, ImplBlock, ImplKind, Method, MethodKind, Module,
             ScopeKind, TemplateArgument, Trait, TypeExpr, Unresolved, UnresolvedKind,
@@ -132,7 +133,10 @@ impl<'ctx> SurfaceResolution {
             for (_, id) in ctx.backpatching.clone() {
                 let symb = self.print_unresolved(ctx, id);
                 let s = ctx.ctx.interner.insert_symbol(&symb);
-                errors.push(TcError::NameNotFound(s))
+                errors.push(TcError::Text(format!(
+                    "Could not find symbol {} in current scope.",
+                    s.to_string(ctx),
+                )))
             }
             return Err(TcError::Aggregate(errors));
         }

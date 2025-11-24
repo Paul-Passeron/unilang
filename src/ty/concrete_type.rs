@@ -111,12 +111,24 @@ impl TyId {
             return true;
         }
 
+        if self.as_ptr(ctx).is_some() && target.is_integer(ctx) {
+            return true;
+        }
+
+        if self.is_integer(ctx) && target.as_ptr(ctx).is_some() {
+            return true;
+        }
+
         if let Some(sc_id) = target.as_sc(ctx) {
             let args = &self.unfold(ctx)[..];
             return sc_id.get_matching_constructor(tir_ctx, ctx, args).is_some();
         }
 
-        todo!()
+        todo!(
+            "Trying to coerce {} to {}",
+            self.to_string(ctx),
+            target.to_string(ctx)
+        )
     }
 
     // returns None, if no match and Some(vec of bindings) for the templates if yes
