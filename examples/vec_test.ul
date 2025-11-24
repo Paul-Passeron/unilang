@@ -11,25 +11,25 @@
 // }
 
 
-// class Object => {
-//     public inner: Vec<int>;
+class Object => {
+    public inner: Vec<int>;
 
-//     public Object() => {
-//         self::inner => @as Vec<int>();
-//     }
+    public Object() => {
+        self::inner => @as Vec<int>();
+    }
 
-//     public set(n: i32): void => {
-//         let i => 0;
-//         while i < n => {
-//             self::inner::append(i);
-//             i => i + 1;
-//         }
-//     }
+    public set(n: i32): void => {
+        let i => 0;
+        while i < n => {
+            self::inner::append(i);
+            i => i + 1;
+        }
+    }
 
-//     public get(): int => {
-//         return self::inner::len;
-//     }
-// }
+    public get(): int => {
+        return self::inner::len;
+    }
+}
 
 impl NoDrop for int => {}
 
