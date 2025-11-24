@@ -442,8 +442,28 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                                     .as_any_value_enum()
                             }
                         }
+                        NirBinOpKind::Equ => self
+                            .builder
+                            .build_int_compare::<PointerValue>(
+                                IntPredicate::EQ,
+                                lhs_val.into_pointer_value(),
+                                rhs_val.into_pointer_value(),
+                                "",
+                            )
+                            .unwrap()
+                            .as_any_value_enum(),
+                        NirBinOpKind::Dif => self
+                            .builder
+                            .build_int_compare::<PointerValue>(
+                                IntPredicate::NE,
+                                lhs_val.into_pointer_value(),
+                                rhs_val.into_pointer_value(),
+                                "",
+                            )
+                            .unwrap()
+                            .as_any_value_enum(),
                         NirBinOpKind::Sub => todo!(),
-                        _ => unreachable!(),
+                        _ => unreachable!("{:?}", op),
                     }
                 } else if lhs_val.get_type().is_pointer_type() {
                     match op {
