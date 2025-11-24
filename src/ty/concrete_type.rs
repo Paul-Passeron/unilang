@@ -1,9 +1,13 @@
+use std::collections::{HashMap, HashSet};
+
 use crate::{
     common::global_interner::{SCId, Symbol, TyId, TypeExprId},
     ty::{
-        PrimitiveTy, TyCtx,
-        scope::TemplateArgument,
+        PrimitiveTy, TcError, TyCtx,
+        displays::Displayable,
+        scope::{Definition, TemplateArgument, TypeExpr},
         tir::{ConcreteType, TirCtx},
+        type_checker::TypeChecker,
     },
 };
 
@@ -128,6 +132,118 @@ impl TyId {
                 .visit_type(ctx, expr)
                 .map_or(None, |x| (x == *self).then_some(vec![]));
         }
-        todo!()
+
+        let mut m = HashMap::new();
+        let mut temp_m = HashSet::new();
+
+        for t in &templates {
+            temp_m.insert(t.name);
+        }
+
+        if !self.matches_expr_aux(tir, ctx, expr, &templates, &temp_m, &mut m) {
+            return None;
+        }
+
+        for (temp, id) in &m {
+            let constraints = &templates
+                .iter()
+                .find(|x| x.name == *temp)
+                .unwrap()
+                .constraints;
+            for c in constraints {
+                let tr = match c.get_def(ctx) {
+                    Definition::Trait(tr) => *tr,
+                    _ => unreachable!(),
+                };
+                TypeChecker::type_impl_trait(tir, ctx, tr, *id).ok()?;
+            }
+        }
+
+        let res = templates
+            .iter()
+            .map(|x| {
+                m.get(&x.name)
+                    .ok_or(TcError::Text(format!(
+                        "Could not find match for template argument {}.",
+                        x.name.to_string(ctx)
+                    )))
+                    .map(|x| *x)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .ok();
+
+        res
+    }
+
+    pub fn matches_expr_aux(
+        &self,
+        tir: &mut TirCtx,
+        ctx: &mut TyCtx,
+        expr: TypeExprId,
+        templates: &Vec<TemplateArgument>,
+        temp_map: &HashSet<Symbol>,
+        map: &mut HashMap<Symbol, TyId>,
+    ) -> bool {
+        assert!(templates.len() > 0);
+
+        match ctx.ctx.interner.get_type_expr(expr) {
+            TypeExpr::Template(name) => {
+                if !temp_map.contains(name) {
+                    unreachable!("{} is not in {:?}", name.to_string(ctx), temp_map)
+                }
+                if let Some(other_ty) = map.get(name) {
+                    other_ty == self
+                } else {
+                    map.insert(*name, *self);
+                    true
+                }
+            }
+            TypeExpr::Associated(_) => unreachable!(),
+            TypeExpr::Instantiation {
+                template: (template, t_expr),
+                args,
+            } if args.len() == 0 => match template.get_def(ctx) {
+                Definition::Type(_) => todo!(),
+                _ => unreachable!(),
+            },
+            TypeExpr::Instantiation {
+                template: (def, _),
+                args,
+            } => {
+                if let Some(sc_id) = self.as_sc(ctx) {
+                    if sc_id.as_spec_class(ctx).original != *def {
+                        return false;
+                    }
+                    let templates_for_ty = sc_id.as_spec_class(ctx).templates.clone();
+                    args.clone()
+                        .iter()
+                        .zip(templates_for_ty)
+                        .all(|(a, t)| t.matches_expr_aux(tir, ctx, *a, templates, temp_map, map))
+                } else {
+                    false
+                }
+            }
+            TypeExpr::Ptr(inner) => {
+                if let Some(other_inner) = self.as_ptr(ctx) {
+                    other_inner.matches_expr_aux(tir, ctx, *inner, templates, temp_map, map)
+                } else {
+                    false
+                }
+            }
+            TypeExpr::Tuple(ids) => {
+                if let Some(other_ids) = self.as_tuple(ctx)
+                    && ids.len() == other_ids.len()
+                {
+                    ids.clone()
+                        .iter()
+                        .zip(other_ids)
+                        .all(|(i, o)| o.matches_expr_aux(tir, ctx, *i, templates, temp_map, map))
+                } else {
+                    false
+                }
+            }
+            TypeExpr::Primitive(ty) => tir.get_primitive_type(ctx, *ty) == *self,
+            TypeExpr::Concrete(id) => id == self,
+        }
     }
 }

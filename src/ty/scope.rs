@@ -8,7 +8,7 @@ use crate::{
         },
         source_location::Span,
     },
-    nir::interner::Interner,
+    nir::{interner::Interner, nir::NirPath},
     ty::{
         PrimitiveTy, TcFunProto, TcParam, TyCtx,
         displays::Displayable,
@@ -27,7 +27,7 @@ pub enum TypeExpr {
     Template(Symbol),
     Associated(usize),
     Instantiation {
-        template: DefId,
+        template: (DefId, NirPath),
         args: Vec<TypeExprId>,
     },
     Ptr(TypeExprId),

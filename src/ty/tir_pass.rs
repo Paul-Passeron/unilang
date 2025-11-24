@@ -342,7 +342,10 @@ impl<'ctx> TirCtx {
                 }
             }
             TypeExpr::Associated(_) => todo!(),
-            TypeExpr::Instantiation { template, args } => self.instantiate(ctx, *template, args),
+            TypeExpr::Instantiation {
+                template: (template, _),
+                args,
+            } => self.instantiate(ctx, *template, args),
             TypeExpr::Ptr(id) => {
                 let ty = ConcreteType::Ptr(self.visit_type(ctx, *id)?);
                 self.create_type(ctx, ty)
@@ -821,19 +824,35 @@ impl<'ctx> TirCtx {
             )));
         }
 
-        let sc_id = ty
-            .as_sc(ctx)
-            .expect("Todo: impl blocks for non sc types are not supported yet");
-
-        let scope_id = self.sc_scopes[&sc_id];
-
         let named_bindings = bindings
             .iter()
             .zip(impl_block.templates)
             .map(|(b, t)| (t.name, *b))
             .collect();
 
-        ctx.with_scope_id(scope_id, |ctx| {
+        if let Some(sc_id) = ty.as_sc(ctx) {
+            let scope_id = self.sc_scopes[&sc_id];
+
+            ctx.with_scope_id(scope_id, |ctx| {
+                for Method {
+                    id: method_id,
+                    name,
+                    ..
+                } in &impl_block.methods
+                {
+                    let fun_id =
+                        self.concretize_method_for_impl(ctx, ty, &named_bindings, *method_id)?;
+
+                    ctx.ctx.interner.get_sc_mut(sc_id).methods.push(fun_id);
+                    self.methods.get_mut(&ty).unwrap().insert(*name, fun_id);
+                    self.impl_methods
+                        .get_mut(&ty)
+                        .unwrap()
+                        .push((named_bindings.clone(), *method_id));
+                }
+                Ok::<_, TcError>(())
+            })?;
+        } else {
             for Method {
                 id: method_id,
                 name,
@@ -842,17 +861,9 @@ impl<'ctx> TirCtx {
             {
                 let fun_id =
                     self.concretize_method_for_impl(ctx, ty, &named_bindings, *method_id)?;
-
-                ctx.ctx.interner.get_sc_mut(sc_id).methods.push(fun_id);
                 self.methods.get_mut(&ty).unwrap().insert(*name, fun_id);
-                self.impl_methods
-                    .get_mut(&ty)
-                    .unwrap()
-                    .push((named_bindings.clone(), *method_id));
             }
-            Ok::<_, TcError>(())
-        })?;
-
+        }
         Ok(())
     }
 
@@ -961,7 +972,7 @@ impl<'ctx> TirCtx {
             self.ty_implements.insert(res, HashSet::new());
         }
 
-        if check_impls && matches!(ty, ConcreteType::SpecializedClass(_)) {
+        if check_impls {
             if self.impl_checked.insert(res) {
                 self.impl_methods.insert(res, Vec::new());
                 for id in self.impls.clone() {
@@ -976,14 +987,20 @@ impl<'ctx> TirCtx {
                         }
                         ImplKind::NoTrait => None,
                     };
+
                     if let Some(id) = impl_trait
                         && self.ty_implements[&res].contains(&id)
                     {
                         continue;
                     }
-                    if let Some(bindings) =
-                        res.matches_expr(self, ctx, impl_block.for_ty, impl_block.templates)
-                    {
+                    let bindings = res.matches_expr(
+                        self,
+                        ctx,
+                        impl_block.for_ty,
+                        impl_block.templates.clone(),
+                    );
+
+                    if let Some(bindings) = bindings {
                         self.apply_impl_to_type(ctx, res, bindings, id)?;
 
                         // Todo: check if contract is fulfilled (the trait is actually implemented)
