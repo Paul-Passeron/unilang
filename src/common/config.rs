@@ -19,6 +19,9 @@ pub struct Config {
     /// Path to the standard library
     #[arg(short, long, value_name = "DIR", default_value_os_t = get_default_std())]
     pub std: PathBuf,
+
+    #[arg(short, long, default_value = None)]
+    pub llvm: bool,
 }
 
 fn get_default_std() -> PathBuf {
