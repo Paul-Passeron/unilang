@@ -114,10 +114,13 @@ impl ExprTranslator {
                 let ty_id = tir.visit_type(ctx, te)?;
                 Self::new_dir(tir, ctx, ty_id, expr, defer)
             }
-            _ => Err(TcError::Text(format!(
-                "The expression {:?} cannot be used as a lvalue",
-                nir_expr
-            ))),
+            _ => {
+                let e = Self::expr(tir, ctx, expr, defer)?;
+                let ty = TypeChecker::get_type_of_tir_expr(tir, ctx, e)?;
+                let ptr = tir.create_expr(ctx, TirExpr::Alloca(ty), defer);
+                ctx.push_instr(TirInstr::Assign(ptr, e), defer);
+                Ok(ptr)
+            }
         }
     }
 
