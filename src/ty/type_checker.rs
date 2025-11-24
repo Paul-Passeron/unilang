@@ -12,6 +12,7 @@ use crate::{
     ty::{
         PrimitiveTy, TcError, TyCtx,
         displays::Displayable,
+        expr_translator::ExprTranslator,
         tir::{ArgsMatch, TirCtx, TypedIntLit},
         tir_pass::TypeReceiver,
     },
@@ -262,14 +263,15 @@ impl TypeChecker {
     }
 
     pub fn get_fun_id_self_ty(
-        tir: &TirCtx,
-        ctx: &TyCtx,
+        tir: &mut TirCtx,
+        ctx: &mut TyCtx,
         receiver: TypeReceiver,
         called: Symbol,
     ) -> Result<(FunId, Option<TyId>), TcError> {
         match receiver {
             TypeReceiver::Object(id) => {
                 let ty = id.as_ptr(ctx).unwrap_or(id);
+                ExprTranslator::update_implementations(tir, ctx, ty)?;
                 if !tir.methods[&ty].contains_key(&called) {
                     let err = Err(TcError::Text(format!(
                         "No method named `{}` for type `{}` (id = {})",
@@ -319,15 +321,10 @@ impl TypeChecker {
         visited: &mut HashMap<TyId, HashSet<TraitId>>,
     ) -> Result<(), TcError> {
         let tr = ctx.ctx.interner.get_tr(inter).clone();
+
         if visited.contains_key(&ty) {
             if !visited.get_mut(&ty).unwrap().insert(inter) {
-                return Err(TcError::Text(format!(
-                    "Cyclic interface dependency found (`{}` impl `{}` needs to check that `{}` impl `{}`.",
-                    ty.to_string(ctx),
-                    tr.name.to_string(ctx),
-                    ty.to_string(ctx),
-                    tr.name.to_string(ctx)
-                )));
+                return Ok(());
             }
         } else {
             visited.insert(ty, HashSet::from_iter(once(inter)));
