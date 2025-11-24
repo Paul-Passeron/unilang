@@ -78,7 +78,7 @@ impl TyId {
 
     pub fn get_size(&self, ctx: &TyCtx) -> usize {
         let t = self.as_concrete(ctx);
-        let alignement = 4;
+        let alignement = 8;
 
         match t {
             ConcreteType::SpecializedClass(sc_id) => {

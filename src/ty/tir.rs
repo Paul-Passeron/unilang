@@ -19,6 +19,7 @@ pub struct TirCtx {
     pub specs: HashMap<SpecInfo, TyId>,
     pub sc_scopes: HashMap<SCId, ScopeId>,
     pub ty_implements: HashMap<TyId, HashSet<TraitId>>,
+    pub check_impls: bool,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

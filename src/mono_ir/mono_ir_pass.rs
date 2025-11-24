@@ -49,8 +49,13 @@ impl<'ctx, 'a> Pass<'ctx, ()> for MonoIRPass<'a> {
 
     fn run(&mut self, ctx: &mut TyCtx<'ctx>, _: ()) -> Result<Self::Output, TcError> {
         self.visit_all_scopes(ctx);
-        if let Err(str) = self.module.verify() {
+        if ctx.ctx.config.llvm {
             println!("{}", self.module.print_to_string().to_string());
+        }
+        if let Err(str) = self.module.verify() {
+            if !ctx.ctx.config.llvm {
+                println!("{}", self.module.print_to_string().to_string());
+            }
             eprintln!("[LLVM ERROR]\n{}", str.to_string());
         }
         Ok(())

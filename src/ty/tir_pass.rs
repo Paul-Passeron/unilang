@@ -52,6 +52,7 @@ impl TirCtx {
             impl_methods: HashMap::new(),
             impl_checked: HashSet::new(),
             ty_implements: HashMap::new(),
+            check_impls: false,
         };
         PrimitiveTy::iter().for_each(|ty| {
             let x = res
@@ -972,6 +973,10 @@ impl<'ctx> TirCtx {
             self.ty_implements.insert(res, HashSet::new());
         }
 
+        if !self.impl_methods.contains_key(&res) {
+            self.impl_methods.insert(res, Vec::new());
+        }
+
         if check_impls {
             if self.impl_checked.insert(res) {
                 self.impl_methods.insert(res, Vec::new());
@@ -1019,7 +1024,7 @@ impl<'ctx> TirCtx {
         ctx: &mut TyCtx<'ctx>,
         ty: ConcreteType,
     ) -> Result<TyId, TcError> {
-        self.create_type_pro(ctx, ty, true)
+        self.create_type_pro(ctx, ty.clone(), self.check_impls)
     }
 
     pub fn concretize_constructor(
@@ -1377,12 +1382,15 @@ impl<'ctx> Pass<'ctx, SurfaceResolutionPassOutput<'ctx>> for TirCtx {
 
         visit_all_fundefs(self, ctx, ScopeId::new(0))?;
 
-        // PrimitiveTy::iter().for_each(|ty| {
-        //     let x = self.create_type(ctx, ConcreteType::Primitive(ty));
-        //     if let Ok(x) = x {
-        //         let _ = self.create_type(ctx, ConcreteType::Ptr(x));
-        //     };
-        // });
+        self.check_impls = true;
+
+        ctx.ctx
+            .interner
+            .conc_type
+            .clone()
+            .iter()
+            .map(|x| ExprTranslator::update_implementations(self, ctx, x))
+            .collect::<Result<(), _>>()?;
 
         for (scope, item) in input {
             self.visit_item(ctx, scope, item)?;

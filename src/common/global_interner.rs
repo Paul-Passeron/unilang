@@ -80,7 +80,7 @@ pub struct GlobalInterner {
     imp: ImplBlockInterner,
     def: DefInterner,
     unresolved: UnresolvedInterner,
-    conc_type: ConcreteTypeInterner,
+    pub conc_type: ConcreteTypeInterner,
     sc: SCInterner,
     te: TirExprInterner,
 }
