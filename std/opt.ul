@@ -79,8 +79,7 @@ impl <T impl NoDrop> Option<T> => {
 impl <T impl Droppable> Option<T> => {
     public set(x: T): void => {
         if self::is_some() => {
-            let obj => self::unwrap();
-            obj::drop();
+            self::unwrap()::drop();
         }
         self::data => malloc(@size T);
         *self::data => x;
