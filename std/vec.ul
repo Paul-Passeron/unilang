@@ -45,3 +45,24 @@ class <T> Vec => {
         return self::len;
     }
 }
+
+impl <T impl Droppable> Droppable for Vec<T> => {
+    public drop(): void => {
+        let i => 0;
+        while i < self::len => {
+            self::items[i]::drop();
+            i => i + 1;
+        }
+        free(self::items);
+        self::len => 0;
+        self::cap => 0;
+    }
+}
+
+impl <T impl NoDrop> Droppable for Vec<T> => {
+    public drop(): void => {
+        free(self::items);
+        self::len => 0;
+        self::cap => 0;
+    }
+}

@@ -1,2 +1,8 @@
+interface Droppable T => {
+    drop(): void;
+}
+
+interface NoDrop T => {}
+
 @extern malloc(size: u64): void *;
 @extern free(ptr: void *): void;
