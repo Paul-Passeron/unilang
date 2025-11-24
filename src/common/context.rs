@@ -40,11 +40,14 @@ impl GlobalContext {
     }
 
     pub fn parse_file(&mut self, file: FileId) -> Result<Program, ParseError> {
-        Parser::new(Rc::from(
-            &Lexer::new(&self.file_manager.files[&file])
-                .into_iter()
-                .collect::<Vec<_>>()[..],
-        ))
+        Parser::new(
+            Rc::from(
+                &Lexer::new(&self.file_manager.files[&file])
+                    .into_iter()
+                    .collect::<Vec<_>>()[..],
+            ),
+            &self.file_manager,
+        )
         .parse_program()
     }
 

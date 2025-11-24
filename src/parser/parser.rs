@@ -13,7 +13,7 @@ use super::ast::{
 use crate::{
     common::{
         errors::ParseError,
-        source_location::{Location, Span},
+        source_location::{FileManager, Location, Span},
     },
     lexer::{Token, TokenKind},
     parser::ast::{
@@ -23,10 +23,11 @@ use crate::{
 };
 
 #[derive(Clone, Debug)]
-pub struct Parser {
+pub struct Parser<'a> {
     pub position: usize,
     pub tokens: Rc<[Token]>,
     pub last_location: Option<Location>,
+    file_manager: &'a FileManager,
 }
 
 #[derive(Clone, Debug)]
@@ -105,12 +106,13 @@ fn get_postfix_precedence(op: &TokenKind) -> u8 {
         _ => todo!(),
     }
 }
-impl Parser {
-    pub fn new(vec: Rc<[Token]>) -> Self {
+impl<'a> Parser<'a> {
+    pub fn new(vec: Rc<[Token]>, fm: &'a FileManager) -> Self {
         Self {
             position: 0,
             tokens: vec,
             last_location: None,
+            file_manager: fm,
         }
     }
 
@@ -377,7 +379,14 @@ impl Parser {
                 let iden = self.parse_identifier_as_string()?;
                 iden
             } else {
-                panic!("{:?}", self.peek())
+                panic!(
+                    "{:?}",
+                    self.peek()
+                        .unwrap()
+                        .location
+                        .start()
+                        .to_string(self.file_manager)
+                )
             }
         });
         while self.match_tokenkind(TokenKind::Access) {
@@ -1369,7 +1378,7 @@ impl Parser {
 
     fn try_parse_any<Ret, F>(&mut self, parse_fns: Vec<F>) -> Result<Ast<Ret>, ParseError>
     where
-        F: Fn(&mut Parser) -> Result<Ast<Ret>, ParseError>,
+        F: Fn(&mut Parser<'a>) -> Result<Ast<Ret>, ParseError>,
     {
         let mut result = None;
         let mut positions: Vec<usize> = Vec::new();
