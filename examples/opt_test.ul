@@ -1,0 +1,13 @@
+@include std::opt
+
+let main(): int => {
+    let opt => @as Option<int> 7;
+    let peeked => opt::peek();
+    printf("Peeked is %d\n", peeked);
+    let in_opt => opt::unwrap();
+    printf("In opt is %d\n", in_opt);
+
+    let to_unwrap => @as Option<Option<int>>();
+    to_unwrap::unwrap();
+    return 0;
+}

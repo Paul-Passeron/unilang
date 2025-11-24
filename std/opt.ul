@@ -1,0 +1,88 @@
+@include std::alloc
+@include std::mem
+@include std::io
+@include std::sys
+
+class <T> Option => {
+    private data: T*;
+
+    public Option() => {
+        self::data => 0;
+    }
+
+    public Option(data: T) => {
+        self::data => malloc(@size T);
+        *self::data => data;
+    }
+
+    public is_some(): bool => {
+        return self::data != 0;
+    }
+
+    public is_none(): bool => {
+        return !self::is_some();
+    }
+
+    public reset(): void => {
+        if  self::is_some() => {
+            free(self::data);
+            self::data => 0;
+        }
+    }
+
+    public unwrap(): T => {
+        let res => self::peek();
+        self::reset();
+        return res;
+    }
+
+    public peek(): T => {
+        if self::is_none() => {
+            printf("Unwrapped none value in `%s`\n", @str Option<T>);
+            exit(1);
+        }
+        return *self::data;
+    }
+
+}
+
+
+impl <T impl Droppable> Droppable for Option<T> => {
+    public drop(): void => {
+        if self::is_some() => {
+            (*self::data)::drop();
+            free(self::data);
+        }
+    }
+}
+
+
+impl <T impl NoDrop> Droppable for Option<T> => {
+    public drop(): void => {
+        if self::is_some() => {
+            free(self::data);
+        }
+    }
+}
+
+
+impl <T impl NoDrop> Option<T> => {
+    public set(x: T): void => {
+        if self::is_none() => {
+            self::data => malloc(@size T);
+        }
+        *self::data => x;
+    }
+}
+
+
+impl <T impl Droppable> Option<T> => {
+    public set(x: T): void => {
+        if self::is_some() => {
+            let obj => self::unwrap();
+            obj::drop();
+        }
+        self::data => malloc(@size T);
+        *self::data => x;
+    }
+}

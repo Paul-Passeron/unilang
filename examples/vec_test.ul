@@ -1,14 +1,12 @@
 @include std::vec
-@include std::alloc
 @include std::io
-
-impl NoDrop for int => {}
+@include std::alloc
 
 class Object => {
-    public inner: Vec<int>;
+    public inner: Vec<i32>;
 
     public Object() => {
-        self::inner => @as Vec<int>();
+        self::inner => @as Vec<i32>();
     }
 
     public set(n: i32): void => {
@@ -19,7 +17,7 @@ class Object => {
         }
     }
 
-    public get(): int => {
+    public get(): i32 => {
         return self::inner::len;
     }
 }
@@ -30,17 +28,17 @@ impl Droppable for Object => {
     }
 }
 
-impl NoDrop for int => {}
+impl NoDrop for i32 => {}
 
-let main(): int => {
-    let v => @as Vec<int>();
+let main(): i32 => {
+    let v => @as Vec<i32>();
     let obj => @as Object();
     obj::set(40);
     let res => obj::get();
     printf("obj::get = %d\n", res);
     obj::drop();
 
-    let i: int => 1;
+    let i: i32 => 1;
     while i <= 54654 => {
         v::append(i);
         i => i + 1;
@@ -63,6 +61,16 @@ let main(): int => {
     printf("Last value of v2: %d\n", v2::items[v2::len - 1]::get());
 
     v2::drop();
+
+    (@as Vec<u8>())::drop();
+    (@as Vec<u16>())::drop();
+    (@as Vec<u32>())::drop();
+    (@as Vec<u64>())::drop();
+
+    (@as Vec<i8>())::drop();
+    (@as Vec<i16>())::drop();
+    (@as Vec<i32>())::drop();
+    (@as Vec<i64>())::drop();
 
     return 0;
 }

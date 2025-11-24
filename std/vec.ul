@@ -44,6 +44,13 @@ class <T> Vec => {
     public len(): u32 => {
         return self::len;
     }
+
+    public get(i: u32): Option<T> => {
+        if i < self::len => {
+            return @as Option<T> self::items[i];
+        }
+        return @as Option<T>();
+    }
 }
 
 impl <T impl Droppable> Droppable for Vec<T> => {
