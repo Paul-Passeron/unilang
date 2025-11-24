@@ -298,7 +298,7 @@ impl<'ctx> TyCtx<'ctx> {
                     .collect::<Result<_, _>>()?;
                 let from = self.resolve_path(name);
                 let te = self.ctx.interner.insert_type_expr(TypeExpr::Instantiation {
-                    template: from,
+                    template: (from, name.clone()),
                     args,
                 });
                 let def = self.ctx.interner.insert_def(Definition::Type(te));
@@ -318,14 +318,14 @@ impl<'ctx> TyCtx<'ctx> {
                 match self.ctx.interner.get_def(def) {
                     Definition::Class(_) => {
                         Ok(self.ctx.interner.insert_type_expr(TypeExpr::Instantiation {
-                            template: def,
+                            template: (def, name.clone()),
                             args: vec![],
                         }))
                     }
                     Definition::Type(x) => Ok(*x),
                     Definition::Unresolved(_) => {
                         let ty = TypeExpr::Instantiation {
-                            template: def,
+                            template: (def, name.clone()),
                             args: vec![],
                         };
                         Ok(self.ctx.interner.insert_type_expr(ty))
@@ -341,7 +341,7 @@ impl<'ctx> TyCtx<'ctx> {
                 let def = self.resolve_path(name);
 
                 Ok(self.ctx.interner.insert_type_expr(TypeExpr::Instantiation {
-                    template: def,
+                    template: (def, name.clone()),
                     args,
                 }))
             }
