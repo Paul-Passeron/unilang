@@ -1,15 +1,8 @@
 @include std::vec
+@include std::alloc
 @include std::io
 
-// // This is impossible for the moment
-// class Object => {
-//     public inner: Vec<Object>;
-
-//     public Object() => {
-//         self::inner => @as Vec<Object>();
-//     }
-// }
-
+impl NoDrop for int => {}
 
 class Object => {
     public inner: Vec<int>;
@@ -31,6 +24,12 @@ class Object => {
     }
 }
 
+impl Droppable for Object => {
+    public drop(): void => {
+        self::inner::drop();
+    }
+}
+
 impl NoDrop for int => {}
 
 let main(): int => {
@@ -39,6 +38,8 @@ let main(): int => {
     obj::set(40);
     let res => obj::get();
     printf("obj::get = %d\n", res);
+    obj::drop();
+
     let i: int => 1;
     while i <= 54654 => {
         v::append(i);
@@ -48,5 +49,20 @@ let main(): int => {
     printf("Length of v: %d\n", v::len);
     printf("Last value of v: %d\n", v::items[v::len - 1]);
     v::drop();
+
+    let v2 => @as Vec<Object>();
+    let i => 1;
+    while i < 150 => {
+        let obj => @as Object();
+        obj::set(i);
+        v2::append(obj);
+        i => i + 1;
+    }
+
+    printf("Length of v2: %d\n", v2::len);
+    printf("Last value of v2: %d\n", v2::items[v2::len - 1]::get());
+
+    v2::drop();
+
     return 0;
 }
