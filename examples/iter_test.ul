@@ -1,0 +1,22 @@
+@include std::iter
+@include std::vec
+@include std::opt
+@include std::vec_iter
+
+let main(): int => {
+    let v => @as Vec<int>();
+    let i => 0;
+    while i < 50 => {
+        v::append(157 - i * 3 / 2);
+        i => i + 1;
+    }
+
+    let iter => @as VecIterator<int> &v;
+    let elem_opt => iter::next();
+    while elem_opt::is_some() => {
+        let elem => elem_opt::unwrap();
+        printf("elem is %d\n", elem);
+        elem_opt => iter::next();
+    }
+    return 0;
+}
