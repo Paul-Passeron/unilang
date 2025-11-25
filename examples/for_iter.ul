@@ -1,0 +1,20 @@
+@include std::vec
+@include std::opt
+@include std::io
+@include std::vec_iter
+
+
+let main(): int => {
+    let v => @as Vec<int>();
+    let i => 0;
+    while i < 100 => {
+        v::append(2*i+1);
+        i => i + 1;
+    }
+
+    for elem in v::iter() => {
+        printf("elem is %d\n", elem);
+    }
+    v::drop();
+    return 0;
+}

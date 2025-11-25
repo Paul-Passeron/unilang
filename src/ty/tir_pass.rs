@@ -6,7 +6,7 @@ use crate::{
     common::{
         global_interner::{
             DefId, ExprId, FunId, ImplBlockId, ItemId, ModuleId, SCId, ScopeId, Symbol, TirExprId,
-            TyId, TypeExprId,
+            TraitId, TyId, TypeExprId,
         },
         pass::Pass,
     },
@@ -45,6 +45,9 @@ impl TirCtx {
         let mut res = Self {
             methods: HashMap::new(),
             protos: HashMap::new(),
+            trait_specific_types: HashMap::from_iter(
+                ctx.ctx.interner.tr.iter().map(|x| (x, HashMap::new())),
+            ),
             impls: Self::get_all_impls(ctx),
             class_stack: vec![],
             specs: HashMap::new(),
@@ -564,6 +567,7 @@ impl<'ctx> TirCtx {
         input: &NirPattern,
         ty: TyId,
         expr: Option<TirExprId>,
+        defer: bool,
     ) -> Result<(), TcError> {
         match &input.kind {
             NirPatternKind::Wildcard => Ok(()),
@@ -573,10 +577,10 @@ impl<'ctx> TirCtx {
                     .interner
                     .insert_variable(VarDecl { name: *symb, ty });
                 let d = ctx.ctx.interner.insert_def(Definition::Var(id));
-                ctx.push_instr(TirInstr::VarDecl(id), false);
+                ctx.push_instr(TirInstr::VarDecl(id), defer);
                 ctx.push_def(*symb, d);
                 expr.iter()
-                    .for_each(|x| ctx.push_instr(TirInstr::VarAssign(id, *x), false));
+                    .for_each(|x| ctx.push_instr(TirInstr::VarAssign(id, *x), defer));
                 Ok(())
             }
             NirPatternKind::Tuple(nirs) => {
@@ -607,13 +611,18 @@ impl<'ctx> TirCtx {
                                 false,
                             )
                         });
-                        self.declare_pattern(ctx, x, *ty, expr)
+                        self.declare_pattern(ctx, x, *ty, expr, defer)
                     })
             }
         }
     }
 
-    pub fn visit_let(&mut self, ctx: &mut TyCtx<'ctx>, input: &NirVarDecl) -> Result<(), TcError> {
+    pub fn visit_let(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        input: &NirVarDecl,
+        defer: bool,
+    ) -> Result<(), TcError> {
         if input.ty.is_none() && input.value.is_none() {
             return Err(TcError::Text(format!(
                 "Type inference for variable is not availaible yet",
@@ -632,7 +641,7 @@ impl<'ctx> TirCtx {
             Some(e) => Some(self.get_expr_with_type(ctx, *e, ty, false)?),
             None => None,
         };
-        self.declare_pattern(ctx, &input.pattern, ty, expr)
+        self.declare_pattern(ctx, &input.pattern, ty, expr, defer)
     }
 
     pub fn visit_stmt(
@@ -666,7 +675,7 @@ impl<'ctx> TirCtx {
                 ctx.push_instr(TirInstr::Return(Some(expr)), defer);
                 Ok(())
             }
-            NirStmtKind::Let(decl) => self.visit_let(ctx, decl),
+            NirStmtKind::Let(decl) => self.visit_let(ctx, decl, defer),
             NirStmtKind::Expr(expr) => {
                 self.get_expr(ctx, *expr, defer)?;
                 Ok(())
@@ -740,7 +749,131 @@ impl<'ctx> TirCtx {
                 ctx.defer_stack.last_mut().unwrap().push(vec![]);
                 Ok(res)
             }
+            NirStmtKind::For {
+                var,
+                iterator,
+                body,
+            } => self.for_loop(ctx, var.clone(), *iterator, body.as_ref().clone(), defer),
             x => todo!("{:?}", x),
+        }
+    }
+
+    pub fn get_trait(&mut self, ctx: &mut TyCtx<'ctx>, name: String) -> Option<TraitId> {
+        let as_symb = ctx.ctx.interner.insert_symbol(&name);
+        ctx.get_symbol_def(as_symb)
+            .map_or(None, |x| match x.get_def(ctx) {
+                Definition::Trait(id) => Some(*id),
+                _ => None,
+            })
+    }
+
+    pub fn require_trait(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        name: String,
+    ) -> Result<TraitId, TcError> {
+        self.get_trait(ctx, name.clone())
+            .ok_or(TcError::Text(format!(
+                "Interface {} is needed but was not found in the current scope.",
+                name
+            )))
+    }
+
+    pub fn for_loop_iterator(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        var: NirPattern,
+        iterator: ExprId,
+        body: NirStmt,
+        defer: bool,
+    ) -> Result<(), TcError> {
+        let iterator_trait = self.require_trait(ctx, "Iterator".to_string())?;
+        let iterable_trait = self.require_trait(ctx, "Iterable".to_string())?;
+
+        let item_symb = ctx.ctx.interner.insert_symbol(&"Item".to_string());
+        let out_symb = ctx.ctx.interner.insert_symbol(&"Out".to_string());
+        let iter_symb = ctx.ctx.interner.insert_symbol(&"iter".to_string());
+        let next_symb = ctx.ctx.interner.insert_symbol(&"next".to_string());
+        let is_some_symb = ctx.ctx.interner.insert_symbol(&"is_some".to_string());
+        let unwrap_symb = ctx.ctx.interner.insert_symbol(&"unwrap".to_string());
+
+        let block = {
+            ctx.with_scope(ScopeKind::Block(vec![]), |ctx| {
+            let bl = ctx.current_scope;
+        let (iterator_ty, iterator_value) = {
+            let original_ty = TypeChecker::get_type_of_expr(self, ctx, iterator)?;
+            if TypeChecker::type_impl_trait(self, ctx, iterator_trait, original_ty).is_ok() {
+                (
+                    original_ty,
+                    ExprTranslator::expr(self, ctx, iterator, defer)?,
+                )
+            } else if TypeChecker::type_impl_trait(self, ctx, iterable_trait, original_ty).is_ok() {
+                let iterator_ty =
+                    self.trait_specific_types[&iterable_trait][&original_ty][&out_symb];
+                let original_lvalue = ExprTranslator::lvalue_ptr(self, ctx, iterator, defer)?;
+                let iter_fun_id = self.methods[&original_ty][&iter_symb];
+                let iterator_value = self.create_expr(
+                    ctx,
+                    TirExpr::Funcall(iter_fun_id, vec![original_lvalue]),
+                    defer,
+                );
+                (iterator_ty, iterator_value)
+            } else {
+                return Err(TcError::Text(format!(
+                    "Type `{}` was expected to implement the `Iterator` or `Iterable` interface",
+                    original_ty.to_string(ctx),
+                )));
+            }
+        };
+
+        let item_ty = self.trait_specific_types[&iterator_trait][&iterator_ty][&item_symb];
+
+        let tir_iterator_ptr = self.create_expr(ctx, TirExpr::Alloca(iterator_ty), defer);
+        ctx.push_instr(TirInstr::Assign(tir_iterator_ptr, iterator_value), defer);
+        let next_id = self.methods[&iterator_ty][&next_symb];
+        let next = self.create_expr(ctx, TirExpr::Funcall(next_id, vec![tir_iterator_ptr]), defer);
+        let opt_ty = TypeChecker::get_type_of_tir_expr(self, ctx, next)?;
+        let next_opt_ptr = self.create_expr(ctx, TirExpr::Alloca(opt_ty), defer);
+        ctx.push_instr(TirInstr::Assign(next_opt_ptr, next), defer);
+        let is_some_id = self.methods[&opt_ty][&is_some_symb];
+        let unwrap_id = self.methods[&opt_ty][&unwrap_symb];
+        let while_scope = {
+            ctx.with_scope(ScopeKind::While, |ctx| {
+                let while_scope = ctx.current_scope;
+                let e = ctx.with_scope(ScopeKind::WhileCond(vec![]), |ctx| {
+                    Ok(self.create_expr(ctx, TirExpr::Funcall(is_some_id, vec![next_opt_ptr]), defer))
+                })?;
+                ctx.with_scope(ScopeKind::WhileLoop(e, vec![]), |ctx| {
+                    let unwrapped = self.create_expr(ctx, TirExpr::Funcall(unwrap_id, vec![next_opt_ptr]), defer);
+                    self.declare_pattern(ctx, &var, item_ty, Some(unwrapped),defer)?;
+                    self.visit_stmt(ctx, &body, defer)?;
+                    let next = self.create_expr(ctx, TirExpr::Funcall(next_id, vec![tir_iterator_ptr]), defer);
+                    ctx.push_instr(TirInstr::Assign(next_opt_ptr, next), defer);
+                    Ok(while_scope)
+                })
+            })?
+        };
+        ctx.push_instr(TirInstr::While(while_scope), defer);
+        Ok(bl)
+    })?
+        };
+        ctx.push_instr(TirInstr::Block(block), defer);
+
+        Ok(())
+    }
+
+    pub fn for_loop(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        var: NirPattern,
+        iterator: ExprId,
+        body: NirStmt,
+        defer: bool,
+    ) -> Result<(), TcError> {
+        let it_nir = iterator.to_nir(ctx).clone();
+        match &it_nir.kind {
+            NirExprKind::Range { .. } => todo!(),
+            _ => self.for_loop_iterator(ctx, var, iterator, body, defer),
         }
     }
 
@@ -819,7 +952,7 @@ impl<'ctx> TirCtx {
         ty: TyId,
         bindings: Vec<TyId>,
         id: ImplBlockId,
-    ) -> Result<(), TcError> {
+    ) -> Result<HashMap<Symbol, TyId>, TcError> {
         let impl_block = id.get_block(ctx).clone();
         if bindings.len() != impl_block.templates.len() {
             return Err(TcError::Text(format!(
@@ -830,10 +963,17 @@ impl<'ctx> TirCtx {
             )));
         }
 
+        let types = impl_block
+            .types
+            .iter()
+            .map(|(a, b)| self.visit_type(ctx, *b).map(|b| (*a, b)))
+            .collect::<Result<HashMap<_, _>, _>>()?;
+
         let named_bindings = bindings
             .iter()
             .zip(impl_block.templates)
             .map(|(b, t)| (t.name, *b))
+            .chain(types.clone().into_iter())
             .collect();
 
         if let Some(sc_id) = ty.as_sc(ctx) {
@@ -870,7 +1010,7 @@ impl<'ctx> TirCtx {
                 self.methods.get_mut(&ty).unwrap().insert(*name, fun_id);
             }
         }
-        Ok(())
+        Ok(types)
     }
 
     fn concretize_method_for_impl(
@@ -1011,11 +1151,15 @@ impl<'ctx> TirCtx {
                     );
 
                     if let Some(bindings) = bindings {
-                        self.apply_impl_to_type(ctx, res, bindings, id)?;
+                        let tys = self.apply_impl_to_type(ctx, res, bindings, id)?;
 
                         // Todo: check if contract is fulfilled (the trait is actually implemented)
                         if let Some(tra) = impl_trait {
                             self.ty_implements.get_mut(&res).unwrap().insert(tra);
+                            self.trait_specific_types
+                                .get_mut(&tra)
+                                .unwrap()
+                                .insert(res, tys);
                         }
                     }
                 }

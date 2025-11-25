@@ -20,6 +20,7 @@ pub struct TirCtx {
     pub sc_scopes: HashMap<SCId, ScopeId>,
     pub ty_implements: HashMap<TyId, HashSet<TraitId>>,
     pub check_impls: bool,
+    pub trait_specific_types: HashMap<TraitId, HashMap<TyId, HashMap<Symbol, TyId>>>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
