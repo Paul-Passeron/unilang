@@ -17,7 +17,7 @@ use crate::{
     mono_ir::mono_ir_pass::MonoIRPass,
     nir::{include_resolver::IncludeResolver, visitor::NirVisitor},
     parser::{ast::Program, parser::Parser},
-    ty::{TyCtx, surface_resolution::SurfaceResolution, tir::TirCtx},
+    ty::{TcError, TyCtx, surface_resolution::SurfaceResolution, tir::TirCtx},
 };
 #[derive(Debug, Clone)]
 pub struct GlobalContext {
@@ -76,7 +76,13 @@ impl GlobalContext {
 
         let nir = match nir {
             Ok(nir) => nir,
-            Err(x) => return Err(CompilerError::NirError(x)),
+            Err(x) => {
+                return Err(CompilerError::TcError(TcError::Text(format!(
+                    "{}: {:?}",
+                    x.span.start().to_string(&self.file_manager),
+                    x.error
+                ))));
+            }
         };
 
         let mut tc = TyCtx::new(&mut self);
