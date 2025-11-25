@@ -66,23 +66,23 @@ pub type TirExprId = OneShotId<TirExpr>;
 
 #[derive(Debug, Clone)]
 pub struct GlobalInterner {
-    symbol: SymbolInterner,
-    string: StringInterner,
-    item: ItemInterner,
-    expr: ExprInterner,
-    scope: ScopeInterner,
+    pub symbol: SymbolInterner,
+    pub string: StringInterner,
+    pub item: ItemInterner,
+    pub expr: ExprInterner,
+    pub scope: ScopeInterner,
     pub fun: FunInterner,
-    class: ClassInterner,
-    module: ModuleInterner,
-    variable: VariableInterner,
-    tr: TraitInterner,
-    type_expr: TypeExprInterner,
-    imp: ImplBlockInterner,
-    def: DefInterner,
-    unresolved: UnresolvedInterner,
+    pub class: ClassInterner,
+    pub module: ModuleInterner,
+    pub variable: VariableInterner,
+    pub tr: TraitInterner,
+    pub type_expr: TypeExprInterner,
+    pub imp: ImplBlockInterner,
+    pub def: DefInterner,
+    pub unresolved: UnresolvedInterner,
     pub conc_type: ConcreteTypeInterner,
-    sc: SCInterner,
-    te: TirExprInterner,
+    pub sc: SCInterner,
+    pub te: TirExprInterner,
 }
 
 impl GlobalInterner {
