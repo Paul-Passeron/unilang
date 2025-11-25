@@ -370,60 +370,63 @@ impl<'ctx> TirCtx {
         }
     }
 
+    // pub fn type_is_coercible(&mut self, ctx: &mut TyCtx<'ctx>, src: TyId, target: TyId) -> bool {
+    //     if src == target {
+    //         return true;
+    //     }
+    //     let s = src.as_concrete(ctx);
+    //     let t = target.as_concrete(ctx);
+    //     if let ConcreteType::Primitive(prim_src) = s
+    //         && let ConcreteType::Primitive(prim_target) = t
+    //     {
+    //         return match (prim_src, prim_target) {
+    //             (PrimitiveTy::Void, PrimitiveTy::Void) => true,
+    //             (PrimitiveTy::Void, _) => false,
+    //             (_, PrimitiveTy::Void) => false,
+    //             _ => true,
+    //         };
+    //     }
+    //     if let ConcreteType::Primitive(_) = t {
+    //         return false;
+    //     }
+
+    //     if let ConcreteType::Tuple(srcs) = s
+    //         && let ConcreteType::Tuple(trgts) = t
+    //         && srcs.len() == trgts.len()
+    //     {
+    //         return srcs
+    //             .clone()
+    //             .iter()
+    //             .zip(trgts.clone().iter())
+    //             .all(|(src, target)| self.type_is_coercible(ctx, *src, *target));
+    //     }
+
+    //     if let ConcreteType::Ptr(_) = s
+    //         && let ConcreteType::Ptr(_) = t
+    //     {
+    //         return true;
+    //     }
+
+    //     if let ConcreteType::SpecializedClass(class_id) = t {
+    //         let args = match &s {
+    //             ConcreteType::Tuple(ids) => ids.clone(),
+    //             _ => vec![src],
+    //         };
+
+    //         // get constructors of specialized class
+    //         // TODO: remove the clone and have cleaner interface with
+    //         // not everything taking ctx as mut
+    //         let cons = self.get_matching_constructor(ctx, args, *class_id);
+    //         return cons.is_ok();
+    //     }
+    //     todo!(
+    //         "Coerce {:?} into {:?} ?",
+    //         src.to_string(ctx),
+    //         target.to_string(ctx)
+    //     )
+    // }
     pub fn type_is_coercible(&mut self, ctx: &mut TyCtx<'ctx>, src: TyId, target: TyId) -> bool {
-        if src == target {
-            return true;
-        }
-        let s = src.as_concrete(ctx);
-        let t = target.as_concrete(ctx);
-        if let ConcreteType::Primitive(prim_src) = s
-            && let ConcreteType::Primitive(prim_target) = t
-        {
-            return match (prim_src, prim_target) {
-                (PrimitiveTy::Void, PrimitiveTy::Void) => true,
-                (PrimitiveTy::Void, _) => false,
-                (_, PrimitiveTy::Void) => false,
-                _ => true,
-            };
-        }
-        if let ConcreteType::Primitive(_) = t {
-            return false;
-        }
-
-        if let ConcreteType::Tuple(srcs) = s
-            && let ConcreteType::Tuple(trgts) = t
-            && srcs.len() == trgts.len()
-        {
-            return srcs
-                .clone()
-                .iter()
-                .zip(trgts.clone().iter())
-                .all(|(src, target)| self.type_is_coercible(ctx, *src, *target));
-        }
-
-        if let ConcreteType::Ptr(_) = s
-            && let ConcreteType::Ptr(_) = t
-        {
-            return true;
-        }
-
-        if let ConcreteType::SpecializedClass(class_id) = t {
-            let args = match &s {
-                ConcreteType::Tuple(ids) => ids.clone(),
-                _ => vec![src],
-            };
-
-            // get constructors of specialized class
-            // TODO: remove the clone and have cleaner interface with
-            // not everything taking ctx as mut
-            let cons = self.get_matching_constructor(ctx, args, *class_id);
-            return cons.is_ok();
-        }
-        todo!(
-            "Coerce {:?} into {:?} ?",
-            src.to_string(ctx),
-            target.to_string(ctx)
-        )
+        src.is_coercible(self, ctx, target)
     }
 
     pub fn get_matching_constructor(
@@ -779,83 +782,127 @@ impl<'ctx> TirCtx {
             )))
     }
 
-    pub fn for_loop_iterator(
+    fn item_symb(&mut self, ctx: &mut TyCtx<'ctx>) -> Symbol {
+        ctx.ctx.interner.insert_symbol(&"Item".to_string())
+    }
+    fn out_symb(&mut self, ctx: &mut TyCtx<'ctx>) -> Symbol {
+        ctx.ctx.interner.insert_symbol(&"Out".to_string())
+    }
+    fn iter_symb(&mut self, ctx: &mut TyCtx<'ctx>) -> Symbol {
+        ctx.ctx.interner.insert_symbol(&"iter".to_string())
+    }
+    fn next_symb(&mut self, ctx: &mut TyCtx<'ctx>) -> Symbol {
+        ctx.ctx.interner.insert_symbol(&"next".to_string())
+    }
+    fn is_some_symb(&mut self, ctx: &mut TyCtx<'ctx>) -> Symbol {
+        ctx.ctx.interner.insert_symbol(&"is_some".to_string())
+    }
+    fn unwrap_symb(&mut self, ctx: &mut TyCtx<'ctx>) -> Symbol {
+        ctx.ctx.interner.insert_symbol(&"unwrap".to_string())
+    }
+
+    pub fn get_iterator_value(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
-        var: NirPattern,
         iterator: ExprId,
-        body: NirStmt,
         defer: bool,
-    ) -> Result<(), TcError> {
+    ) -> Result<TirExprId, TcError> {
+        let iter_symb = self.iter_symb(ctx);
         let iterator_trait = self.require_trait(ctx, "Iterator".to_string())?;
         let iterable_trait = self.require_trait(ctx, "Iterable".to_string())?;
 
-        let item_symb = ctx.ctx.interner.insert_symbol(&"Item".to_string());
-        let out_symb = ctx.ctx.interner.insert_symbol(&"Out".to_string());
-        let iter_symb = ctx.ctx.interner.insert_symbol(&"iter".to_string());
-        let next_symb = ctx.ctx.interner.insert_symbol(&"next".to_string());
-        let is_some_symb = ctx.ctx.interner.insert_symbol(&"is_some".to_string());
-        let unwrap_symb = ctx.ctx.interner.insert_symbol(&"unwrap".to_string());
+        let original_ty = TypeChecker::get_type_of_expr(self, ctx, iterator)?;
+        if TypeChecker::type_impl_trait(self, ctx, iterator_trait, original_ty).is_ok() {
+            ExprTranslator::expr(self, ctx, iterator, defer)
+        } else if TypeChecker::type_impl_trait(self, ctx, iterable_trait, original_ty).is_ok() {
+            let original_lvalue = ExprTranslator::lvalue_ptr(self, ctx, iterator, defer)?;
+            let iter_fun_id = self.methods[&original_ty][&iter_symb];
+            let iterator_value = self.create_expr(
+                ctx,
+                TirExpr::Funcall(iter_fun_id, vec![original_lvalue]),
+                defer,
+            );
+            Ok(iterator_value)
+        } else {
+            Err(TcError::Text(format!(
+                "Type `{}` was expected to implement the `Iterator` or `Iterable` interface",
+                original_ty.to_string(ctx),
+            )))
+        }
+    }
+
+    pub fn for_loop_iterator<F>(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        var: NirPattern,
+        // iterator: ExprId,
+        body: NirStmt,
+        defer: bool,
+        build_iterator: F,
+    ) -> Result<(), TcError>
+    where
+        F: FnOnce(&mut Self, &mut TyCtx, bool) -> Result<TirExprId, TcError>,
+    {
+        let iterator_trait = self.require_trait(ctx, "Iterator".to_string())?;
+
+        let item_symb = self.item_symb(ctx);
+        let next_symb = self.next_symb(ctx);
+        let is_some_symb = self.is_some_symb(ctx);
+        let unwrap_symb = self.unwrap_symb(ctx);
 
         let block = {
             ctx.with_scope(ScopeKind::Block(vec![]), |ctx| {
-            let bl = ctx.current_scope;
-        let (iterator_ty, iterator_value) = {
-            let original_ty = TypeChecker::get_type_of_expr(self, ctx, iterator)?;
-            if TypeChecker::type_impl_trait(self, ctx, iterator_trait, original_ty).is_ok() {
-                (
-                    original_ty,
-                    ExprTranslator::expr(self, ctx, iterator, defer)?,
-                )
-            } else if TypeChecker::type_impl_trait(self, ctx, iterable_trait, original_ty).is_ok() {
-                let iterator_ty =
-                    self.trait_specific_types[&iterable_trait][&original_ty][&out_symb];
-                let original_lvalue = ExprTranslator::lvalue_ptr(self, ctx, iterator, defer)?;
-                let iter_fun_id = self.methods[&original_ty][&iter_symb];
-                let iterator_value = self.create_expr(
+                let bl = ctx.current_scope;
+                // let iterator_value = self.get_iterator_value(ctx, iterator, defer)?;
+                let iterator_value = build_iterator(self, ctx, defer)?;
+                let iterator_ty = TypeChecker::get_type_of_tir_expr(self, ctx, iterator_value)?;
+
+                let item_ty = self.trait_specific_types[&iterator_trait][&iterator_ty][&item_symb];
+
+                let tir_iterator_ptr = self.create_expr(ctx, TirExpr::Alloca(iterator_ty), defer);
+                ctx.push_instr(TirInstr::Assign(tir_iterator_ptr, iterator_value), defer);
+                let next_id = self.methods[&iterator_ty][&next_symb];
+                let next = self.create_expr(
                     ctx,
-                    TirExpr::Funcall(iter_fun_id, vec![original_lvalue]),
+                    TirExpr::Funcall(next_id, vec![tir_iterator_ptr]),
                     defer,
                 );
-                (iterator_ty, iterator_value)
-            } else {
-                return Err(TcError::Text(format!(
-                    "Type `{}` was expected to implement the `Iterator` or `Iterable` interface",
-                    original_ty.to_string(ctx),
-                )));
-            }
-        };
-
-        let item_ty = self.trait_specific_types[&iterator_trait][&iterator_ty][&item_symb];
-
-        let tir_iterator_ptr = self.create_expr(ctx, TirExpr::Alloca(iterator_ty), defer);
-        ctx.push_instr(TirInstr::Assign(tir_iterator_ptr, iterator_value), defer);
-        let next_id = self.methods[&iterator_ty][&next_symb];
-        let next = self.create_expr(ctx, TirExpr::Funcall(next_id, vec![tir_iterator_ptr]), defer);
-        let opt_ty = TypeChecker::get_type_of_tir_expr(self, ctx, next)?;
-        let next_opt_ptr = self.create_expr(ctx, TirExpr::Alloca(opt_ty), defer);
-        ctx.push_instr(TirInstr::Assign(next_opt_ptr, next), defer);
-        let is_some_id = self.methods[&opt_ty][&is_some_symb];
-        let unwrap_id = self.methods[&opt_ty][&unwrap_symb];
-        let while_scope = {
-            ctx.with_scope(ScopeKind::While, |ctx| {
-                let while_scope = ctx.current_scope;
-                let e = ctx.with_scope(ScopeKind::WhileCond(vec![]), |ctx| {
-                    Ok(self.create_expr(ctx, TirExpr::Funcall(is_some_id, vec![next_opt_ptr]), defer))
-                })?;
-                ctx.with_scope(ScopeKind::WhileLoop(e, vec![]), |ctx| {
-                    let unwrapped = self.create_expr(ctx, TirExpr::Funcall(unwrap_id, vec![next_opt_ptr]), defer);
-                    self.declare_pattern(ctx, &var, item_ty, Some(unwrapped),defer)?;
-                    self.visit_stmt(ctx, &body, defer)?;
-                    let next = self.create_expr(ctx, TirExpr::Funcall(next_id, vec![tir_iterator_ptr]), defer);
-                    ctx.push_instr(TirInstr::Assign(next_opt_ptr, next), defer);
-                    Ok(while_scope)
-                })
+                let opt_ty = TypeChecker::get_type_of_tir_expr(self, ctx, next)?;
+                let next_opt_ptr = self.create_expr(ctx, TirExpr::Alloca(opt_ty), defer);
+                ctx.push_instr(TirInstr::Assign(next_opt_ptr, next), defer);
+                let is_some_id = self.methods[&opt_ty][&is_some_symb];
+                let unwrap_id = self.methods[&opt_ty][&unwrap_symb];
+                let while_scope = {
+                    ctx.with_scope(ScopeKind::While, |ctx| {
+                        let while_scope = ctx.current_scope;
+                        let e = ctx.with_scope(ScopeKind::WhileCond(vec![]), |ctx| {
+                            Ok(self.create_expr(
+                                ctx,
+                                TirExpr::Funcall(is_some_id, vec![next_opt_ptr]),
+                                defer,
+                            ))
+                        })?;
+                        ctx.with_scope(ScopeKind::WhileLoop(e, vec![]), |ctx| {
+                            let unwrapped = self.create_expr(
+                                ctx,
+                                TirExpr::Funcall(unwrap_id, vec![next_opt_ptr]),
+                                defer,
+                            );
+                            self.declare_pattern(ctx, &var, item_ty, Some(unwrapped), defer)?;
+                            self.visit_stmt(ctx, &body, defer)?;
+                            let next = self.create_expr(
+                                ctx,
+                                TirExpr::Funcall(next_id, vec![tir_iterator_ptr]),
+                                defer,
+                            );
+                            ctx.push_instr(TirInstr::Assign(next_opt_ptr, next), defer);
+                            Ok(while_scope)
+                        })
+                    })?
+                };
+                ctx.push_instr(TirInstr::While(while_scope), defer);
+                Ok(bl)
             })?
-        };
-        ctx.push_instr(TirInstr::While(while_scope), defer);
-        Ok(bl)
-    })?
         };
         ctx.push_instr(TirInstr::Block(block), defer);
 
@@ -871,9 +918,38 @@ impl<'ctx> TirCtx {
         defer: bool,
     ) -> Result<(), TcError> {
         let it_nir = iterator.to_nir(ctx).clone();
-        match &it_nir.kind {
-            NirExprKind::Range { .. } => todo!(),
-            _ => self.for_loop_iterator(ctx, var, iterator, body, defer),
+        match it_nir.kind {
+            NirExprKind::Range { start, end } => self.for_loop_iterator(ctx, var, body, defer, |this, ctx, defer| {
+                let start_ty = TypeChecker::get_type_of_expr(this, ctx, start)?;
+                if !start_ty.is_integer(ctx) {
+                    return Err(TcError::Text(format!(
+                        "left hand side of range is expected to be of type integer but it is of type {}",
+                        start_ty.to_string(ctx)
+                    )));
+                }
+
+                let start_tir = ExprTranslator::expr(this, ctx, start, defer)?;
+                let end_tir = ExprTranslator::expr_with_type(this, ctx, end, start_ty, defer)?;
+
+                let range_iter_symb = ctx.ctx.interner.insert_symbol(&"RangeIterator".to_string());
+
+                let def = ctx.get_symbol_def(range_iter_symb).ok_or(TcError::Text(format!("Missing class RangeIterator. Try adding `@include std::range_iter at the start of your file")))?;
+
+                let ty_expr = ctx
+                    .ctx
+                    .interner
+                    .insert_type_expr(TypeExpr::Concrete(start_ty));
+
+                let iter_ty = this.instantiate(ctx, def, &vec![ty_expr])?;
+
+                let tir_tuple =
+                    this.create_expr(ctx, TirExpr::Tuple(vec![start_tir, end_tir]), defer);
+
+                ExprTranslator::coerce_expr(this, ctx, tir_tuple, iter_ty, defer)
+            }),
+            _ => self.for_loop_iterator(ctx, var, body, defer, |this, ctx, defer| {
+                this.get_iterator_value(ctx, iterator, defer)
+            }),
         }
     }
 

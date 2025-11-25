@@ -727,30 +727,71 @@ impl ExprTranslator {
             .map(|x| TypeChecker::get_type_of_tir_expr(tir, ctx, *x))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let constructor = sc
-            .get_matching_constructor(tir, ctx, &tys[..])
-            .ok_or(TcError::Text(format!(
-                "No matching constructor found for class `{}` matching signature ({}).",
-                sc.to_string(ctx),
-                tys.iter().to_string(ctx)
-            )))?;
+        let (constructor, folded) = {
+            let folded = sc
+                .get_matching_constructor(tir, ctx, &tys[..])
+                .ok_or(TcError::Text(format!(
+                    "No matching constructor found for class `{}` matching signature ({}).",
+                    sc.to_string(ctx),
+                    tys.iter().to_string(ctx)
+                )));
+
+            if let Ok(folded) = folded {
+                (folded, true)
+            } else if tys.len() == 1
+                && let Some(ids) = tys[0].as_tuple(ctx)
+            {
+                let cons = sc
+                    .get_matching_constructor(tir, ctx, &ids[..])
+                    .ok_or(TcError::Text(format!(
+                        "No matching constructor found for class `{}` matching signature ({}).",
+                        sc.to_string(ctx),
+                        ids.iter().to_string(ctx)
+                    )))?;
+                (cons, false)
+            } else {
+                return Err(folded.err().unwrap());
+            }
+        };
 
         let sig = constructor.sig(tir).clone();
 
         assert!(!sig.variadic);
 
-        let args = Some(ptr)
-            .into_iter()
-            .chain(
-                sig.params
-                    .iter()
-                    .skip(1)
-                    .zip(args)
-                    .map(|(param, arg)| Self::coerce_expr(tir, ctx, arg, param.ty, defer))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into_iter(),
-            )
-            .collect::<Vec<_>>();
+        let args = if folded {
+            Some(ptr)
+                .into_iter()
+                .chain(
+                    sig.params
+                        .iter()
+                        .skip(1)
+                        .zip(args)
+                        .map(|(param, arg)| Self::coerce_expr(tir, ctx, arg, param.ty, defer))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_iter(),
+                )
+                .collect::<Vec<_>>()
+        } else {
+            Some(ptr)
+                .into_iter()
+                .chain({
+                    let tys = tys[0].as_tuple(ctx).unwrap();
+                    let arg = args[0];
+                    tys.iter()
+                        .enumerate()
+                        .map(|(i, x)| {
+                            let tir_expr = tir.create_expr(
+                                ctx,
+                                TirExpr::Access(arg, FieldAccessKind::Index(i.try_into().unwrap())),
+                                defer,
+                            );
+                            Self::coerce_expr(tir, ctx, tir_expr, *x, defer)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_iter()
+                })
+                .collect::<Vec<_>>()
+        };
 
         tir.create_expr(ctx, TirExpr::Funcall(constructor, args), defer);
 
