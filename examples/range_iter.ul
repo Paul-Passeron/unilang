@@ -1,0 +1,9 @@
+@include std::range_iter
+
+let main(): int => {
+    let ranged => @as RangeIterator<int> (10, 654);
+    for x in ranged => {
+        printf("x is %d\n", x);
+    }
+    return 0;
+}

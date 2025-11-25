@@ -1,0 +1,31 @@
+@include std::iter
+@include std::int
+
+class <T impl Integer> RangeIterator => {
+    private start: T;
+    private end: T;
+    private delta: T;
+
+    public RangeIterator(start: T, end: T) => {
+        self::start => start;
+        self::end => end;
+        if start > end => {
+            self::delta => @as T -1;
+        } else {
+            self::delta => @as T 1;
+        }
+    }
+}
+
+impl <T impl Integer> Iterator for RangeIterator<T> => {
+    type Item => T;
+
+    public next(): Option<T> => {
+        if self::start = self::end => {
+            return @as Option<T> ();
+        }
+        let result => self::start;
+        self::start => self::start + self::delta;
+        return @as Option<T> result;
+    }
+}

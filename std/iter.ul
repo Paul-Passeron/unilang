@@ -1,3 +1,5 @@
+@include std::opt
+
 interface Iterator T => {
     type Item;
     next(): Option<Item>;
