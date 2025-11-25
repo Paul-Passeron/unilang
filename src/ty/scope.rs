@@ -147,6 +147,7 @@ pub struct ImplBlock {
     pub templates: Vec<TemplateArgument>,
     pub methods: Vec<Method>,
     pub kind: ImplKind,
+    pub types: HashMap<Symbol, TypeExprId>,
 }
 
 impl<'ctx> ImplBlockId {

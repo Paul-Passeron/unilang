@@ -502,6 +502,11 @@ impl<'ctx> SurfaceResolution {
                 for_ty,
                 templates,
                 methods: vec![],
+                types: input
+                    .types
+                    .iter()
+                    .map(|x| ctx.visit_type(&x.ty).map(|y| (x.name, y)))
+                    .collect::<Result<_, _>>()?,
                 kind: match &input.implements {
                     Some(constraint) => ImplKind::WithTrait {
                         impl_trait: ctx.resolve_path(&constraint.name),
@@ -512,8 +517,7 @@ impl<'ctx> SurfaceResolution {
             };
             let actual_id = ctx.ctx.interner.insert_imp(impl_block);
             ctx.get_last_scope_mut().kind = ScopeKind::Impl(actual_id, item_id);
-
-            self.add_types_to_impl(ctx, actual_id, &input.types)?;
+            // self.add_templated_types_to_impl(ctx, actual_id, &input.types)?;
             self.add_methods_to_impl(ctx, actual_id, &input.methods)?;
 
             Ok(ctx.current_scope)
@@ -538,7 +542,7 @@ impl<'ctx> SurfaceResolution {
         Ok(())
     }
 
-    fn add_types_to_impl(
+    fn add_templated_types_to_impl(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         id: ImplBlockId,
