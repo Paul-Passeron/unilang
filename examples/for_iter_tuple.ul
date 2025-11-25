@@ -1,0 +1,20 @@
+@include std::vec
+@include std::opt
+@include std::io
+@include std::vec_iter
+impl NoDrop for (int, int) => {}
+
+let main(): int => {
+    let v => @as Vec<(int, int)>();
+    let i => 0;
+    while i < 100 => {
+        v::append((i, 2*i+1));
+        i => i + 1;
+    }
+
+    for (a, b) in v => {
+        printf("elem %d is %d\n", a, b);
+    }
+    v::drop();
+    return 0;
+}
