@@ -121,7 +121,26 @@ impl TyId {
 
         if let Some(sc_id) = target.as_sc(ctx) {
             let args = &self.unfold(ctx)[..];
-            return sc_id.get_matching_constructor(tir_ctx, ctx, args).is_some();
+            let ma = sc_id.get_matching_constructor(tir_ctx, ctx, args);
+            if ma.is_some() {
+                return true;
+            }
+            return sc_id
+                .get_matching_constructor(tir_ctx, ctx, &[*self])
+                .is_some();
+        }
+
+        if let Some(srcs) = self.as_tuple(ctx)
+            && let Some(dsts) = target.as_tuple(ctx)
+        {
+            if srcs.len() != dsts.len() {
+                return false;
+            }
+
+            return srcs
+                .iter()
+                .zip(dsts)
+                .all(|(a, b)| a.is_coercible(tir_ctx, ctx, b));
         }
 
         todo!(
