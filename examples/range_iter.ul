@@ -5,5 +5,10 @@ let main(): int => {
     for x in ranged => {
         printf("x is %d\n", x);
     }
+
+    let ranged => @as RangeIterator<int> (456, 123);
+    for x in ranged => {
+        printf("x is %d\n", x);
+    }
     return 0;
 }
