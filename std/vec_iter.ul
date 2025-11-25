@@ -1,0 +1,31 @@
+@include std::iter
+@include std::vec
+@include std::opt
+
+class <T> VecIterator => {
+    private count: u32;
+    private vec: Vec<T>*;
+
+    public VecIterator(vec: Vec<T>*) => {
+        self::count => 0;
+        self::vec => vec;
+    }
+}
+
+impl <T> Iterator for VecIterator<T> => {
+    type Item => T;
+
+    public next(): Option<T> => {
+        let res => self::vec::get(self::count);
+        if res::is_some() => self::count => self::count + 1;
+        return res;
+    }
+}
+
+impl <T> Iterable for Vec<T> => {
+    type Out => VecIterator<T>;
+
+    public iter(): VecIterator<T> => {
+        return @as VecIterator<T> self;
+    }
+}

@@ -1,0 +1,9 @@
+interface Iterator T => {
+    type Item;
+    next(): Option<Item>;
+}
+
+interface Iterable T => {
+    type Out impl Iterator;
+    iter(): Out;
+}
