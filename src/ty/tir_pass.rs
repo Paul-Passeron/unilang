@@ -173,6 +173,9 @@ impl<'ctx> TirCtx {
         template: DefId,
         args: &Vec<TypeExprId>,
     ) -> Result<TyId, TcError> {
+        let old_check = self.check_impls;
+        self.check_impls = false;
+
         let spec_info = SpecInfo {
             def: template,
             args: args
@@ -223,9 +226,8 @@ impl<'ctx> TirCtx {
         };
 
         let sc_id = ctx.ctx.interner.insert_sc(c);
-        let ty = self.create_type_pro(ctx, ConcreteType::SpecializedClass(sc_id), false)?;
+        let ty = self.create_type(ctx, ConcreteType::SpecializedClass(sc_id))?;
         self.specs.insert(spec_info.clone(), ty);
-
         ctx.defer_stack.clear();
         ctx.defer_stack.push(vec![]);
         let old_current = ctx.current_scope;
@@ -245,7 +247,6 @@ impl<'ctx> TirCtx {
             self.sc_scopes.insert(sc_id, ctx.current_scope);
             ctx.current_scope
         });
-        let ty = self.create_type_pro(ctx, ConcreteType::SpecializedClass(sc_id), true)?;
         let old_defer_stack = ctx.defer_stack.clone();
 
         let ty = ctx.with_scope_id(id, |ctx| {
@@ -294,6 +295,9 @@ impl<'ctx> TirCtx {
                     ctx.ctx.interner.get_sc_mut(sc_id).constructors.push(fun_id);
                 }
             }
+            self.check_impls = old_check;
+
+            ExprTranslator::update_implementations(self, ctx, ty)?;
 
             for (i, Method { id: method_id, .. }) in methods.iter().enumerate() {
                 if let Some(method_ast) = match ctx.ctx.interner.get_item(*method_id) {
@@ -322,8 +326,6 @@ impl<'ctx> TirCtx {
 
         ctx.defer_stack = old_defer_stack;
         ctx.current_scope = old_current;
-
-        ExprTranslator::update_implementations(self, ctx, ty)?;
 
         Ok(ty)
     }
