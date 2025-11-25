@@ -21,12 +21,6 @@ impl Displayable for Symbol {
     }
 }
 
-// pub struct VecDispHelper<'a, T: Displayable>(&'a Vec<T>);
-
-// pub fn vdisp<'a, T: Displayable>(v: &'a Vec<T>) -> VecDispHelper<'a, T> {
-//     VecDispHelper(v)
-// }
-
 impl<'a, T, X> Displayable for T
 where
     T: Iterator<Item = &'a X> + Clone,
