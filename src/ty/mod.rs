@@ -11,6 +11,7 @@ use crate::{
     },
 };
 
+pub mod auto_impl;
 pub mod concrete_type;
 pub mod displays;
 pub mod expr_translator;

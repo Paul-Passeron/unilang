@@ -19,6 +19,7 @@ use crate::{
     },
     ty::{
         PrimitiveTy, TcError, TcFunProto, TcParam, TyCtx,
+        auto_impl::no_drop::NoDropImpler,
         displays::Displayable,
         expr_translator::ExprTranslator,
         scope::{Class, ClassMember, Definition, ImplKind, Method, ScopeKind, TypeExpr, VarDecl},
@@ -1239,6 +1240,11 @@ impl<'ctx> TirCtx {
                         }
                     }
                 }
+            }
+        }
+        if let Some(nd) = NoDropImpler::new(ctx) {
+            if nd.is_no_drop(self, ctx, res) {
+                nd.implement_no_drop(self, ctx, res)?;
             }
         }
         Ok(res)

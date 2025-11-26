@@ -4,15 +4,5 @@ interface Droppable T => {
 
 interface NoDrop T => {}
 
-impl NoDrop for i8 => {}
-impl NoDrop for i16 => {}
-impl NoDrop for i32 => {}
-impl NoDrop for i64 => {}
-impl NoDrop for u8 => {}
-impl NoDrop for u16 => {}
-impl NoDrop for u32 => {}
-impl NoDrop for u64 => {}
-impl NoDrop for bool => {}
-
 @extern malloc(size: u64): void *;
 @extern free(ptr: void *): void;

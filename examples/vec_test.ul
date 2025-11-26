@@ -28,8 +28,6 @@ impl Droppable for Object => {
     }
 }
 
-impl NoDrop for i32 => {}
-
 let main(): i32 => {
     let v => @as Vec<i32>();
     let obj => @as Object();
