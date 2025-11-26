@@ -19,7 +19,7 @@ use crate::{
     },
     ty::{
         PrimitiveTy, TcError, TcFunProto, TcParam, TyCtx,
-        auto_impl::no_drop::NoDropImpler,
+        auto_impl::{droppable::DroppableImpler, no_drop::NoDropImpler},
         displays::Displayable,
         expr_translator::ExprTranslator,
         scope::{Class, ClassMember, Definition, ImplKind, Method, ScopeKind, TypeExpr, VarDecl},
@@ -57,6 +57,7 @@ impl TirCtx {
             impl_checked: HashSet::new(),
             ty_implements: HashMap::new(),
             check_impls: false,
+            droppable_impls: Vec::new(),
         };
         PrimitiveTy::iter().for_each(|ty| {
             let x = res.create_type(ctx, ConcreteType::Primitive(ty)).unwrap();
@@ -1241,12 +1242,20 @@ impl<'ctx> TirCtx {
                     }
                 }
             }
-        }
-        if let Some(nd) = NoDropImpler::new(ctx) {
-            if nd.is_no_drop(self, ctx, res) {
-                nd.implement_no_drop(self, ctx, res)?;
+            if let Some(mut d) = DroppableImpler::new(ctx, res) {
+                if d.is_droppable(self, ctx) {
+                    d.concretize_droppable(self, ctx)?;
+                    self.droppable_impls.push(d.clone());
+                }
+            }
+
+            if let Some(nd) = NoDropImpler::new(ctx) {
+                if nd.is_no_drop(self, ctx, res) {
+                    nd.implement_no_drop(self, ctx, res)?;
+                }
             }
         }
+
         Ok(res)
     }
 
@@ -1583,6 +1592,7 @@ impl<'ctx> TirCtx {
                 NirItem::Impl(_) => Ok(()),
                 NirItem::Trait(_) => Ok(()),
                 NirItem::Method(_) => Ok(()),
+                NirItem::Dummy => Ok(()),
             }
         })
     }
@@ -1626,6 +1636,14 @@ impl<'ctx> Pass<'ctx, SurfaceResolutionPassOutput<'ctx>> for TirCtx {
         for (scope, item) in input {
             self.visit_item(ctx, scope, item)?;
         }
+
+        let l = self.droppable_impls.len();
+        let implers = self.droppable_impls.drain(0..l).collect::<Vec<_>>();
+
+        for impler in implers {
+            impler.implement_droppable(self, ctx)?;
+        }
+
         Ok(())
     }
 }

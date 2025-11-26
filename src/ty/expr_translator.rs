@@ -1,8 +1,11 @@
 use crate::{
-    common::global_interner::{ExprId, FunId, SCId, Symbol, TirExprId, TyId, VariableId},
-    nir::nir::{
-        FieldAccess, FieldAccessKind, NirBinOp, NirBinOpKind, NirCall, NirExprKind, NirItem,
-        NirLiteral, NirType, NirUnOpKind, StrLit,
+    common::global_interner::{ExprId, FunId, SCId, ScopeId, Symbol, TirExprId, TyId, VariableId},
+    nir::{
+        interner::ConstructibleId,
+        nir::{
+            FieldAccess, FieldAccessKind, NirBinOp, NirBinOpKind, NirCall, NirExprKind, NirItem,
+            NirLiteral, NirType, NirUnOpKind, StrLit,
+        },
     },
     ty::{
         TcError, TyCtx,
@@ -471,29 +474,26 @@ impl ExprTranslator {
                 pushed = true;
                 ctx.with_scope(ScopeKind::Spec(sc_id), |ctx| ctx.current_scope)
             } else {
-                todo!()
+                ScopeId::new(0)
             };
 
             ctx.current_scope = id;
             ctx.defer_stack.clear();
 
-            ctx.with_scope_id(id, |ctx| {
-                let impl_methods = tir
-                    .impl_methods
-                    .get_mut(&ty)
-                    .unwrap()
-                    .drain(0..l)
-                    .collect::<Vec<_>>();
-                for (bindings, method_id) in impl_methods {
-                    let ast = match ctx.ctx.interner.get_item(method_id) {
-                        NirItem::Method(ast) => ast.clone(),
-                        _ => unreachable!(),
-                    };
+            let impl_methods = tir
+                .impl_methods
+                .get_mut(&ty)
+                .unwrap()
+                .drain(0..l)
+                .collect::<Vec<_>>();
+            for (bindings, method_id) in impl_methods {
+                let ast = match ctx.ctx.interner.get_item(method_id) {
+                    NirItem::Method(ast) => ast.clone(),
+                    _ => unreachable!(),
+                };
 
-                    tir.visit_method(ctx, &ast, method_id, Some(bindings))?;
-                }
-                Ok(())
-            })?;
+                tir.visit_method(ctx, &ast, method_id, Some(bindings))?;
+            }
             ctx.current_scope = old_scope;
             ctx.defer_stack = old_defer_stack;
         }

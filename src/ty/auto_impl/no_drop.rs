@@ -51,9 +51,9 @@ impl NoDropImpler {
         ctx: &mut TyCtx,
         ty: TyId,
     ) -> Result<(), TcError> {
-        let trait_id = Self::no_drop_trait(ctx).ok_or(TcError::Text(format!(
-            "Compiler internal error: the trait `NoDrop` was not found"
-        )))?;
+        if tir.ty_implements[&ty].contains(&self.no_drop_trait) {
+            return Ok(());
+        }
 
         if !self.is_no_drop(tir, ctx, ty) {
             return Err(TcError::Text(format!(
@@ -62,7 +62,10 @@ impl NoDropImpler {
             )));
         }
 
-        tir.ty_implements.get_mut(&ty).unwrap().insert(trait_id);
+        tir.ty_implements
+            .get_mut(&ty)
+            .unwrap()
+            .insert(self.no_drop_trait);
         Ok(())
     }
 }

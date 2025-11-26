@@ -27,6 +27,7 @@ pub enum NirItem {
     Impl(NirImplBlock),
     Method(NirMethod),
     Alias(Symbol, NirType),
+    Dummy,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

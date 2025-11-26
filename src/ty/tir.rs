@@ -6,7 +6,10 @@ use crate::{
         TraitId, TyId, VariableId,
     },
     nir::nir::{FieldAccessKind, NirBinOpKind},
-    ty::{PrimitiveTy, TyCtx, displays::Displayable, tir_pass::SpecInfo},
+    ty::{
+        PrimitiveTy, TyCtx, auto_impl::droppable::DroppableImpler, displays::Displayable,
+        tir_pass::SpecInfo,
+    },
 };
 
 pub struct TirCtx {
@@ -21,6 +24,7 @@ pub struct TirCtx {
     pub ty_implements: HashMap<TyId, HashSet<TraitId>>,
     pub check_impls: bool,
     pub trait_specific_types: HashMap<TraitId, HashMap<TyId, HashMap<Symbol, TyId>>>,
+    pub droppable_impls: Vec<DroppableImpler>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
