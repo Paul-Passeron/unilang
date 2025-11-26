@@ -1,6 +1,4 @@
 let main(): int => {
-    for x in 123..456 => {
-        printf("x is %d\n", x);
-    }
+    for x in 123..456 => printf("x is %d\n", x);
     return 0;
 }
