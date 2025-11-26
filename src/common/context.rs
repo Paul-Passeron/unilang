@@ -55,12 +55,24 @@ impl GlobalContext {
         let mut p = vec![];
         let mut ids = HashSet::new();
 
+        let std_core = vec!["alloc.ul", "iter.ul", "range_iter.ul"];
+        for p in std_core {
+            let mut f = self.config.std.clone();
+            f.push("std/");
+            f.push(p);
+            let id = self.file_manager.add_file(&f).unwrap();
+            ids.insert(id);
+        }
+
         for f in &self.config.files.clone() {
             let id = self.file_manager.add_file(f).unwrap();
             if ids.contains(&id) {
                 continue;
             }
             ids.insert(id);
+        }
+
+        for id in ids {
             let mut prgm = match self.parse_file(id) {
                 Ok(x) => x,
                 Err(err) => {
