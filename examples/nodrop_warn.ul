@@ -1,0 +1,11 @@
+class ShouldWarn => {
+    private inner: char *;
+}
+
+// If you uncomment this, the warning will go away
+// impl NoDrop for ShouldWarn => {}
+
+let main(): int => {
+    let _: ShouldWarn;
+    return 0;
+}

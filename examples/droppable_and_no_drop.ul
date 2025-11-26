@@ -1,0 +1,13 @@
+class BadExample => {}
+
+
+impl NoDrop for BadExample => {}
+
+impl Droppable for BadExample => {
+    public drop(): void => {}
+}
+
+
+let main(): int => {
+    let _: BadExample;
+}

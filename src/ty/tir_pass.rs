@@ -1596,6 +1596,35 @@ impl<'ctx> TirCtx {
             }
         })
     }
+
+    pub fn check_drops(&mut self, ctx: &mut TyCtx<'ctx>) -> Result<(), TcError> {
+        let droppable = self.require_trait(ctx, "Droppable".to_string())?;
+        let no_drop = self.require_trait(ctx, "NoDrop".to_string())?;
+        for ty in ctx.ctx.interner.conc_type.iter().collect::<Vec<_>>() {
+            if ty.as_sc(ctx).is_none() {
+                continue;
+            }
+            let mut count = 0;
+            if TypeChecker::type_impl_trait(self, ctx, droppable, ty).is_ok() {
+                count += 1;
+            }
+            if TypeChecker::type_impl_trait(self, ctx, no_drop, ty).is_ok() {
+                count += 1;
+            }
+            if count == 0 {
+                eprintln!(
+                    "[WARNING]: Non-trivially no-drop type `{}` does not implement Droppable or NoDrop interface.",
+                    ty.to_string(ctx)
+                )
+            } else if count == 2 {
+                return Err(TcError::Text(format!(
+                    "Type `{}` implements both Droppable and NoDrop interfaces. This should not be the case.",
+                    ty.to_string(ctx)
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl<'ctx> Pass<'ctx, SurfaceResolutionPassOutput<'ctx>> for TirCtx {
@@ -1643,6 +1672,8 @@ impl<'ctx> Pass<'ctx, SurfaceResolutionPassOutput<'ctx>> for TirCtx {
         for impler in implers {
             impler.implement_droppable(self, ctx)?;
         }
+
+        self.check_drops(ctx)?;
 
         Ok(())
     }
