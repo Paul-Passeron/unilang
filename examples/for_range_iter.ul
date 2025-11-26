@@ -1,5 +1,3 @@
-@include std::iter
-@include std::range_iter
 let main(): int => {
     for x in 123..456 => {
         printf("x is %d\n", x);
