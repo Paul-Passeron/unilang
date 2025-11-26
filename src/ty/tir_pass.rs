@@ -1618,7 +1618,7 @@ impl<'ctx> TirCtx {
                 )
             } else if count == 2 {
                 return Err(TcError::Text(format!(
-                    "Type `{}` implements both Droppable and NoDrop interfaces. This should not be the case.",
+                    "Type `{}` implements both Droppable and NoDrop interfaces.",
                     ty.to_string(ctx)
                 )));
             }
