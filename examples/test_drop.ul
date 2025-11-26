@@ -1,0 +1,22 @@
+class Dr => { public Dr() => {} }
+
+class <T> Wrapper => {
+    public inner: T;
+
+    public Wrapper(x: T) => {
+        self::inner => x;
+    }
+}
+
+
+impl Droppable for Dr => {
+    public drop() : void => {
+        printf("Called drop on Dr !\n");
+    }
+}
+
+let main(): int => {
+    let x => @as Wrapper<Dr> @as Dr();
+    x::drop();
+    return 0;
+}
