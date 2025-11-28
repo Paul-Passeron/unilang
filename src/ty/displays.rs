@@ -3,7 +3,7 @@ use std::fmt;
 use crate::{
     common::global_interner::{DefId, SCId, Symbol, TyId, TypeExprId},
     ty::{
-        PrimitiveTy, TyCtx,
+        PrimitiveTy, TcFunProto, TyCtx,
         scope::TypeExpr,
         tir::{ConcreteType, Signature},
     },
@@ -153,5 +153,16 @@ impl Displayable for DefId {
             Definition::Unresolved(id) => format!("unresolved({})", id.0),
             Definition::Var(id) => id.get_var(ctx).name.to_string(ctx),
         }
+    }
+}
+
+impl Displayable for TcFunProto {
+    fn to_string(&self, ctx: &TyCtx) -> String {
+        format!(
+            "{}({}) -> {}",
+            self.name.to_string(ctx),
+            self.params.iter().map(|x| &x.ty).to_string(ctx),
+            self.return_ty.to_string(ctx)
+        )
     }
 }
