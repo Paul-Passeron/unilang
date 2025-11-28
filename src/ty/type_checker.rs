@@ -187,8 +187,9 @@ impl TypeChecker {
                 }
             }
             NirUnOpKind::LNot => {
-                if ty == tir.bool_ty(ctx) {
-                    Ok(ty)
+                let bool_ty = tir.bool_ty(ctx);
+                if ty.is_integer(ctx) || ty.as_ptr(ctx).is_some() {
+                    Ok(bool_ty)
                 } else {
                     Err(TcError::Text(format!(
                         "Operation `!` is not supported on type `{}`",

@@ -1,0 +1,10 @@
+class Unused => {
+    public Unused() => {}
+    public print(): void => {
+        printf("Hello from unused !\n");
+    }
+}
+
+let main(): int => {
+    return 0;
+}

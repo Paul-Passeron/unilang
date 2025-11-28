@@ -6,6 +6,7 @@ use crate::{
     },
     nir::nir::{NirPath, NirType, NirTypeKind},
     ty::{
+        displays::Displayable,
         scope::{Definition, Scope, ScopeKind, TypeExpr, Unresolved, UnresolvedKind},
         tir::TirInstr,
     },
@@ -15,6 +16,7 @@ pub mod auto_impl;
 pub mod concrete_type;
 pub mod displays;
 pub mod expr_translator;
+pub mod name_mangler;
 pub mod scope;
 pub mod specialized_class;
 pub mod surface_resolution;
@@ -330,7 +332,7 @@ impl<'ctx> TyCtx<'ctx> {
                         };
                         Ok(self.ctx.interner.insert_type_expr(ty))
                     }
-                    _ => todo!("{def:?}"),
+                    _ => todo!("{def:?} = {}", def.to_string(self)),
                 }
             }
             NirTypeKind::Named { name, generic_args } => {

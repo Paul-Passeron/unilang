@@ -2,6 +2,20 @@ use std::collections::{HashMap, HashSet};
 
 use strum::IntoEnumIterator;
 
+// Enum to distinguish between the different method concretization modes
+enum MethodConcretizationMode<'a> {
+    // Regular method from current class
+    Method,
+    // Constructor from current class (always returns void)
+    Constructor,
+    // Method from impl block with explicit self_ty and bindings
+    MethodForImpl {
+        self_ty: TyId,
+        bindings: &'a Vec<(Symbol, TyId)>,
+        item_id: ItemId,
+    },
+}
+
 use crate::{
     common::{
         global_interner::{
@@ -22,6 +36,7 @@ use crate::{
         auto_impl::{droppable::DroppableImpler, no_drop::NoDropImpler},
         displays::Displayable,
         expr_translator::ExprTranslator,
+        name_mangler::NameMangler,
         scope::{Class, ClassMember, Definition, ImplKind, Method, ScopeKind, TypeExpr, VarDecl},
         surface_resolution::SurfaceResolutionPassOutput,
         tir::{ConcreteType, SCField, Signature, SpecializedClass, TirCtx, TirExpr, TirInstr},
@@ -59,8 +74,12 @@ impl TirCtx {
             check_impls: false,
             droppable_impls: Vec::new(),
         };
+
+        let no_drop = NoDropImpler::no_drop_trait(ctx).unwrap();
+
         PrimitiveTy::iter().for_each(|ty| {
             let x = res.create_type(ctx, ConcreteType::Primitive(ty)).unwrap();
+            res.ty_implements.get_mut(&x).unwrap().insert(no_drop);
             res.create_type(ctx, ConcreteType::Ptr(x)).unwrap();
         });
 
@@ -1091,97 +1110,6 @@ impl<'ctx> TirCtx {
         Ok(types)
     }
 
-    fn concretize_method_for_impl(
-        &mut self,
-        ctx: &mut TyCtx<'ctx>,
-        self_ty: TyId,
-        bindings: &Vec<(Symbol, TyId)>,
-
-        id: ItemId,
-    ) -> Result<FunId, TcError> {
-        for arg in bindings {
-            let te = ctx.ctx.interner.insert_type_expr(TypeExpr::Concrete(arg.1));
-            let def_id = ctx.ctx.interner.insert_def(Definition::Type(te));
-            ctx.push_def(arg.0, def_id);
-        }
-
-        let old_def_len = ctx.get_last_scope_mut().definitions.len();
-
-        let input = match ctx.ctx.interner.get_item(id) {
-            NirItem::Method(ast) => ast.clone(),
-            _ => unreachable!(),
-        };
-
-        let self_ptr_ty = self.create_type(ctx, ConcreteType::Ptr(self_ty))?;
-
-        let self_symbol = ctx.ctx.interner.insert_symbol(&"self".to_string());
-
-        let ty = ctx
-            .ctx
-            .interner
-            .insert_type_expr(TypeExpr::Concrete(self_ptr_ty));
-
-        let mut params = vec![TcParam {
-            name: self_symbol,
-            ty: ty,
-        }];
-
-        input.args.iter().try_for_each(|arg| {
-            ctx.visit_type(&arg.ty)
-                .map(|ty| params.push(TcParam { name: arg.name, ty }))
-        })?;
-
-        let return_ty = match &input.return_ty {
-            Some(ty) => ctx.visit_type(ty),
-            None => Ok(ctx
-                .ctx
-                .interner
-                .insert_type_expr(TypeExpr::Primitive(PrimitiveTy::Void))),
-        }?;
-
-        let fun_id = ctx.ctx.interner.insert_fun(TcFunProto {
-            name: input.name,
-            params,
-            return_ty,
-            variadic: false,
-        });
-
-        self.methods
-            .get_mut(&self_ty)
-            .unwrap()
-            .insert(input.name, fun_id);
-        let fun = ctx.ctx.interner.get_fun(fun_id).clone();
-
-        let params = fun
-            .params
-            .iter()
-            .map(|param| {
-                self.visit_type(ctx, param.ty).map(|ty| SCField {
-                    name: param.name,
-                    ty,
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let return_ty = self.visit_type(ctx, fun.return_ty)?;
-
-        let sig = Signature {
-            name: fun.name,
-            params,
-            return_ty,
-            variadic: fun.variadic,
-        };
-
-        self.protos.insert(fun_id, sig);
-
-        assert!(old_def_len == ctx.get_last_scope_mut().definitions.len());
-
-        for _ in bindings {
-            ctx.pop_def();
-        }
-
-        Ok(fun_id)
-    }
-
     pub fn create_type_pro(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
@@ -1201,62 +1129,70 @@ impl<'ctx> TirCtx {
         }
 
         if check_impls {
-            if self.impl_checked.insert(res) {
-                self.impl_methods.insert(res, Vec::new());
-                for id in self.impls.clone() {
-                    let impl_block = id.get_block(ctx).clone();
-                    let impl_trait = match impl_block.kind {
-                        ImplKind::WithTrait { impl_trait, .. } => {
-                            let trait_id = match impl_trait.get_def(ctx) {
-                                Definition::Trait(id) => *id,
-                                _ => unreachable!(),
-                            };
-                            Some(trait_id)
-                        }
-                        ImplKind::NoTrait => None,
-                    };
-
-                    if let Some(id) = impl_trait
-                        && self.ty_implements[&res].contains(&id)
-                    {
-                        continue;
-                    }
-                    let bindings = res.matches_expr(
-                        self,
-                        ctx,
-                        impl_block.for_ty,
-                        impl_block.templates.clone(),
-                    );
-
-                    if let Some(bindings) = bindings {
-                        let tys = self.apply_impl_to_type(ctx, res, bindings, id)?;
-
-                        // Todo: check if contract is fulfilled (the trait is actually implemented)
-                        if let Some(tra) = impl_trait {
-                            self.ty_implements.get_mut(&res).unwrap().insert(tra);
-                            self.trait_specific_types
-                                .get_mut(&tra)
-                                .unwrap()
-                                .insert(res, tys);
-                        }
-                    }
-                }
-            }
-            if let Some(mut d) = DroppableImpler::new(ctx, res) {
-                if d.is_droppable(self, ctx) {
-                    d.concretize_droppable(self, ctx)?;
-                    self.droppable_impls.push(d.clone());
-                }
-            }
-
-            if let Some(nd) = NoDropImpler::new(ctx) {
-                if nd.is_no_drop(self, ctx, res) {
-                    nd.implement_no_drop(self, ctx, res)?;
-                }
-            }
+            self.update_impls(ctx, res)?;
         }
 
         Ok(res)
+    }
+
+    pub fn update_impls(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> Result<(), TcError> {
+        if self.impl_checked.insert(ty) {
+            self.impl_methods.insert(ty, Vec::new());
+            for id in self.impls.clone() {
+                let impl_block = id.get_block(ctx).clone();
+                let impl_trait = match impl_block.kind {
+                    ImplKind::WithTrait { impl_trait, .. } => {
+                        let trait_id = match impl_trait.get_def(ctx) {
+                            Definition::Trait(id) => *id,
+                            _ => unreachable!(),
+                        };
+                        Some(trait_id)
+                    }
+                    ImplKind::NoTrait => None,
+                };
+
+                if let Some(id) = impl_trait
+                    && self.ty_implements[&ty].contains(&id)
+                {
+                    continue;
+                }
+                let bindings =
+                    ty.matches_expr(self, ctx, impl_block.for_ty, impl_block.templates.clone());
+
+                if let Some(bindings) = bindings {
+                    let tys = self.apply_impl_to_type(ctx, ty, bindings, id)?;
+
+                    // Todo: check if contract is fulfilled (the trait is actually implemented)
+                    if let Some(tra) = impl_trait {
+                        self.ty_implements.get_mut(&ty).unwrap().insert(tra);
+                        self.trait_specific_types
+                            .get_mut(&tra)
+                            .unwrap()
+                            .insert(ty, tys);
+                    }
+                }
+            }
+        }
+        {
+            let droppable = self.require_trait(ctx, "Droppable".to_string())?;
+            let no_drop = self.require_trait(ctx, "NoDrop".to_string())?;
+
+            if !self.ty_implements[&ty].contains(&droppable)
+                && !self.ty_implements[&ty].contains(&no_drop)
+            {
+                if let Some(mut d) = DroppableImpler::new(ctx, ty) {
+                    if d.is_droppable(self, ctx) {
+                        d.concretize_droppable(self, ctx)?;
+                        self.droppable_impls.push(d.clone());
+                    } else if let Some(nd) = NoDropImpler::new(ctx) {
+                        if nd.is_no_drop(self, ctx, ty) {
+                            nd.implement_no_drop(self, ctx, ty)?;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn create_type(
@@ -1267,78 +1203,101 @@ impl<'ctx> TirCtx {
         self.create_type_pro(ctx, ty.clone(), self.check_impls)
     }
 
-    pub fn concretize_constructor(
+    fn concretize_method_internal(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
-        input: &NirMethod,
+        mode: MethodConcretizationMode,
     ) -> Result<FunId, TcError> {
-        let current_class = self.class_stack.last().unwrap();
-        let self_ty = self.create_type(ctx, ConcreteType::SpecializedClass(*current_class))?;
-        let self_ptr_ty = self.create_type(ctx, ConcreteType::Ptr(self_ty))?;
+        // Handle bindings setup for impl case
+        let (old_def_len, cleanup_bindings) = match &mode {
+            MethodConcretizationMode::MethodForImpl { bindings, .. } => {
+                for arg in bindings.iter() {
+                    let te = ctx.ctx.interner.insert_type_expr(TypeExpr::Concrete(arg.1));
+                    let def_id = ctx.ctx.interner.insert_def(Definition::Type(te));
+                    ctx.push_def(arg.0, def_id);
+                }
+                (Some(ctx.get_last_scope_mut().definitions.len()), true)
+            }
+            _ => (None, false),
+        };
 
-        let self_symbol = ctx.ctx.interner.insert_symbol(&"self".to_string());
+        // Get the input method AST
+        let input = match &mode {
+            MethodConcretizationMode::MethodForImpl { item_id, .. } => {
+                match ctx.ctx.interner.get_item(*item_id) {
+                    NirItem::Method(ast) => ast.clone(),
+                    _ => unreachable!(),
+                }
+            }
+            _ => {
+                // For Method and Constructor, the input is passed separately
+                // This is a conceptual issue - we'd need to refactor the signature
+                // See alternative approach below
+                unreachable!("Input should be passed as parameter")
+            }
+        };
 
-        let ty = ctx
-            .ctx
-            .interner
-            .insert_type_expr(TypeExpr::Concrete(self_ptr_ty));
+        // Determine self_ty based on mode
+        let self_ty = match &mode {
+            MethodConcretizationMode::MethodForImpl { self_ty, .. } => *self_ty,
+            MethodConcretizationMode::Method | MethodConcretizationMode::Constructor => {
+                let current_class = self.class_stack.last().unwrap();
+                self.create_type(ctx, ConcreteType::SpecializedClass(*current_class))?
+            }
+        };
 
-        let mut params = vec![TcParam {
-            name: self_symbol,
-            ty: ty,
-        }];
+        // Common logic: create self pointer type and parameter
+        let (params, return_ty) = self.build_function_params_and_return(
+            ctx,
+            &input,
+            self_ty,
+            matches!(mode, MethodConcretizationMode::Constructor),
+        )?;
 
-        input.args.iter().try_for_each(|arg| {
-            ctx.visit_type(&arg.ty)
-                .map(|ty| params.push(TcParam { name: arg.name, ty }))
-        })?;
-
-        let return_ty = ctx
-            .ctx
-            .interner
-            .insert_type_expr(TypeExpr::Primitive(PrimitiveTy::Void));
-
+        // Create the function prototype
         let fun_id = ctx.ctx.interner.insert_fun(TcFunProto {
             name: input.name,
             params,
             return_ty,
             variadic: false,
         });
-        let return_ty = self.visit_type(ctx, return_ty)?;
-        let fun = ctx.ctx.interner.get_fun(fun_id).clone();
 
-        let params = fun
-            .params
-            .iter()
-            .map(|param| {
-                self.visit_type(ctx, param.ty).map(|ty| SCField {
-                    name: param.name,
-                    ty,
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let sig = Signature {
-            name: fun.name,
-            params,
-            return_ty,
-            variadic: fun.variadic,
-        };
+        // Insert into methods map (not done for constructors in original code)
+        if !matches!(mode, MethodConcretizationMode::Constructor) {
+            self.methods
+                .get_mut(&self_ty)
+                .unwrap()
+                .insert(input.name, fun_id);
+        }
 
-        self.protos.insert(fun_id, sig);
+        // Create and insert signature
+        self.create_and_insert_signature(ctx, fun_id)?;
+
+        // Cleanup bindings for impl case
+        if cleanup_bindings {
+            if let Some(old_len) = old_def_len {
+                assert!(old_len == ctx.get_last_scope_mut().definitions.len());
+            }
+            if let MethodConcretizationMode::MethodForImpl { bindings, .. } = &mode {
+                for _ in bindings.iter() {
+                    ctx.pop_def();
+                }
+            }
+        }
+
         Ok(fun_id)
     }
 
-    pub fn concretize_method(
+    // Helper to build function parameters and return type
+    fn build_function_params_and_return(
         &mut self,
         ctx: &mut TyCtx<'ctx>,
         input: &NirMethod,
-    ) -> Result<FunId, TcError> {
-        let current_class = self.class_stack.last().unwrap();
-        let self_ty = self.create_type(ctx, ConcreteType::SpecializedClass(*current_class))?;
+        self_ty: TyId,
+        force_void_return: bool,
+    ) -> Result<(Vec<TcParam>, TypeExprId), TcError> {
         let self_ptr_ty = self.create_type(ctx, ConcreteType::Ptr(self_ty))?;
-
         let self_symbol = ctx.ctx.interner.insert_symbol(&"self".to_string());
-
         let ty = ctx
             .ctx
             .interner
@@ -1346,7 +1305,7 @@ impl<'ctx> TirCtx {
 
         let mut params = vec![TcParam {
             name: self_symbol,
-            ty: ty,
+            ty,
         }];
 
         input.args.iter().try_for_each(|arg| {
@@ -1354,25 +1313,29 @@ impl<'ctx> TirCtx {
                 .map(|ty| params.push(TcParam { name: arg.name, ty }))
         })?;
 
-        let return_ty = match &input.return_ty {
-            Some(ty) => ctx.visit_type(ty),
-            None => Ok(ctx
-                .ctx
+        let return_ty = if force_void_return {
+            ctx.ctx
                 .interner
-                .insert_type_expr(TypeExpr::Primitive(PrimitiveTy::Void))),
-        }?;
+                .insert_type_expr(TypeExpr::Primitive(PrimitiveTy::Void))
+        } else {
+            match &input.return_ty {
+                Some(ty) => ctx.visit_type(ty)?,
+                None => ctx
+                    .ctx
+                    .interner
+                    .insert_type_expr(TypeExpr::Primitive(PrimitiveTy::Void)),
+            }
+        };
 
-        let fun_id = ctx.ctx.interner.insert_fun(TcFunProto {
-            name: input.name,
-            params,
-            return_ty,
-            variadic: false,
-        });
+        Ok((params, return_ty))
+    }
 
-        self.methods
-            .get_mut(&self_ty)
-            .unwrap()
-            .insert(input.name, fun_id);
+    // Helper to create and insert signature for a function
+    fn create_and_insert_signature(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        fun_id: FunId,
+    ) -> Result<(), TcError> {
         let fun = ctx.ctx.interner.get_fun(fun_id).clone();
 
         let params = fun
@@ -1385,6 +1348,7 @@ impl<'ctx> TirCtx {
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
+
         let return_ty = self.visit_type(ctx, fun.return_ty)?;
 
         let sig = Signature {
@@ -1395,6 +1359,127 @@ impl<'ctx> TirCtx {
         };
 
         self.protos.insert(fun_id, sig);
+        Ok(())
+    }
+
+    // Public API methods (simplified versions)
+
+    pub fn concretize_method(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        input: &NirMethod,
+    ) -> Result<FunId, TcError> {
+        // Since we need the input, we can't use the internal method directly
+        // without changing the signature. Here's a better approach:
+        self.concretize_method_with_mode(ctx, input, MethodConcretizationMode::Method)
+    }
+
+    pub fn concretize_constructor(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        input: &NirMethod,
+    ) -> Result<FunId, TcError> {
+        self.concretize_method_with_mode(ctx, input, MethodConcretizationMode::Constructor)
+    }
+
+    pub fn concretize_method_for_impl(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        self_ty: TyId,
+        bindings: &Vec<(Symbol, TyId)>,
+        id: ItemId,
+    ) -> Result<FunId, TcError> {
+        // First, get the input
+        let input = match ctx.ctx.interner.get_item(id) {
+            NirItem::Method(ast) => ast.clone(),
+            _ => unreachable!(),
+        };
+
+        self.concretize_method_for_impl_with_input(ctx, &input, self_ty, bindings)
+    }
+
+    fn concretize_method_for_impl_with_input(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        input: &NirMethod,
+        self_ty: TyId,
+        bindings: &Vec<(Symbol, TyId)>,
+    ) -> Result<FunId, TcError> {
+        // Push bindings
+        for arg in bindings {
+            let te = ctx.ctx.interner.insert_type_expr(TypeExpr::Concrete(arg.1));
+            let def_id = ctx.ctx.interner.insert_def(Definition::Type(te));
+            ctx.push_def(arg.0, def_id);
+        }
+
+        let old_def_len = ctx.get_last_scope_mut().definitions.len();
+
+        // Build params and return type
+        let (params, return_ty) =
+            self.build_function_params_and_return(ctx, input, self_ty, false)?;
+
+        // Create function
+        let fun_id = ctx.ctx.interner.insert_fun(TcFunProto {
+            name: input.name,
+            params,
+            return_ty,
+            variadic: false,
+        });
+
+        // Insert into methods map
+        self.methods
+            .get_mut(&self_ty)
+            .unwrap()
+            .insert(input.name, fun_id);
+
+        // Create and insert signature
+        self.create_and_insert_signature(ctx, fun_id)?;
+
+        // Verify and cleanup bindings
+        assert!(old_def_len == ctx.get_last_scope_mut().definitions.len());
+        for _ in bindings {
+            ctx.pop_def();
+        }
+
+        Ok(fun_id)
+    }
+
+    fn concretize_method_with_mode(
+        &mut self,
+        ctx: &mut TyCtx<'ctx>,
+        input: &NirMethod,
+        mode: MethodConcretizationMode,
+    ) -> Result<FunId, TcError> {
+        // Determine self_ty
+        let self_ty = {
+            let current_class = self.class_stack.last().unwrap();
+            self.create_type(ctx, ConcreteType::SpecializedClass(*current_class))?
+        };
+
+        // Build params and return type
+        let is_constructor = matches!(mode, MethodConcretizationMode::Constructor);
+        let (params, return_ty) =
+            self.build_function_params_and_return(ctx, input, self_ty, is_constructor)?;
+
+        // Create function
+        let fun_id = ctx.ctx.interner.insert_fun(TcFunProto {
+            name: input.name,
+            params,
+            return_ty,
+            variadic: false,
+        });
+
+        // Insert into methods map (only for regular methods)
+        if !is_constructor {
+            self.methods
+                .get_mut(&self_ty)
+                .unwrap()
+                .insert(input.name, fun_id);
+        }
+
+        // Create and insert signature
+        self.create_and_insert_signature(ctx, fun_id)?;
+
         Ok(fun_id)
     }
 
@@ -1597,31 +1682,36 @@ impl<'ctx> TirCtx {
         })
     }
 
-    pub fn check_drops(&mut self, ctx: &mut TyCtx<'ctx>) -> Result<(), TcError> {
+    pub fn check_ortho_drop(&mut self, ctx: &mut TyCtx<'ctx>, ty: TyId) -> Result<(), TcError> {
         let droppable = self.require_trait(ctx, "Droppable".to_string())?;
         let no_drop = self.require_trait(ctx, "NoDrop".to_string())?;
+        if ty.as_sc(ctx).is_none() {
+            return Ok(());
+        }
+        let mut count = 0;
+        if TypeChecker::type_impl_trait(self, ctx, droppable, ty).is_ok() {
+            count += 1;
+        }
+        if TypeChecker::type_impl_trait(self, ctx, no_drop, ty).is_ok() {
+            count += 1;
+        }
+        if count == 0 {
+            eprintln!(
+                "[WARNING]: Non-trivially no-drop type `{}` does not implement Droppable or NoDrop interface.",
+                ty.to_string(ctx)
+            )
+        } else if count == 2 {
+            return Err(TcError::Text(format!(
+                "Type `{}` implements both Droppable and NoDrop interfaces.",
+                ty.to_string(ctx)
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn check_drops(&mut self, ctx: &mut TyCtx<'ctx>) -> Result<(), TcError> {
         for ty in ctx.ctx.interner.conc_type.iter().collect::<Vec<_>>() {
-            if ty.as_sc(ctx).is_none() {
-                continue;
-            }
-            let mut count = 0;
-            if TypeChecker::type_impl_trait(self, ctx, droppable, ty).is_ok() {
-                count += 1;
-            }
-            if TypeChecker::type_impl_trait(self, ctx, no_drop, ty).is_ok() {
-                count += 1;
-            }
-            if count == 0 {
-                eprintln!(
-                    "[WARNING]: Non-trivially no-drop type `{}` does not implement Droppable or NoDrop interface.",
-                    ty.to_string(ctx)
-                )
-            } else if count == 2 {
-                return Err(TcError::Text(format!(
-                    "Type `{}` implements both Droppable and NoDrop interfaces.",
-                    ty.to_string(ctx)
-                )));
-            }
+            self.check_ortho_drop(ctx, ty)?;
         }
         Ok(())
     }
@@ -1654,6 +1744,32 @@ impl<'ctx> Pass<'ctx, SurfaceResolutionPassOutput<'ctx>> for TirCtx {
 
         self.check_impls = true;
 
+        let untemplated_classes = ctx
+            .ctx
+            .interner
+            .class
+            .iter()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .filter(|x| ctx.ctx.interner.get_class(*x).templates.is_empty())
+            .collect::<Vec<_>>();
+        for c in untemplated_classes {
+            let def = ctx
+                .ctx
+                .interner
+                .def
+                .iter()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .find(|def| match def.get_def(ctx) {
+                    Definition::Class(id) if *id == c => true,
+                    _ => false,
+                })
+                .unwrap();
+            let unused_ty = self.instantiate(ctx, def, &vec![])?;
+            self.update_impls(ctx, unused_ty)?;
+        }
+
         ctx.ctx
             .interner
             .conc_type
@@ -1674,6 +1790,14 @@ impl<'ctx> Pass<'ctx, SurfaceResolutionPassOutput<'ctx>> for TirCtx {
         }
 
         self.check_drops(ctx)?;
+
+        for ty in ctx.ctx.interner.conc_type.iter() {
+            println!(
+                "{} -> {}",
+                ty.to_string(ctx),
+                NameMangler::mangle_type_name(ctx, ty),
+            );
+        }
 
         Ok(())
     }

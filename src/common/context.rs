@@ -1,9 +1,6 @@
 use std::{collections::HashSet, path::Path, process::Command, rc::Rc};
 
-use inkwell::{
-    OptimizationLevel,
-    targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target},
-};
+use inkwell::targets::{FileType, InitializationConfig, Target};
 
 use crate::{
     common::{
@@ -117,19 +114,7 @@ impl GlobalContext {
             return Err(CompilerError::TcError(err));
         }
 
-        let target = Target::from_triple(&mono.triple).unwrap();
-
-        let target_machine = target
-            .create_target_machine(
-                &mono.triple,
-                "generic", // CPU
-                "",        // Features
-                OptimizationLevel::Default,
-                RelocMode::PIC, // TODO: might need to detect which is
-                // needed automatically.
-                CodeModel::Default,
-            )
-            .expect("Failed to create target machine");
+        let target_machine = mono.target_machine;
 
         let obj_file = format!("{}.o", self.config.output.display());
 

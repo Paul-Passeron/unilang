@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
 use inkwell::{
-    AddressSpace, IntPredicate,
+    AddressSpace, IntPredicate, OptimizationLevel,
     builder::Builder,
     context::Context,
     module::{Linkage, Module},
-    targets::{TargetMachine, TargetTriple},
+    targets::{CodeModel, RelocMode, Target, TargetMachine, TargetTriple},
     types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType},
     values::{
         AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue,
@@ -15,7 +15,7 @@ use inkwell::{
 
 use crate::{
     common::{
-        global_interner::{FunId, ScopeId, StringLiteral, TirExprId, TyId, VariableId},
+        global_interner::{FunId, ItemId, ScopeId, StringLiteral, TirExprId, TyId, VariableId},
         pass::Pass,
     },
     nir::{
@@ -24,6 +24,7 @@ use crate::{
     },
     ty::{
         PrimitiveTy, TcError, TyCtx,
+        displays::Displayable,
         scope::ScopeKind,
         tir::{ConcreteType, SCField, TirCtx, TirExpr, TirInstr, TypedIntLit},
         type_checker::TypeChecker,
@@ -42,6 +43,8 @@ pub struct MonoIRPass<'a> {
     pub funs: HashMap<FunId, (FunctionValue<'a>, ScopeId)>,
     pub strlits: HashMap<StringLiteral, GlobalValue<'a>>,
     pub visited: HashSet<FunId>,
+    pub target_machine: TargetMachine,
+    pub target: Target,
 }
 
 impl<'ctx, 'a> Pass<'ctx, ()> for MonoIRPass<'a> {
@@ -67,12 +70,29 @@ impl<'ctx, 'a> MonoIRPass<'a> {
         let triple = TargetMachine::get_default_triple();
         let module = ictx.create_module(name);
         let builder = ictx.create_builder();
+
+        let target = Target::from_triple(&triple).unwrap();
+
+        let target_machine = target
+            .create_target_machine(
+                &triple,
+                "generic", // CPU
+                "",        // Features
+                OptimizationLevel::Default,
+                RelocMode::PIC, // TODO: might need to detect which is
+                // needed automatically.
+                CodeModel::Default,
+            )
+            .expect("Failed to create target machine");
+
         Self {
             triple,
             ictx,
             tir_ctx,
             module,
             builder,
+            target,
+            target_machine,
             expressions: HashMap::new(),
             vars: HashMap::new(),
             tys: HashMap::new(),
@@ -83,21 +103,18 @@ impl<'ctx, 'a> MonoIRPass<'a> {
     }
 
     pub fn visit_all_scopes(&mut self, ctx: &mut TyCtx<'ctx>) {
-        fn aux<'ctx>(this: &mut MonoIRPass, ctx: &mut TyCtx<'ctx>) {
-            if let ScopeKind::Function(_, _, _) = &ctx.get_last_scope().kind {
-                this.declare_fundef(ctx);
-            }
-
-            for child in &ctx.get_last_scope().children.clone() {
-                ctx.with_scope_id(*child, |ctx| {
-                    aux(this, ctx);
-                })
+        for fun_id in ctx.ctx.interner.fun.iter().collect::<Vec<_>>() {
+            if let Some(scope) = ctx.ctx.interner.contains_scopekind(&ScopeKind::Function(
+                fun_id,
+                ItemId::new(0),
+                vec![],
+            )) {
+                ctx.current_scope = scope;
+                self.declare_fundef(ctx);
+            } else {
+                println!("No scope found for {}", fun_id.get_fun(ctx).to_string(ctx))
             }
         }
-
-        ctx.with_scope_id(ScopeId::new(0), |ctx| {
-            aux(self, ctx);
-        });
 
         let keys = self.funs.keys().cloned().collect::<Vec<_>>();
 
@@ -365,12 +382,39 @@ impl<'ctx, 'a> MonoIRPass<'a> {
 
                 let int_ty = BasicTypeEnum::try_from(ty).unwrap().into_int_type();
 
-                let int_expr = BasicValueEnum::try_from(self.expressions[&expr_id])
-                    .unwrap()
-                    .into_int_value();
+                let int_expr = BasicValueEnum::try_from(self.expressions[&expr_id]).unwrap();
+                let expr = if int_expr.is_pointer_value() {
+                    if int_ty == self.ictx.bool_type() {
+                        let int_ptr = self
+                            .builder
+                            .build_ptr_to_int(
+                                int_expr.into_pointer_value(),
+                                self.ictx.ptr_sized_int_type(
+                                    &self.target_machine.get_target_data(),
+                                    None,
+                                ),
+                                "",
+                            )
+                            .unwrap();
+                        self.builder
+                            .build_int_compare(
+                                IntPredicate::NE,
+                                int_ptr,
+                                int_ptr.get_type().const_zero(),
+                                "",
+                            )
+                            .unwrap()
+                    } else {
+                        self.builder
+                            .build_ptr_to_int(int_expr.into_pointer_value(), int_ty, "")
+                            .unwrap()
+                    }
+                } else {
+                    int_expr.into_int_value()
+                };
 
                 self.builder
-                    .build_int_cast(int_expr, int_ty, "")
+                    .build_int_cast(expr, int_ty, "")
                     .unwrap()
                     .as_any_value_enum()
             }
@@ -527,6 +571,7 @@ impl<'ctx, 'a> MonoIRPass<'a> {
                 }
             }
             TirExpr::Funcall(fun_id, args) => {
+                println!("fun_id = {}", fun_id.get_fun(ctx).to_string(ctx));
                 let (val, _) = self.funs[&fun_id].clone();
                 let args_expr = args
                     .clone()
